@@ -3,7 +3,7 @@ import asyncio
 from event import event_emitter
 from runner import run_worker
 
-from asyncqueue.backends.memory import InMemoryBackend
+from asyncmq.backends.memory import InMemoryBackend
 
 # 👇 Repeatable jobs config
 REPEATABLE_JOBS = [

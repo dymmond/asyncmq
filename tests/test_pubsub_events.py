@@ -1,6 +1,6 @@
 import pytest
 
-from asyncqueue.event import EventEmitter
+from asyncmq.event import EventEmitter
 
 
 @pytest.mark.asyncio

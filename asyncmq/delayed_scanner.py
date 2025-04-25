@@ -1,6 +1,6 @@
 import asyncio
 
-from asyncqueue.job import Job
+from asyncmq.job import Job
 
 
 async def delayed_job_scanner(queue_name: str, backend, interval: float = 2.0):

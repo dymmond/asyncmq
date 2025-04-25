@@ -4,8 +4,8 @@ from typing import Optional
 
 import redis.asyncio as redis
 
-from asyncqueue.backends.base import BaseBackend
-from asyncqueue.stores.redis_store import RedisJobStore
+from asyncmq.backends.base import BaseBackend
+from asyncmq.stores.redis_store import RedisJobStore
 
 
 class RedisBackend(BaseBackend):
@@ -30,7 +30,6 @@ class RedisBackend(BaseBackend):
         raw = await self.redis.rpop(self._queue_key(queue_name))
         if raw:
             payload = json.loads(raw)
-            await self.job_store.save(queue_name, payload["id"], payload)
             return payload
         return None
 

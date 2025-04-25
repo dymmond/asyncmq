@@ -1,7 +1,7 @@
 import time
 from typing import Any, Callable
 
-from asyncqueue.job import Job
+from asyncmq.job import Job
 
 TASK_REGISTRY = {}
 

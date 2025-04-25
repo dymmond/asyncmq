@@ -3,8 +3,8 @@ import time
 
 import pytest
 
-from asyncqueue.backends.memory import InMemoryBackend
-from asyncqueue.job import Job
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.job import Job
 
 
 @pytest.mark.asyncio(loop_scope="session")

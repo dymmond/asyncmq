@@ -1,10 +1,10 @@
 import asyncio
 import pytest
-from asyncqueue.backends.memory import InMemoryBackend
-from asyncqueue.runner import run_worker
-from asyncqueue.task import task
-from asyncqueue.job import Job
-from asyncqueue.task import TASK_REGISTRY
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.runner import run_worker
+from asyncmq.task import task
+from asyncmq.job import Job
+from asyncmq.task import TASK_REGISTRY
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():

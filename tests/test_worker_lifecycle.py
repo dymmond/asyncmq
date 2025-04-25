@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from asyncqueue.backends.memory import InMemoryBackend
-from asyncqueue.task import task
-from asyncqueue.worker import handle_job
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.task import task
+from asyncmq.worker import handle_job
 
 
 async def wait_for_state(backend, queue, job_id, target, timeout=3):

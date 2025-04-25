@@ -3,7 +3,7 @@ from typing import List, Optional
 
 import redis.asyncio as redis
 
-from asyncqueue.stores.base import BaseJobStore
+from asyncmq.stores.base import BaseJobStore
 
 
 class RedisJobStore(BaseJobStore):

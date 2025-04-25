@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
-from asyncqueue.backends.memory import InMemoryBackend
-from asyncqueue.scheduler import repeatable_scheduler
-from asyncqueue.task import TASK_REGISTRY, task
-from asyncqueue.worker import handle_job
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.scheduler import repeatable_scheduler
+from asyncmq.task import TASK_REGISTRY, task
+from asyncmq.worker import handle_job
 
 
 def get_task_id(func):

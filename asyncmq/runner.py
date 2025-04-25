@@ -1,8 +1,8 @@
 import asyncio
 
-from asyncqueue.worker import process_job
-from asyncqueue.delayed_scanner import delayed_job_scanner
-from asyncqueue.rate_limiter import RateLimiter
+from asyncmq.worker import process_job
+from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.rate_limiter import RateLimiter
 
 async def run_worker(
     queue_name: str,
@@ -58,7 +58,7 @@ async def run_worker(
 
     # Optionally add the repeatable scheduler
     if repeatables:
-        from asyncqueue.scheduler import repeatable_scheduler
+        from asyncmq.scheduler import repeatable_scheduler
         tasks.append(repeatable_scheduler(backend, queue_name, repeatables))
 
     # Run until cancelled
