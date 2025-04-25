@@ -1,28 +1,65 @@
 import asyncio
 
+from asyncqueue.worker import process_job
 from asyncqueue.delayed_scanner import delayed_job_scanner
 from asyncqueue.rate_limiter import RateLimiter
-from asyncqueue.scheduler import repeatable_scheduler
-from asyncqueue.worker import process_job
 
+async def run_worker(
+    queue_name: str,
+    backend,
+    concurrency: int = 3,
+    rate_limit: int = None,
+    rate_interval: float = 1.0,
+    repeatables: list = None
+):
+    """
+    Launches a worker for processing jobs with optional rate limiting and repeatable tasks.
 
-async def run_worker(queue_name: str, backend, concurrency: int = 3, rate_limit: int = None, rate_interval: float = 1.0, repeatables: list = None):
+    :param queue_name: Name of the queue to consume jobs from.
+    :param backend: The backend instance implementing the queue interface.
+    :param concurrency: Maximum number of concurrent job executions.
+    :param rate_limit: Number of jobs allowed per rate_interval; if None or 0, rate limiting is disabled.
+    :param rate_interval: Time window in seconds for rate limiting.
+    :param repeatables: List of repeatable job definitions to schedule periodically.
+    """
+    # Semaphore to limit concurrent job executions
     semaphore = asyncio.Semaphore(concurrency)
-    rate_limiter = RateLimiter(rate_limit, rate_interval) if rate_limit else None
 
+            # Initialize rate limiter if requested
+    rate_limiter = None
+    if rate_limit == 0:
+        # block all jobs when rate_limit is zero
+        class _BlockAll:
+            async def acquire(self):
+                # never resolves, so jobs stay waiting
+                await asyncio.Future()
+        rate_limiter = _BlockAll()
+    elif rate_limit is not None:
+        rate_limiter = RateLimiter(rate_limit, rate_interval)
+    rate_limiter = None
+    if rate_limit == 0:
+        # Block all jobs when rate_limit is zero
+        class _BlockAll:
+            async def acquire(self):
+                # never resolves, so jobs stay waiting
+                await asyncio.Future()
+        rate_limiter = _BlockAll()
+    elif rate_limit is not None:
+        rate_limiter = RateLimiter(rate_limit, rate_interval)
+    rate_limiter = None
+    if rate_limit is not None:
+        rate_limiter = RateLimiter(rate_limit, rate_interval)
+
+    # Build the core tasks
     tasks = [
         process_job(queue_name, backend, semaphore, rate_limiter=rate_limiter),
         delayed_job_scanner(queue_name, backend)
     ]
 
+    # Optionally add the repeatable scheduler
     if repeatables:
+        from asyncqueue.scheduler import repeatable_scheduler
         tasks.append(repeatable_scheduler(backend, queue_name, repeatables))
 
+    # Run until cancelled
     await asyncio.gather(*tasks)
-if __name__ == "__main__":
-    import asyncio
-
-    from asyncqueue.backends.memory import InMemoryBackend
-
-    backend = InMemoryBackend()
-    asyncio.run(run_worker("emails", backend))
