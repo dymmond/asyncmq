@@ -17,7 +17,8 @@ class Job:
         job_id: str | None = None,
         created_at: float | None = None,
         priority: int = 5,
-        repeat_every: int | float | None = None  # seconds
+        repeat_every: int | float | None = None,
+        depends_on: list[Any] | None = None,
     ):
         self.id = job_id or str(uuid.uuid4())
         self.task_id = task_id
@@ -33,7 +34,7 @@ class Job:
         self.result = None
         self.delay_until = None
         self.priority = priority
-        self.depends_on = []
+        self.depends_on = depends_on if depends_on else[]
         self.repeat_every = repeat_every  # seconds
 
     def to_dict(self) -> Dict[str, Any]:

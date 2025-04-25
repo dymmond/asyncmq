@@ -2,7 +2,7 @@ import json
 import time
 from typing import Optional
 
-import aioredis
+import redis.asyncio as redis
 
 from asyncqueue.backends.base import BaseBackend
 from asyncqueue.stores.redis_store import RedisJobStore
@@ -10,7 +10,7 @@ from asyncqueue.stores.redis_store import RedisJobStore
 
 class RedisBackend(BaseBackend):
     def __init__(self, redis_url: str = "redis://localhost"):
-        self.redis = aioredis.from_url(redis_url, decode_responses=True)
+        self.redis = redis.from_url(redis_url, decode_responses=True)
         self.job_store = RedisJobStore(redis_url)
 
     def _queue_key(self, name: str) -> str:
