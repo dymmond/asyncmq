@@ -1,0 +1,73 @@
+site_name: AsyncQueue
+site_description: The broker you needed for your tasks.
+site_url: https://asyncqueue.dymmond.com
+
+theme:
+  name: "material"
+  custom_dir: docs/overrides
+  language: en
+  palette:
+    - scheme: "default"
+      primary: "purple"
+      accent: "amber"
+      media: "(prefers-color-scheme: light)"
+      toggle:
+            icon: "material/lightbulb"
+            name: "Switch to dark mode"
+    - scheme: "slate"
+      media: "(prefers-color-scheme: dark)"
+      primary: "purple"
+      accent: "amber"
+      toggle:
+            icon: "material/lightbulb-outline"
+            name: "Switch to light mode"
+  favicon: statics/images/favicon.ico
+  logo: statics/images/logo-white.svg
+  features:
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+
+repo_name: dymmond/asyncqueue
+repo_url: https://github.com/dymmond/asyncqueue
+edit_uri: ""
+plugins:
+  - search
+  - meta-descriptions:
+      export_csv: false
+      quiet: false
+      enable_checks: false
+      min_length: 50
+      max_length: 160
+      trim: false
+  - markdownextradata:
+      data: data
+
+nav:
+  - Introduction: "index.md"
+  - Contributing: "contributing.md"
+  - Sponsorship: "sponsorship.md"
+  - Release Notes: "release-notes.md"
+markdown_extensions:
+  - toc:
+      permalink: true
+  - mdx_include:
+      base_path: docs
+  - admonition
+  - extra
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format ""
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+
+extra:
+  alternate:
+    - link: /
+      name: English
+      lang: en
