@@ -1,13 +1,14 @@
 import json
 from typing import List, Optional
 
-import aioredis
-from store.base import BaseJobStore
+import redis.asyncio as redis
+
+from asyncqueue.stores.base import BaseJobStore
 
 
 class RedisJobStore(BaseJobStore):
     def __init__(self, redis_url: str = "redis://localhost"):
-        self.redis = aioredis.from_url(redis_url, decode_responses=True)
+        self.redis = redis.from_url(redis_url, decode_responses=True)
 
     def _key(self, queue_name: str, job_id: str) -> str:
         return f"jobs:{queue_name}:{job_id}"
