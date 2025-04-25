@@ -1,11 +1,11 @@
 import asyncio
 import time
 import pytest
-from asyncqueue.backends.memory import InMemoryBackend
-from asyncqueue.delayed_scanner import delayed_job_scanner
-from asyncqueue.job import Job
-from asyncqueue.task import task, TASK_REGISTRY
-from asyncqueue.worker import handle_job
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.job import Job
+from asyncmq.task import task, TASK_REGISTRY
+from asyncmq.worker import handle_job
 
 
 @task(queue="test")

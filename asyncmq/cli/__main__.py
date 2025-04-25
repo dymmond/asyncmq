@@ -2,7 +2,7 @@ import asyncio
 
 import typer
 
-from asyncqueue.backends.redis import RedisBackend
+from asyncmq.backends.redis import RedisBackend
 
 app = typer.Typer()
 

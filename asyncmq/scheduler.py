@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from asyncqueue.job import Job
+from asyncmq.job import Job
 
 _last_run: dict[str, float] = {}
 

@@ -1,7 +1,7 @@
 # tests/test_job_model.py
 import time
 
-from asyncqueue.job import Job
+from asyncmq.job import Job
 
 
 def test_job_creation_defaults():

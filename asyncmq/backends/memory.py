@@ -2,7 +2,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from asyncqueue.backends.base import BaseBackend
+from asyncmq.backends.base import BaseBackend
 
 
 class InMemoryBackend(BaseBackend):

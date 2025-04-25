@@ -1,9 +1,9 @@
 import asyncio
 import traceback
 
-from asyncqueue.event import event_emitter
-from asyncqueue.job import Job
-from asyncqueue.task import TASK_REGISTRY
+from asyncmq.event import event_emitter
+from asyncmq.job import Job
+from asyncmq.task import TASK_REGISTRY
 
 
 async def process_job(queue_name: str, backend, semaphore: asyncio.Semaphore, rate_limiter=None):

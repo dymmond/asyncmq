@@ -1,6 +1,6 @@
 import pytest
 
-from asyncqueue.task import TASK_REGISTRY, task
+from asyncmq.task import TASK_REGISTRY, task
 
 
 @task(queue="default")

@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from asyncqueue.backends.redis import RedisBackend
-from asyncqueue.job import Job
+from asyncmq.backends.redis import RedisBackend
+from asyncmq.job import Job
 
 
 @pytest.mark.asyncio
