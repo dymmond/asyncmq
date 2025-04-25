@@ -1,7 +1,6 @@
 import asyncio
 
-from delayed_scanner import delayed_job_scanner
-
+from asyncqueue.delayed_scanner import delayed_job_scanner
 from asyncqueue.rate_limiter import RateLimiter
 from asyncqueue.scheduler import repeatable_scheduler
 from asyncqueue.worker import process_job
