@@ -1,17 +1,29 @@
-from collections import defaultdict
-from typing import Any, Callable, Dict, List
+import asyncio
 
 
 class EventEmitter:
     def __init__(self):
-        self._handlers: Dict[str, List[Callable[[Any], None]]] = defaultdict(list)
+        self._listeners = {}
 
-    def on(self, event: str, handler: Callable[[Any], None]):
-        self._handlers[event].append(handler)
+    def on(self, event: str, callback):
+        self._listeners.setdefault(event, []).append(callback)
 
-    async def emit(self, event: str, payload: Any):
-        for handler in self._handlers[event]:
-            await handler(payload)
+    def off(self, event: str, callback):
+        if event in self._listeners:
+            self._listeners[event] = [
+                cb for cb in self._listeners[event] if cb != callback
+            ]
+            if not self._listeners[event]:
+                del self._listeners[event]
+
+    async def emit(self, event: str, data):
+        listeners = self._listeners.get(event, [])
+        for cb in listeners:
+            if asyncio.iscoroutinefunction(cb):
+                await cb(data)
+            else:
+                cb(data)
+
 
 # Global event emitter
 event_emitter = EventEmitter()
