@@ -63,6 +63,7 @@ dependencies = [
     "pre-commit>=3.3.1,<4.0.0",
     "devtools>=0.12.2",
     "ipython",
+    "ipdb",
     "ptpython",
     "twine",
 ]
@@ -70,6 +71,7 @@ dependencies = [
 [project.optional-dependencies]
 testing = [
     "redis",
+    "fakeredis",
     "asyncpg",
     "autoflake>=2.0.2,<3.0.0",
     "black==24.1.1,<25.0",
