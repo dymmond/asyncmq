@@ -2,9 +2,11 @@ import asyncio
 import time
 import traceback
 
+from typing import Optional
 from asyncmq.event import event_emitter
-from asyncmq.job import Job
 from asyncmq.task import TASK_REGISTRY
+from asyncmq.job import Job
+from asyncmq.queue import Queue
 
 
 async def process_job(queue_name: str, backend, semaphore: asyncio.Semaphore, rate_limiter=None):
@@ -89,3 +91,36 @@ async def handle_job(queue_name: str, backend, raw_job: dict, rate_limiter=None)
             job.status = 'delayed'
             await backend.update_job_state(queue_name, job.id, 'delayed')
             await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
+
+
+class Worker:
+    """
+    Convenience wrapper to start and stop a worker programmatically.
+    """
+    def __init__(
+        self,
+        queue: Queue,
+    ):
+        self.queue = queue
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._worker_task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        """Run until cancelled or stopped."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._worker_task = self._loop.create_task(self.queue.run())
+        try:
+            self._loop.run_until_complete(self._worker_task)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if self._loop and not self._loop.is_closed():
+                self._loop.close()
+
+    def stop(self) -> None:
+        """Stop the running worker."""
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+        if self._loop and self._loop.is_running():
+            self._loop.stop()
