@@ -2,11 +2,13 @@ import asyncio
 import time
 import traceback
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from asyncmq.event import event_emitter
 from asyncmq.task import TASK_REGISTRY
 from asyncmq.job import Job
-from asyncmq.queue import Queue
+
+if TYPE_CHECKING:
+    from asyncmq.queue import Queue
 
 
 async def process_job(queue_name: str, backend, semaphore: asyncio.Semaphore, rate_limiter=None):
@@ -99,7 +101,7 @@ class Worker:
     """
     def __init__(
         self,
-        queue: Queue,
+        queue: "Queue",
     ):
         self.queue = queue
         self._loop: Optional[asyncio.AbstractEventLoop] = None
