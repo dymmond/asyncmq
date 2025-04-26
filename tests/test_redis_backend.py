@@ -16,19 +16,17 @@ async def test_enqueue_and_dequeue(redis):
     job_payload = job.to_dict() # Capture payload to compare later
 
     await backend.enqueue("test", job_payload)
+    waiting_key = backend._waiting_key("test")
+    zmembers = await redis.zrange(waiting_key, 0, -1)
 
-    list_content_raw = await redis.lrange(backend._queue_key("test"), 0, -1)
-    # Decode and print if content exists
-    if list_content_raw:
-         try:
-             list_content_decoded = [json.loads(item) for item in list_content_raw]
-             print(f"Redis list content after enqueue (decoded): {list_content_decoded}")
-         except json.JSONDecodeError:
-             print("Could not decode list content as JSON.")
-
+    if zmembers:
+        try:
+            decoded = [json.loads(item) for item in zmembers]
+            print(f"Redis waiting‐set content (decoded): {decoded}")
+        except json.JSONDecodeError:
+            print("Could not decode sorted‐set content as JSON.")
 
     result = await backend.dequeue("test")
-    print(f"Dequeued Job ID: {result['id']}")
     assert result["id"] == job.id
 
 @pytest.mark.asyncio

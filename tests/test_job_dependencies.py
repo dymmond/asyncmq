@@ -1,10 +1,12 @@
 import asyncio
+
 import pytest
+
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.runner import run_worker
-from asyncmq.task import task
 from asyncmq.job import Job
-from asyncmq.task import TASK_REGISTRY
+from asyncmq.runner import run_worker
+from asyncmq.task import TASK_REGISTRY, task
+
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
@@ -32,7 +34,10 @@ async def test_job_dependencies():
     # Create jobs in sequence, task_b depends on task_a, task_c depends on task_b
     job_a = Job(task_id=get_task_id(task_a), args=[], kwargs={})
     job_b = Job(task_id=get_task_id(task_b), args=[], kwargs={})
+    job_b.depends_on = [job_a.id]
+
     job_c = Job(task_id=get_task_id(task_c), args=[], kwargs={})
+    job_c.depends_on = [job_b.id]
 
     # Enqueue jobs with dependencies
     await backend.enqueue("runner", job_a.to_dict())

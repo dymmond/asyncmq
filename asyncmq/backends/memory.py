@@ -1,17 +1,22 @@
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from asyncmq.backends.base import BaseBackend
+from asyncmq.event import event_emitter
 
 
 class InMemoryBackend(BaseBackend):
     def __init__(self):
-        self.queues = {} # {queue_name: list of jobs}
-        self.dlqs = {}    # {queue_name: list}
-        self.delayed = {} # {queue_name: list of (run_at, job_dict)}
-        self.job_states = {}  # {(queue_name, job_id): str}
-        self.job_results = {}  # {(queue_name, job_id): Any}
+        self.queues: Dict[str, List[dict]] = {}
+        self.dlqs: Dict[str, List[dict]] = {}
+        self.delayed: Dict[str, List[tuple[float, dict]]] = {}
+        self.job_states: Dict[tuple, str] = {}
+        self.job_results: Dict[tuple, Any] = {}
+        self.job_progress: Dict[tuple, float] = {}
+        self.deps_pending: Dict[tuple, Set[str]] = {}
+        self.deps_children: Dict[tuple, Set[str]] = {}
+        self.paused: Set[str] = set()
         self.lock = asyncio.Lock()
 
     async def enqueue(self, queue_name: str, payload: dict):
@@ -75,3 +80,75 @@ class InMemoryBackend(BaseBackend):
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Optional[Any]:
         return self.job_results.get((queue_name, job_id))
+
+    async def add_dependencies(self, queue_name: str, job_dict: dict):
+        job_id = job_dict['id']
+        pend_key = (queue_name, job_id)
+        deps = set(job_dict.get('depends_on', []))
+        if not deps:
+            return
+        self.deps_pending[pend_key] = deps
+        for parent in deps:
+            child_key = (queue_name, parent)
+            self.deps_children.setdefault(child_key, set()).add(job_id)
+
+    async def resolve_dependency(self, queue_name: str, parent_id: str):
+        child_key = (queue_name, parent_id)
+        children = self.deps_children.get(child_key, set())
+        for child_id in list(children):
+            pend_key = (queue_name, child_id)
+            self.deps_pending[pend_key].discard(parent_id)
+            if not self.deps_pending[pend_key]:
+                # all deps met: enqueue
+                raw = self._fetch_job_data(queue_name, child_id)
+                if raw:
+                    await self.enqueue(queue_name, raw)
+                    await event_emitter.emit('job:ready', {'id': child_id})
+                del self.deps_pending[pend_key]
+        if child_key in self.deps_children:
+            del self.deps_children[child_key]
+
+    async def pause_queue(self, queue_name: str):
+        self.paused.add(queue_name)
+
+    async def resume_queue(self, queue_name: str):
+        self.paused.discard(queue_name)
+
+    async def is_queue_paused(self, queue_name: str) -> bool:
+        return queue_name in self.paused
+
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float):
+        self.job_progress[(queue_name, job_id)] = progress
+
+    async def bulk_enqueue(self, queue_name: str, jobs: List[dict]):
+        async with self.lock:
+            q = self.queues.setdefault(queue_name, [])
+            for job in jobs:
+                q.append(job)
+                self.job_states[(queue_name, job['id'])] = 'waiting'
+
+    async def purge(self, queue_name: str, state: str, older_than: Optional[float] = None):
+        # remove from store and pending lists
+        to_delete = []
+        for (q, jid), st in list(self.job_states.items()):
+            if q == queue_name and st == state:
+                # could check timestamp if tracked
+                to_delete.append((q, jid))
+        for key in to_delete:
+            self.job_states.pop(key, None)
+            self.job_results.pop(key, None)
+            self.job_progress.pop(key, None)
+
+    async def emit_event(self, event: str, data: dict):
+        await event_emitter.emit(event, data)
+
+    async def create_lock(self, key: str, ttl: int):
+        # simple in-memory lock; TTL is not enforced
+        return asyncio.Lock()
+
+    # Helper: retrieve raw job dict if needed
+    def _fetch_job_data(self, queue_name: str, job_id: str) -> Optional[dict]:
+        for job in self.queues.get(queue_name, []):
+            if job.get('id') == job_id:
+                return job
+        return None
