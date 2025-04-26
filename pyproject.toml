@@ -71,7 +71,7 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
-    "fakeredis",
+    "fakeredis[asyncio]",
     "asyncpg",
     "autoflake>=2.0.2,<3.0.0",
     "black==24.1.1,<25.0",

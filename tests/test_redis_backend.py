@@ -1,5 +1,6 @@
 # tests/test_redis_backend.py
 import asyncio
+import json
 import time
 
 import pytest
@@ -12,19 +13,23 @@ from asyncmq.job import Job
 async def test_enqueue_and_dequeue(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.enqueue", args=[], kwargs={})
-    print(f"Original Job ID: {job.id}")
-    await backend.enqueue("test", job.to_dict())
+    job_payload = job.to_dict() # Capture payload to compare later
 
-    # Optional: inspect the list state here if possible with fakeredis
-    # list_content = await redis.lrange(backend._queue_key("test"), 0, -1)
-    # print(f"Redis list content after enqueue: {list_content}")
+    await backend.enqueue("test", job_payload)
+
+    list_content_raw = await redis.lrange(backend._queue_key("test"), 0, -1)
+    # Decode and print if content exists
+    if list_content_raw:
+         try:
+             list_content_decoded = [json.loads(item) for item in list_content_raw]
+             print(f"Redis list content after enqueue (decoded): {list_content_decoded}")
+         except json.JSONDecodeError:
+             print("Could not decode list content as JSON.")
+
 
     result = await backend.dequeue("test")
     print(f"Dequeued Job ID: {result['id']}")
-
     assert result["id"] == job.id
-
-
 
 @pytest.mark.asyncio
 async def test_job_state_tracking(redis):

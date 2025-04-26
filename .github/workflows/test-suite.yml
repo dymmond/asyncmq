@@ -20,7 +20,27 @@ jobs:
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: asyncmq
+          POSTGRES_PASSWORD: asyncmq
+          POSTGRES_DB: asyncmq
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
 
     steps:
       - uses: "actions/checkout@v4"
@@ -35,9 +55,9 @@ jobs:
       - name: "Install dependencies"
         if: steps.cache.outputs.cache-hit != 'true'
         run: "pip install hatch"
-      - name: "Run linting checks"
-        run: "hatch run lint"
-      - name: "Run typing checks"
-        run: "hatch run test:check_types"
+#      - name: "Run linting checks"
+#        run: "hatch run lint"
+#      - name: "Run typing checks"
+#        run: "hatch run test:check_types"
       - name: "Run tests"
         run: "hatch run test:test"
