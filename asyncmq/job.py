@@ -1,8 +1,10 @@
 import time
 import uuid
-from typing import Any, Dict
+import inspect
+from typing import Any, Dict, Optional
 
 JOB_STATES = ("waiting", "active", "completed", "failed", "delayed", "expired")
+
 
 class Job:
     def __init__(
@@ -12,12 +14,12 @@ class Job:
         kwargs: dict,
         retries: int = 0,
         max_retries: int = 3,
-        backoff: float | None = 1.5,
+        backoff: float | Any | None = 1.5,
         ttl: int | None = None,
         job_id: str | None = None,
         created_at: float | None = None,
         priority: int = 5,
-        repeat_every: int | float | None = None,
+        repeat_every: float | int | None = None,
         depends_on: list[Any] | None = None,
     ):
         self.id = job_id or str(uuid.uuid4())
@@ -34,8 +36,66 @@ class Job:
         self.result = None
         self.delay_until = None
         self.priority = priority
-        self.depends_on = depends_on if depends_on else[]
-        self.repeat_every = repeat_every  # seconds
+        self.repeat_every = repeat_every
+        self.depends_on = depends_on or []
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "Job":
+        job = Job(
+            task_id=data["task"],
+            args=data["args"],
+            kwargs=data["kwargs"],
+            retries=data["retries"],
+            max_retries=data.get("max_retries", 3),
+            backoff=data.get("backoff"),
+            ttl=data.get("ttl"),
+            job_id=data["id"],
+            created_at=data.get("created_at"),
+            priority=data.get("priority", 5),
+            repeat_every=data.get("repeat_every"),
+            depends_on=data.get("depends_on", []),
+        )
+        job.status = data.get("status", "waiting")
+        job.result = data.get("result")
+        job.delay_until = data.get("delay_until")
+        job.last_attempt = data.get("last_attempt")
+        return job
+
+    def is_expired(self) -> bool:
+        if self.ttl is None:
+            return False
+        return (time.time() - self.created_at) > self.ttl
+
+    def next_retry_delay(self) -> float:
+        """
+        Compute the next retry delay. Supports:
+         - numeric backoff: backoff ** retries
+         - callable backoff(retries) or backoff()
+        """
+        # No backoff configured
+        if self.backoff is None:
+            return 0.0
+
+        # Simple numeric backoff
+        if isinstance(self.backoff, (int, float)):
+            try:
+                return float(self.backoff) ** self.retries
+            except Exception:
+                return float(self.backoff)
+
+        # Callable backoff: try with (retries,), then without args
+        if callable(self.backoff):
+            try:
+                return float(self.backoff(self.retries))
+            except TypeError:
+                try:
+                    return float(self.backoff())
+                except Exception:
+                    # Could not call, fall back
+                    return 0.0
+
+        # Fallback
+        return 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -56,35 +116,3 @@ class Job:
             "depends_on": self.depends_on,
             "repeat_every": self.repeat_every,
         }
-
-    @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "Job":
-        job = Job(
-            task_id=data["task"],
-            args=data["args"],
-            kwargs=data["kwargs"],
-            retries=data["retries"],
-            max_retries=data.get("max_retries", 3),
-            backoff=data.get("backoff"),
-            ttl=data.get("ttl"),
-            job_id=data["id"],
-            created_at=data.get("created_at"),
-            priority=data.get("priority", 5)
-        )
-        job.status = data.get("status", "waiting")
-        job.result = data.get("result")
-        job.delay_until = data.get("delay_until")
-        job.last_attempt = data.get("last_attempt")
-        job.depends_on = data.get("depends_on", [])
-        job.repeat_every = data.get("repeat_every")
-        return job
-
-    def is_expired(self) -> bool:
-        if self.ttl is None:
-            return False
-        return (time.time() - self.created_at) > self.ttl
-
-    def next_retry_delay(self) -> float:
-        if self.backoff:
-            return self.backoff ** self.retries
-        return 0
