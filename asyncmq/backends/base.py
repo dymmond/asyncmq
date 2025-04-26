@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 
 class BaseBackend(ABC):
+    # Core queue operations
     @abstractmethod
     async def enqueue(self, queue_name: str, payload: dict): ...
 
@@ -19,7 +20,7 @@ class BaseBackend(ABC):
     async def enqueue_delayed(self, queue_name: str, payload: dict, run_at: float): ...
 
     @abstractmethod
-    async def get_due_delayed(self, queue_name: str) -> list[dict]: ...
+    async def get_due_delayed(self, queue_name: str) -> List[dict]: ...
 
     @abstractmethod
     async def remove_delayed(self, queue_name: str, job_id: str): ...
@@ -35,3 +36,34 @@ class BaseBackend(ABC):
 
     @abstractmethod
     async def get_job_result(self, queue_name: str, job_id: str) -> Optional[Any]: ...
+
+    # Advanced, backend-agnostic features
+    @abstractmethod
+    async def add_dependencies(self, queue_name: str, job_dict: dict): ...
+
+    @abstractmethod
+    async def resolve_dependency(self, queue_name: str, parent_id: str): ...
+
+    @abstractmethod
+    async def pause_queue(self, queue_name: str): ...
+
+    @abstractmethod
+    async def resume_queue(self, queue_name: str): ...
+
+    @abstractmethod
+    async def is_queue_paused(self, queue_name: str) -> bool: ...
+
+    @abstractmethod
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float): ...
+
+    @abstractmethod
+    async def bulk_enqueue(self, queue_name: str, jobs: List[dict]): ...
+
+    @abstractmethod
+    async def purge(self, queue_name: str, state: str, older_than: Optional[float] = None): ...
+
+    @abstractmethod
+    async def emit_event(self, event: str, data: dict): ...
+
+    @abstractmethod
+    async def create_lock(self, key: str, ttl: int): ...
