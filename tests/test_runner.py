@@ -1,4 +1,3 @@
-# tests/test_runner.py
 import asyncio
 
 import pytest
@@ -15,26 +14,21 @@ def get_task_id(func):
             return key
     raise RuntimeError(f"Task {func.__name__} is not registered.")
 
-
 @task(queue="runner")
 async def hello():
     return "hi"
-
 
 @task(queue="runner")
 async def raise_error():
     raise RuntimeError("fail")
 
-
 @task(queue="runner")
 async def echo(value):
     return value
 
-
 @task(queue="runner")
 async def add(x, y):
     return x + y
-
 
 @task(queue="runner")
 async def fail_once_then_succeed():
@@ -42,7 +36,6 @@ async def fail_once_then_succeed():
         fail_once_then_succeed.called = True
         raise RuntimeError("fail once")
     return "success"
-
 
 @pytest.mark.asyncio
 async def test_run_worker_success():
@@ -60,7 +53,6 @@ async def test_run_worker_success():
     assert state == "completed"
     assert result == "hi"
 
-
 @pytest.mark.asyncio
 async def test_run_worker_failure_goes_to_dlq():
     backend = InMemoryBackend()
@@ -73,7 +65,6 @@ async def test_run_worker_failure_goes_to_dlq():
 
     state = await backend.get_job_state("runner", job.id)
     assert state == "failed"
-
 
 @pytest.mark.asyncio
 async def test_echo_value():
@@ -88,7 +79,6 @@ async def test_echo_value():
     result = await backend.get_job_result("runner", job.id)
     assert result == "hello world"
 
-
 @pytest.mark.asyncio
 async def test_addition_task():
     backend = InMemoryBackend()
@@ -101,7 +91,6 @@ async def test_addition_task():
 
     result = await backend.get_job_result("runner", job.id)
     assert result == 7
-
 
 @pytest.mark.asyncio
 async def test_fail_then_succeed():
@@ -118,7 +107,6 @@ async def test_fail_then_succeed():
     assert state == "completed"
     assert result == "success"
 
-
 @pytest.mark.asyncio
 async def test_worker_cancels_gracefully():
     backend = InMemoryBackend()
@@ -128,7 +116,6 @@ async def test_worker_cancels_gracefully():
     await asyncio.sleep(0.3)
 
     assert worker.cancelled() or worker.done()
-
 
 @pytest.mark.asyncio
 async def test_job_ttl_expires():
@@ -145,7 +132,6 @@ async def test_job_ttl_expires():
 
     state = await backend.get_job_state("runner", job.id)
     assert state in {"expired", "failed"}
-
 
 @pytest.mark.asyncio
 async def test_worker_handles_multiple_jobs():
@@ -165,7 +151,6 @@ async def test_worker_handles_multiple_jobs():
         state = await backend.get_job_state("runner", job_id)
         assert state == "completed"
 
-
 @pytest.mark.asyncio
 async def test_worker_respects_backoff():
     backend = InMemoryBackend()
@@ -178,7 +163,6 @@ async def test_worker_respects_backoff():
 
     state = await backend.get_job_state("runner", job.id)
     assert state == "failed"
-
 
 @pytest.mark.asyncio
 async def test_worker_skips_expired_jobs():
@@ -193,7 +177,6 @@ async def test_worker_skips_expired_jobs():
 
     state = await backend.get_job_state("runner", job.id)
     assert state == "failed" or state == "expired"
-
 
 @pytest.mark.asyncio
 async def test_worker_can_recover_from_job_exception():
@@ -212,7 +195,6 @@ async def test_worker_can_recover_from_job_exception():
     assert state1 == "failed"
     assert state2 == "completed"
 
-
 @pytest.mark.asyncio
 async def test_worker_handles_zero_args():
     backend = InMemoryBackend()
@@ -223,7 +205,6 @@ async def test_worker_handles_zero_args():
     worker.cancel()
     result = await backend.get_job_result("runner", job.id)
     assert result == "hi"
-
 
 @pytest.mark.asyncio
 async def test_worker_handles_kwargs():
@@ -242,18 +223,20 @@ async def test_worker_handles_kwargs():
     result = await backend.get_job_result("runner", job.id)
     assert result == "Hello Tarsil"
 
-
 @pytest.mark.asyncio
 async def test_worker_long_chain_jobs():
     backend = InMemoryBackend()
+    # Enqueue 10 jobs and track their IDs
+    job_ids = []
     for i in range(10):
         job = Job(task_id=get_task_id(echo), args=[f"chain-{i}"], kwargs={})
         await backend.enqueue("runner", job.to_dict())
+        job_ids.append(job.id)
 
     worker = asyncio.create_task(run_worker("runner", backend))
     await asyncio.sleep(3)
     worker.cancel()
 
-    for i in range(10):
-        state = await backend.get_job_state("runner", job.id)
+    for job_id in job_ids:
+        state = await backend.get_job_state("runner", job_id)
         assert state == "completed"

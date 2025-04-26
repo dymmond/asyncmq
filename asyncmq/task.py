@@ -29,15 +29,6 @@ def task(
         name = func.__name__
         task_id = f"{module}.{name}"
 
-        # Register metadata
-        TASK_REGISTRY[task_id] = {
-            "func": func,
-            "queue": queue,
-            "retries": retries,
-            "ttl": ttl,
-            "progress_enabled": progress
-        }
-
         async def enqueue_task(
             backend,
             *args,
@@ -58,10 +49,9 @@ def task(
                 depends_on=depends_on,
                 repeat_every=repeat_every
             )
-
+            # Register dependencies
             if job.depends_on:
                 await backend.add_dependencies(queue, job.to_dict())
-
             if delay and delay > 0:
                 run_at = time.time() + delay
                 job.delay_until = run_at
@@ -69,31 +59,43 @@ def task(
             else:
                 await backend.enqueue(queue, job.to_dict())
 
-        # Attach enqueue function
-        func.enqueue = enqueue_task  # type: ignore
-
-        # Optionally provide progress reporter inside the task
         async def wrapper(*args, **kwargs):
-            # If progress reporting is enabled, inject reporter
+            # Inject progress reporter if enabled
             if progress:
-                # Create a simple callback
                 def report(pct: float, data: Any = None):
-                    event_emitter.emit(
-                        "job:progress",
-                        {"id": None, "progress": pct, "data": data}
+                    asyncio.create_task(
+                        event_emitter.emit(
+                            "job:progress",
+                            {"id": None, "progress": pct, "data": data}
+                        )
                     )
                 result = func(*args, report_progress=report, **kwargs)
             else:
                 result = func(*args, **kwargs)
 
-            # If function is sync, run in thread
             if inspect.iscoroutine(result):
                 return await result
             return await asyncio.to_thread(lambda: result)
 
-        # Copy metadata to wrapper so scheduler/worker sees it
-        wrapper.task_id = task_id  # type: ignore
-        wrapper._is_asyncmq_task = True  # type: ignore
+        # Preserve function metadata
+        wrapper.__name__ = name
+        wrapper.__doc__ = func.__doc__
+        wrapper.__module__ = module
+
+        # Attach helpers
+        wrapper.enqueue = enqueue_task  # type: ignore
+        wrapper.task_id = task_id      # type: ignore
+        wrapper._is_asyncmq_task = True # type: ignore
+
+        # Register the wrapper as the callable
+        TASK_REGISTRY[task_id] = {
+            "func": wrapper,
+            "queue": queue,
+            "retries": retries,
+            "ttl": ttl,
+            "progress_enabled": progress
+        }
+
         return wrapper
 
     return decorator
