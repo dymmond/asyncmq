@@ -2,41 +2,42 @@ import asyncio
 import time
 from collections import deque
 
-
 class RateLimiter:
+    """
+    A simple token-bucket rate limiter.
+    """
+
     def __init__(self, rate: int, interval: float):
         """
-        Initializes the rate limiter.
-
-        :param rate: The number of tasks that can be processed in each interval (e.g., 3 tasks per second).
-        :param interval: The time interval in seconds to allow the rate-limiting to reset.
+        :param rate: Maximum number of jobs per interval
+        :param interval: Time window in seconds
         """
-        self.rate = rate  # Maximum number of jobs allowed in each interval
-        self.interval = interval  # Time window in seconds for rate limiting
-        self.tokens = rate  # Initial number of tokens available
-        self.last_checked = time.monotonic()  # Last time the tokens were refilled
-        self.lock = asyncio.Lock()
-        self.waiting_jobs = deque()  # Queue for jobs waiting for rate-limiting
-        self.active_jobs = set()  # Set of jobs that are currently being processed
+        self.rate = rate
+        self.interval = interval
+        self.timestamps = deque()  # timestamps of recent acquires
 
     async def acquire(self):
         """
-        Acquires a token to process a job. If no tokens are available, it waits for the next available token.
+        Acquire permission to run one job. Will sleep if rate is exceeded.
         """
-        async with self.lock:
-            now = time.monotonic()
-            elapsed = now - self.last_checked
-            refill = (elapsed / self.interval) * self.rate
-            self.tokens = min(self.rate, self.tokens + refill)  # Refill tokens
-            self.last_checked = now
+        now = time.time()
+        # Remove timestamps older than the window
+        while self.timestamps and (now - self.timestamps[0]) >= self.interval:
+            self.timestamps.popleft()
 
-            if self.tokens >= 1:
-                self.tokens -= 1
-                return True
-            # Wait for the next token to be available
-            wait_time = self.interval / self.rate
-            await asyncio.sleep(wait_time)
-            return True
+        if len(self.timestamps) < self.rate:
+            self.timestamps.append(now)
+            return
+
+        # Otherwise wait until the oldest timestamp falls out
+        earliest = self.timestamps[0]
+        wait = self.interval - (now - earliest)
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+        # Record this run
+        self.timestamps.append(time.time())
+
 
     async def schedule_job(self, job):
         """

@@ -60,21 +60,22 @@ def jittered_backoff(base_delay: float, attempt: int, jitter: float = 0.1) -> fl
     jitter_amount = delay * jitter
     return delay + random.uniform(-jitter_amount, jitter_amount)
 
-# Monkey-patch Job to use jittered backoff by default
-Job.next_retry_delay = lambda self, jitter: jittered_backoff(self.backoff or 1.0, self.retries, jitter)
-
 # -------------------------------------------------
 # 4. JOB PROGRESS EVENTS
 # -------------------------------------------------
-async def report_progress(backend, queue: str, job: Job, pct: float, info: Any = None):
+async def report_progress(
+    backend, queue: str, job: Job, pct: float, info: Any = None
+):
     """
     Persist and emit progress for a job.
     Requires backend.save_job_progress(queue, job_id, pct).
     """
-    # Persist the progress metric
     await backend.save_job_progress(queue, job.id, pct)
-    # Emit local and distributed progress event
-    await event_emitter.emit('job:progress', {'id': job.id, 'progress': pct, 'info': info})
+    # also emit via pub/sub
+    await event_emitter.emit(
+        "job:progress",
+        {**job.to_dict(), "progress": pct, "info": info},
+    )
 
 # Attach to Job if desired
 Job.report_progress = report_progress
@@ -133,3 +134,5 @@ async def create_lock(backend, key: str, ttl: int = 30) -> Lock:
     """
     lock_obj = await backend.create_lock(key, ttl)
     return Lock(lock_obj)
+
+
