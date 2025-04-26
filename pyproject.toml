@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "asyncqueue"
+name = "asyncmq"
 description = "Async task queue with BullMQ-like features"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -40,21 +40,22 @@ classifiers = [
 ]
 dependencies = [
   "typer>=0.15.2",
+  "redis>=5.2.1"
 ]
-keywords = ["asyncqueue"]
+keywords = ["asyncmq"]
 
 [project.urls]
-Homepage = "https://github.com/dymmond/asyncqueue"
-Documentation = "https://asyncqueue.dymmond.com"
-Changelog = "https://asyncqueue.dymmond.com/release-notes/"
+Homepage = "https://github.com/dymmond/asyncmq"
+Documentation = "https://asyncmq.dymmond.com"
+Changelog = "https://asyncmq.dymmond.com/release-notes/"
 Funding = "https://github.com/sponsors/tarsil"
-Source = "https://github.com/dymmond/asyncqueue"
+Source = "https://github.com/dymmond/asyncmq"
 
 [project.scripts]
-asyncqueue = "asyncqueue.cli.__main__:app"
+asyncmq = "asyncmq.cli.__main__:app"
 
 [tool.hatch.version]
-path = "asyncqueue/__init__.py"
+path = "asyncmq/__init__.py"
 
 [tool.hatch.envs.default]
 dependencies = [
@@ -70,7 +71,6 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
-    "redis",
     "fakeredis",
     "asyncpg",
     "autoflake>=2.0.2,<3.0.0",
@@ -86,7 +86,7 @@ clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
-lint = "ruff check --fix --line-length 99  asyncqueue tests {args}"
+lint = "ruff check --fix --line-length 99  asyncmq tests {args}"
 
 [tool.hatch.envs.docs]
 dependencies = [
@@ -116,12 +116,12 @@ features = ['testing']
 # needs docker services running
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
-check_types = "mypy -p asyncqueue"
+check_types = "mypy -p asyncmq"
 
 [tool.isort]
 profile = "black"
 known_third_party = []
-src_paths = ["asyncqueue"]
+src_paths = ["asyncmq"]
 
 [tool.mypy]
 strict = true
@@ -154,11 +154,11 @@ combine-as-imports = true
 [tool.coverage.run]
 parallel = true
 context = '${CONTEXT}'
-source = ["tests", "asyncqueue"]
+source = ["tests", "asyncmq"]
 # omit = []
 
 [[tool.mypy.overrides]]
-module = "asyncqueue.tests.*"
+module = "asyncmq.tests.*"
 ignore_missing_imports = true
 check_untyped_defs = true
 
@@ -172,4 +172,4 @@ xfail_strict = true
 junit_family = "xunit2"
 
 [tool.hatch.build.targets.sdist]
-include = ["/asyncqueue"]
+include = ["/asyncmq"]

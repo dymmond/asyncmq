@@ -1,28 +1,28 @@
-# Help AsyncQueue
+# Help AsyncMQ
 
-Do you like **AsyncQueue** and would like to help AsyncQueue, other user and the author?
+Do you like **AsyncMQ** and would like to help AsyncMQ, other user and the author?
 
-## 🐦 Follow AsyncQueue on Twitter
+## 🐦 Follow AsyncMQ on Twitter
 
 
-## ⭐ Star **AsyncQueue** on GitHub
+## ⭐ Star **AsyncMQ** on GitHub
 
-Giving a star to AsyncQueue is very simple and helps promoting the work across the developers around the world.
+Giving a star to AsyncMQ is very simple and helps promoting the work across the developers around the world.
 
 The button is located at the top right.
 
-[https://github.com/dymmond/asyncqueue](https://github.com/dymmond/asyncqueue).
+[https://github.com/dymmond/asyncmq](https://github.com/dymmond/asyncmq).
 
 This will help spreading the word about the tool and how helpful has been.
 
 ## 👀 Follow the GitHub repo
 
-Following the GitHub repo will allow you to "watch" for any new release of AsyncQueue and be always up to date.
+Following the GitHub repo will allow you to "watch" for any new release of AsyncMQ and be always up to date.
 
 You can click on "***watch***" and select "***custom***" -> "***Releases***"or any other you may find particular
 interesting to you.
 
-## 💬 Join the official AsyncQueue discord channel
+## 💬 Join the official AsyncMQ discord channel
 
 ## 🔥 Sponsor the author
 
