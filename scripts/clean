@@ -9,8 +9,8 @@ fi
 if [ -d 'htmlcov' ] ; then
     rm -r htmlcov
 fi
-if [ -d 'asyncqueue.egg-info' ] ; then
-    rm -r asyncqueue.egg-info
+if [ -d 'asyncmq.egg-info' ] ; then
+    rm -r asyncmq.egg-info
 fi
 if [ -d '.hypothesis' ] ; then
     rm -r .hypothesis
@@ -25,5 +25,5 @@ if [ -d '.ruff_cache' ] ; then
     rm -r .ruff_cache
 fi
 
-find asyncqueue -type f -name "*.py[co]" -delete
-find asyncqueue -type d -name __pycache__ -delete
+find asyncmq -type f -name "*.py[co]" -delete
+find asyncmq -type d -name __pycache__ -delete

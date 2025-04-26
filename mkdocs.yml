@@ -1,6 +1,6 @@
-site_name: AsyncQueue
+site_name: AsyncMQ
 site_description: The broker you needed for your tasks.
-site_url: https://asyncqueue.dymmond.com
+site_url: https://asyncmq.dymmond.com
 
 theme:
   name: "material"
@@ -29,8 +29,8 @@ theme:
     - content.tabs.link
     - content.code.copy
 
-repo_name: dymmond/asyncqueue
-repo_url: https://github.com/dymmond/asyncqueue
+repo_name: dymmond/asyncmq
+repo_url: https://github.com/dymmond/asyncmq
 edit_uri: ""
 plugins:
   - search

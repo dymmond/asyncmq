@@ -1,6 +1,6 @@
 #!/bin/sh -e
 
-VERSION_FILE="asyncqueue/__init__.py"
+VERSION_FILE="asyncmq/__init__.py"
 
 if [ -d 'venv' ] ; then
     PREFIX="venv/bin/"
