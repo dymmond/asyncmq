@@ -56,24 +56,41 @@ It's built-in.
 
 Quick Start
 
+```python
 from asyncmq import Queue, Worker, Job
+```
 
 # Create a queue
+
+```python
 queue = Queue(name="emails")
+```
 
 # Define a job processor
-async def send_email(job: Job):
+
+```python
+async def : Job):
     print(f"Sending email to {job.data['to']}")
+```
 
 # Register the worker
+
+```python
 worker = Worker(queue)
 worker.register_processor(send_email)
+```
 
 # Add a job
+
+```python
 await queue.add({"to": "user@example.com"})
+```
 
 # Start the worker
+
+```python
 await worker.start()
+```
 
 Boom. Emails flying faster than you can say "async def".
 
@@ -84,6 +101,7 @@ Real-World Example
 
 Want to schedule a notification to be sent 1 hour later with retries and error handling?
 
+```python
 await queue.add(
     data={"user_id": 42, "message": "Don't forget to hydrate!"},
     delay=3600,    # Delay by 1 hour
@@ -91,6 +109,8 @@ await queue.add(
     backoff=30,    # 30s backoff between retries
     ttl=7200       # TTL of 2 hours
 )
+
+```
 
 > AsyncMQ makes it effortless to schedule, retry, and recover from failures.
 
