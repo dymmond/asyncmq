@@ -10,6 +10,8 @@ from asyncmq.job import Job
 from asyncmq.task import TASK_REGISTRY, task
 from asyncmq.worker import handle_job
 
+pytestmark = pytest.mark.anyio
+
 # Clear AsyncMQ’s global task‐registry and listeners
 # so this module’s @task decorator actually registers `sum_task`
 TASK_REGISTRY.clear()
@@ -25,7 +27,7 @@ def get_task_id(func):
             return key
     raise RuntimeError(f"Task {func.__name__} is not registered.")
 
-@pytest.mark.asyncio
+
 async def test_delayed_enqueue_and_scan():
     backend = InMemoryBackend()
     job = Job(task_id="delay.test", args=[1], kwargs={}, ttl=10)
@@ -40,7 +42,7 @@ async def test_delayed_enqueue_and_scan():
 
     assert result["id"] == job.id
 
-@pytest.mark.asyncio
+
 async def test_delayed_job_not_due():
     backend = InMemoryBackend()
     job = Job(task_id="not.due", args=[], kwargs={})
@@ -50,7 +52,7 @@ async def test_delayed_job_not_due():
 
     assert job.id not in [j["id"] for j in due]
 
-@pytest.mark.asyncio
+
 async def test_remove_delayed_job():
     backend = InMemoryBackend()
     job = Job(task_id="remove.test", args=[], kwargs={})
@@ -61,14 +63,14 @@ async def test_remove_delayed_job():
 
     assert job.id not in [j["id"] for j in due]
 
-@pytest.mark.asyncio
+
 async def test_expired_job_detection():
     job = Job(task_id="expire.check", args=[], kwargs={}, ttl=0.1)
     time.sleep(0.2)
 
     assert job.is_expired()
 
-@pytest.mark.asyncio
+
 async def test_job_moves_to_dlq_when_expired():
     backend = InMemoryBackend()
     job = Job(task_id="expire.dlq", args=[], kwargs={}, ttl=0.1)
@@ -79,7 +81,7 @@ async def test_job_moves_to_dlq_when_expired():
 
     assert state == "failed"
 
-@pytest.mark.asyncio
+
 async def test_multiple_delayed_jobs():
     backend = InMemoryBackend()
     jobs = [Job(task_id=f"delay.multi.{i}", args=[], kwargs={}) for i in range(5)]
@@ -91,7 +93,7 @@ async def test_multiple_delayed_jobs():
 
     assert len(due) == 5
 
-@pytest.mark.asyncio
+
 async def test_duplicate_delayed_enqueue():
     backend = InMemoryBackend()
 
@@ -105,7 +107,7 @@ async def test_duplicate_delayed_enqueue():
 
     assert job1.id in [j["id"] for j in due] or job2.id in [j["id"] for j in due]
 
-@pytest.mark.asyncio
+
 async def test_scan_does_not_repeat():
     backend = InMemoryBackend()
     job = Job(task_id="scan.once", args=[], kwargs={})
@@ -120,7 +122,7 @@ async def test_scan_does_not_repeat():
 
     assert job.id not in [j["id"] for j in second]
 
-@pytest.mark.asyncio
+
 async def test_delayed_enqueue_past_time():
     backend = InMemoryBackend()
     job = Job(task_id="past.enqueue", args=[], kwargs={})
@@ -130,7 +132,7 @@ async def test_delayed_enqueue_past_time():
 
     assert any(j["id"] == job.id for j in due)
 
-@pytest.mark.asyncio
+
 async def test_delayed_job_status_marked_delayed():
     backend = InMemoryBackend()
     job = Job(task_id="status.delay", args=[], kwargs={})
@@ -140,7 +142,7 @@ async def test_delayed_job_status_marked_delayed():
 
     assert state == "delayed"
 
-@pytest.mark.asyncio
+
 async def test_delayed_result_is_none_initially():
     backend = InMemoryBackend()
     job = Job(task_id="delay.result.none", args=[], kwargs={})
@@ -151,7 +153,7 @@ async def test_delayed_result_is_none_initially():
     assert result is None
 
 
-@pytest.mark.asyncio
+
 async def test_delayed_then_execute():
     backend = InMemoryBackend()
 

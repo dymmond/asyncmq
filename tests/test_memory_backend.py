@@ -6,8 +6,8 @@ import pytest
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.job import Job
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.asyncio(loop_scope="session")
 async def test_enqueue_and_dequeue():
     backend = InMemoryBackend()
     job = Job(task_id="test.task", args=[], kwargs={})
@@ -16,7 +16,7 @@ async def test_enqueue_and_dequeue():
     assert result["id"] == job.id
 
 
-@pytest.mark.asyncio(loop_scope="session")
+
 async def test_job_state_tracking():
     backend = InMemoryBackend()
     job = Job(task_id="state.test", args=[], kwargs={})
@@ -26,7 +26,7 @@ async def test_job_state_tracking():
     assert state == "active"
 
 
-@pytest.mark.asyncio(loop_scope="session")
+
 async def test_save_and_get_job_result():
     backend = InMemoryBackend()
     job = Job(task_id="result.test", args=[], kwargs={})
@@ -36,7 +36,7 @@ async def test_save_and_get_job_result():
     assert result == 1234
 
 
-@pytest.mark.asyncio(loop_scope="session")
+
 async def test_enqueue_delayed_and_get_due():
     backend = InMemoryBackend()
     job = Job(task_id="delay.test", args=[], kwargs={})
@@ -47,7 +47,7 @@ async def test_enqueue_delayed_and_get_due():
     assert any(j["id"] == job.id for j in due)
 
 
-@pytest.mark.asyncio(loop_scope="session")
+
 async def test_move_to_dlq():
     backend = InMemoryBackend()
     job = Job(task_id="dlq.test", args=[], kwargs={})
@@ -57,7 +57,7 @@ async def test_move_to_dlq():
     assert state == "failed"
 
 
-@pytest.mark.asyncio(loop_scope="session")
+
 async def test_remove_delayed():
     backend = InMemoryBackend()
     job = Job(task_id="delay.remove", args=[], kwargs={})

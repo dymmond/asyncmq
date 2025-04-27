@@ -7,6 +7,7 @@ from asyncmq.scheduler import repeatable_scheduler
 from asyncmq.task import TASK_REGISTRY, task
 from asyncmq.worker import handle_job
 
+pytestmark = pytest.mark.anyio
 
 # Helper to fetch task IDs dynamically
 def get_task_id(func):
@@ -28,7 +29,7 @@ async def repeat_me():
     return repeat_me.counter
 repeat_me.counter = 0
 
-@pytest.mark.asyncio
+
 async def test_repeatable_scheduler_triggers():
     backend = InMemoryBackend()
     jobs = [{
@@ -76,7 +77,7 @@ async def echo_repeat(val):
 async def noop():
     pass
 
-@pytest.mark.asyncio
+
 async def test_repeatable_multiple_tasks():
     backend = InMemoryBackend()
     jobs = [
@@ -94,7 +95,7 @@ async def test_repeatable_multiple_tasks():
     assert print_hello.counter >= 2
     assert inc.counter >= 2
 
-@pytest.mark.asyncio
+
 async def test_repeatable_args_and_kwargs():
     backend = InMemoryBackend()
     jobs = [{
@@ -110,7 +111,7 @@ async def test_repeatable_args_and_kwargs():
     dequeued = await backend.dequeue("repeatable")
     assert dequeued["args"] == ["data"]
 
-@pytest.mark.asyncio
+
 async def test_repeatable_noop():
     backend = InMemoryBackend()
     jobs = [{
@@ -126,7 +127,7 @@ async def test_repeatable_noop():
     job = await backend.dequeue("repeatable")
     assert job["task"] == get_task_id(noop)
 
-@pytest.mark.asyncio
+
 async def test_repeatable_job_status():
     backend = InMemoryBackend()
     jobs = [{
@@ -142,7 +143,7 @@ async def test_repeatable_job_status():
     raw = await backend.dequeue("repeatable")
     assert raw["status"] == "waiting"
 
-@pytest.mark.asyncio
+
 async def test_repeatable_job_interval_variation():
     backend = InMemoryBackend()
     jobs = [{

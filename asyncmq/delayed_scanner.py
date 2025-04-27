@@ -1,9 +1,13 @@
-import asyncio
+import anyio
 
 from asyncmq.job import Job
 
 
-async def delayed_job_scanner(queue_name: str, backend, interval: float = 2.0):
+async def delayed_job_scanner(
+    queue_name: str,
+    backend,
+    interval: float = 2.0,
+):
     print(f"Delayed job scanner started for queue: {queue_name}")
     while True:
         jobs = await backend.get_due_delayed(queue_name)
@@ -13,4 +17,5 @@ async def delayed_job_scanner(queue_name: str, backend, interval: float = 2.0):
             await backend.enqueue(queue_name, job.to_dict())
             print(f"[{job.id}] Moved delayed job to queue")
 
-        await asyncio.sleep(interval)
+        # Portable sleep across asyncio/Trio/etc.
+        await anyio.sleep(interval)

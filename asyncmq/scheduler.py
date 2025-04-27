@@ -1,6 +1,6 @@
-import asyncio
-import time
 from typing import Any, Dict, List, Optional
+
+import anyio
 
 from asyncmq.job import Job
 
@@ -17,14 +17,18 @@ async def repeatable_scheduler(
     If `interval` is None, uses the minimum `repeat_every` among jobs.
     """
     last_run: Dict[str, float] = {}
+
     # Determine scan frequency
     if interval is None:
-        interval = min(job_def.get("repeat_every", 0) for job_def in jobs if job_def.get("repeat_every", 0) > 0)
-        if not interval:
-            interval = 1.0
+        positives = [
+            jd.get("repeat_every", 0)
+            for jd in jobs
+            if jd.get("repeat_every", 0) > 0
+        ]
+        interval = min(positives) if positives else 1.0
 
     while True:
-        now = time.time()
+        now = anyio.current_time()  # monotonic clock
         for job_def in jobs:
             key = job_def["task_id"]
             repeat_every = job_def.get("repeat_every", 0)
@@ -41,4 +45,5 @@ async def repeatable_scheduler(
                 )
                 await backend.enqueue(queue_name, job.to_dict())
                 last_run[key] = now
-        await asyncio.sleep(interval)
+
+        await anyio.sleep(interval)

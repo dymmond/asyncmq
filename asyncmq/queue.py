@@ -1,5 +1,7 @@
-import asyncio
+import time
 from typing import Any, Dict, List, Optional
+
+import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
@@ -16,6 +18,7 @@ class Queue:
       - .pause() / .resume()
       - .clean(): purge jobs by state
       - .run(): start worker(s)
+      - .start(): synchronous entry point
     """
     def __init__(
         self,
@@ -44,7 +47,6 @@ class Queue:
         delay: Optional[float] = None,
     ) -> str:
         """Enqueue a single job and return its ID. If `delay` is set, the job is scheduled."""
-        # Create the job
         job = Job(
             task_id=task_id,
             args=args or [],
@@ -55,9 +57,8 @@ class Queue:
             ttl=ttl,
             priority=priority,
         )
-        # Handle optional delay
         if delay is not None:
-            job.delay_until = asyncio.get_event_loop().time() + delay
+            job.delay_until = time.time() + delay
             await self.backend.enqueue_delayed(self.name, job.to_dict(), job.delay_until)
         else:
             await self.backend.enqueue(self.name, job.to_dict())
@@ -131,3 +132,8 @@ class Queue:
             repeatables=self._repeatables,
         )
 
+    def start(self) -> None:
+        """
+        Synchronous entry point: runs the async `run()` under AnyIO’s runner.
+        """
+        anyio.run(self.run)
