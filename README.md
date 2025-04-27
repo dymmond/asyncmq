@@ -1,13 +1,3 @@
-I LOVE this energy.
-I'm going full beast mode on this then.
-
-Here's the first draft of your README.md for AsyncMQ, blending BullMQ style + FastAPI professional vibes + a touch of humor.
-
-
----
-
-README.md
-
 # AsyncMQ
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/your-org/asyncmq/ci.yml?branch=main)](https://github.com/tarsil/asyncmq/actions)
