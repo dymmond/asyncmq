@@ -40,15 +40,17 @@ Whether you need **scheduled jobs**, **retries**, **dead letter queues**, **pers
 
 ```bash
 pip install asyncmq
+```
 
 For Postgres persistence support:
 
+```bash
 pip install asyncmq[postgres]
 
+```
 For Redis backend:
 
-pip install asyncmq[redis]
-
+It's built-in.
 
 ---
 
@@ -92,9 +94,6 @@ await queue.add(
 
 > AsyncMQ makes it effortless to schedule, retry, and recover from failures.
 
-
-
-
 ---
 
 Documentation
@@ -114,8 +113,6 @@ How to extend AsyncMQ
 
 And much more!
 
-
-
 ---
 
 Integrations
@@ -130,7 +127,6 @@ AsyncMQ + FastAPI
 Need ultra-fast background tasks for your FastAPI apps? We got you.
 See full FastAPI integration guide.
 
-
 ---
 
 Contributing
@@ -138,17 +134,11 @@ Contributing
 Contributions are more than welcome!
 AsyncMQ is community-driven — feel free to submit PRs, suggest features, fix typos, or just tell us you love us.
 
-Fork it
-
-Create your feature branch (git checkout -b feature/amazing-feature)
-
-Commit your changes (git commit -m 'Add amazing feature')
-
-Push to the branch (git push origin feature/amazing-feature)
-
-Open a Pull Request
-
-
+* Fork it
+* Create your feature branch (git checkout -b feature/amazing-feature)
+* Commit your changes (git commit -m 'Add amazing feature')
+* Push to the branch (git push origin feature/amazing-feature)
+* Open a Pull Request
 
 ---
 
