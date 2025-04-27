@@ -1,12 +1,19 @@
 import asyncio
 import time
+
 import pytest
+
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.event import event_emitter
 from asyncmq.job import Job
-from asyncmq.task import task, TASK_REGISTRY
+from asyncmq.task import TASK_REGISTRY, task
 from asyncmq.worker import handle_job
 
+# Clear AsyncMQ’s global task‐registry and listeners
+# so this module’s @task decorator actually registers `sum_task`
+TASK_REGISTRY.clear()
+event_emitter._listeners.clear()
 
 @task(queue="test")
 async def sum_task(values):
