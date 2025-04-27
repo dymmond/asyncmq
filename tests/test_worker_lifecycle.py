@@ -6,6 +6,7 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.task import task
 from asyncmq.worker import handle_job
 
+pytestmark = pytest.mark.anyio
 
 async def wait_for_state(backend, queue, job_id, target, timeout=3):
     for _ in range(int(timeout / 0.1)):
@@ -19,7 +20,7 @@ async def wait_for_state(backend, queue, job_id, target, timeout=3):
 async def simple_task(x, y):
     return x + y
 
-@pytest.mark.asyncio
+
 async def test_job_lifecycle_changes():
     backend = InMemoryBackend()
     await simple_task.enqueue(backend, 3, 4)
@@ -38,7 +39,7 @@ async def test_job_lifecycle_changes():
 async def failing_task():
     raise RuntimeError("fail")
 
-@pytest.mark.asyncio
+
 async def test_failed_job_goes_to_dlq():
     backend = InMemoryBackend()
     await failing_task.enqueue(backend)
@@ -54,7 +55,7 @@ async def test_failed_job_goes_to_dlq():
 async def echo_task(value):
     return value
 
-@pytest.mark.asyncio
+
 async def test_echo_result():
     backend = InMemoryBackend()
     await echo_task.enqueue(backend, "hello")
@@ -68,7 +69,7 @@ async def test_echo_result():
 async def sum_list(lst):
     return sum(lst)
 
-@pytest.mark.asyncio
+
 async def test_sum_list_task():
     backend = InMemoryBackend()
     await sum_list.enqueue(backend, [1, 2, 3, 4])
@@ -82,7 +83,7 @@ async def test_sum_list_task():
 async def upper_case(text):
     return text.upper()
 
-@pytest.mark.asyncio
+
 async def test_upper_case():
     backend = InMemoryBackend()
     await upper_case.enqueue(backend, "test")
@@ -96,7 +97,7 @@ async def test_upper_case():
 async def multiply(a, b):
     return a * b
 
-@pytest.mark.asyncio
+
 async def test_multiply_task():
     backend = InMemoryBackend()
     await multiply.enqueue(backend, 6, 7)

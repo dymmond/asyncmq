@@ -1,12 +1,12 @@
 import pytest
-import asyncio
 
-from asyncmq.queue import Queue
-from asyncmq.producer import FlowProducer
-from asyncmq.worker import Worker
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
+from asyncmq.queue import Queue
+from asyncmq.worker import Worker
 
+pytestmark = pytest.mark.anyio
 
 class DummyBackend(InMemoryBackend):
     def __init__(self):
@@ -21,7 +21,7 @@ class DummyBackend(InMemoryBackend):
         self.resumed = True
 
 
-@pytest.mark.asyncio
+
 async def test_add_job_without_delay():
     backend = InMemoryBackend()
     q = Queue('queue1', backend=backend)
@@ -36,7 +36,7 @@ async def test_add_job_without_delay():
     assert raw['kwargs'] == {'a': 2}
 
 
-@pytest.mark.asyncio
+
 async def test_add_job_with_delay():
     backend = InMemoryBackend()
     q = Queue('queue2', backend=backend)
@@ -52,7 +52,7 @@ async def test_add_job_with_delay():
     assert any(payload['id'] == job_id for _, payload in delayed)
 
 
-@pytest.mark.asyncio
+
 async def test_add_bulk():
     backend = InMemoryBackend()
     q = Queue('queue3', backend=backend)
@@ -80,7 +80,7 @@ def test_add_repeatable():
     assert rep['repeat_every'] == 5
 
 
-@pytest.mark.asyncio
+
 async def test_pause_resume():
     backend = DummyBackend()
     q = Queue('queue5', backend=backend)
@@ -92,7 +92,7 @@ async def test_pause_resume():
     assert backend.resumed is True
 
 
-@pytest.mark.asyncio
+
 async def test_clean():
     backend = InMemoryBackend()
     q = Queue('queue6', backend=backend)
@@ -106,7 +106,7 @@ async def test_clean():
     assert state2 is None
 
 
-@pytest.mark.asyncio
+
 async def test_flowproducer_add_flow(monkeypatch):
     backend = InMemoryBackend()
     fp = FlowProducer(backend=backend)

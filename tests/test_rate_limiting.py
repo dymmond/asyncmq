@@ -8,6 +8,7 @@ from asyncmq.rate_limiter import RateLimiter
 from asyncmq.runner import run_worker
 from asyncmq.task import TASK_REGISTRY, task
 
+pytestmark = pytest.mark.anyio
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
@@ -31,7 +32,7 @@ async def medium_priority_task():
 async def raise_error():
     raise RuntimeError("fail")
 
-@pytest.mark.asyncio
+
 async def test_rate_limited_task_execution():
     backend = InMemoryBackend()
     rate_limiter = RateLimiter(rate=3, interval=1)  # Limit to 3 requests per second
@@ -58,7 +59,7 @@ async def test_rate_limited_task_execution():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_rate_limit_with_multiple_workers():
     backend = InMemoryBackend()
     rate_limiter = RateLimiter(rate=3, interval=1)
@@ -83,7 +84,7 @@ async def test_rate_limit_with_multiple_workers():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_rate_limit_with_task_retries():
     backend = InMemoryBackend()
     rate_limiter = RateLimiter(rate=3, interval=1)
@@ -101,7 +102,7 @@ async def test_rate_limit_with_task_retries():
     assert result == "high priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_rate_limit_with_job_failure():
     backend = InMemoryBackend()
     rate_limiter = RateLimiter(rate=3, interval=1)
@@ -119,7 +120,7 @@ async def test_rate_limit_with_job_failure():
     assert state in {"failed", "delayed"}  # Depending on scan timing, job may still be delayed or failed
 
 
-@pytest.mark.asyncio
+
 async def test_rate_limit_with_multiple_jobs_in_one_period():
     backend = InMemoryBackend()
 

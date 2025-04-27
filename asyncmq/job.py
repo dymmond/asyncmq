@@ -1,7 +1,6 @@
 import time
 import uuid
-import inspect
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 JOB_STATES = ("waiting", "active", "completed", "failed", "delayed", "expired")
 
