@@ -1,11 +1,11 @@
-import pytest
-import asyncio
 
-from asyncmq.queue import Queue
-from asyncmq.producer import FlowProducer
-from asyncmq.worker import Worker
+import pytest
+
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
+from asyncmq.queue import Queue
+from asyncmq.worker import Worker
 
 
 class DummyBackend(InMemoryBackend):

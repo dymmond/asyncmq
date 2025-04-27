@@ -1,9 +1,10 @@
-from typing import  List, Optional
+from typing import List, Optional
 
-from asyncmq.dependencies import add_dependencies
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
+from asyncmq.dependencies import add_dependencies
 from asyncmq.job import Job
+
 
 class FlowProducer:
     """

@@ -6,8 +6,8 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.event import event_emitter
+from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
-from asyncmq.producer import FlowProducer
 from asyncmq.queue import Queue
 from asyncmq.runner import run_worker
 from asyncmq.task import list_tasks, task
