@@ -7,6 +7,7 @@ from asyncmq.job import Job
 from asyncmq.runner import run_worker
 from asyncmq.task import TASK_REGISTRY, task
 
+pytestmark = pytest.mark.anyio
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
@@ -27,7 +28,7 @@ async def task_b():
 async def task_c():
     return "task_c completed"
 
-@pytest.mark.asyncio
+
 async def test_job_dependencies():
     backend = InMemoryBackend()
 
@@ -60,7 +61,7 @@ async def test_job_dependencies():
     assert result_c == "task_c completed"
 
 
-@pytest.mark.asyncio
+
 async def test_independent_jobs():
     backend = InMemoryBackend()
 
@@ -88,7 +89,7 @@ async def test_independent_jobs():
     assert results == {"task_a completed", "task_b completed", "task_c completed"}
 
 
-@pytest.mark.asyncio
+
 async def test_multiple_dependencies():
     backend = InMemoryBackend()
 

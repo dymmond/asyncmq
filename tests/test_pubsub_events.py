@@ -2,8 +2,8 @@ import pytest
 
 from asyncmq.event import EventEmitter
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.asyncio
 async def test_event_subscription_and_publish():
     emitter = EventEmitter()
     events = []
@@ -16,7 +16,7 @@ async def test_event_subscription_and_publish():
 
     assert "completed:abc123" in events
 
-@pytest.mark.asyncio
+
 async def test_multiple_event_listeners():
     emitter = EventEmitter()
     a, b = [], []
@@ -28,13 +28,13 @@ async def test_multiple_event_listeners():
     assert a == [5]
     assert b == [5]
 
-@pytest.mark.asyncio
+
 async def test_event_emit_no_listeners():
     emitter = EventEmitter()
     await emitter.emit("unknown", {"x": 1})  # Should not crash
     assert True
 
-@pytest.mark.asyncio
+
 async def test_event_remove_listener():
     emitter = EventEmitter()
     result = []
@@ -47,7 +47,7 @@ async def test_event_remove_listener():
     await emitter.emit("ping", {"msg": "pong"})
     assert not result
 
-@pytest.mark.asyncio
+
 async def test_async_event_handler():
     emitter = EventEmitter()
     result = []
@@ -59,7 +59,7 @@ async def test_async_event_handler():
     await emitter.emit("trigger", {"key": "val"})
     assert result == ["val"]
 
-@pytest.mark.asyncio
+
 async def test_emit_with_multiple_event_types():
     emitter = EventEmitter()
     res = []
@@ -71,7 +71,7 @@ async def test_emit_with_multiple_event_types():
 
     assert res == ["A", "B"]
 
-@pytest.mark.asyncio
+
 async def test_same_handler_multiple_events():
     emitter = EventEmitter()
     logs = []
@@ -86,7 +86,7 @@ async def test_same_handler_multiple_events():
 
     assert logs == ["x-event", "y-event"]
 
-@pytest.mark.asyncio
+
 async def test_off_removes_only_targeted_handler():
     emitter = EventEmitter()
     result = []
@@ -101,7 +101,7 @@ async def test_off_removes_only_targeted_handler():
 
     assert result == ["two"]
 
-@pytest.mark.asyncio
+
 async def test_emit_with_empty_data():
     emitter = EventEmitter()
     result = []
@@ -109,7 +109,7 @@ async def test_emit_with_empty_data():
     await emitter.emit("blank", {})
     assert result == ["ok"]
 
-@pytest.mark.asyncio
+
 async def test_handler_modifies_external_state():
     emitter = EventEmitter()
     state = {"count": 0}
@@ -121,7 +121,7 @@ async def test_handler_modifies_external_state():
 
     assert state["count"] == 2
 
-@pytest.mark.asyncio
+
 async def test_emit_does_not_affect_other_events():
     emitter = EventEmitter()
     out = []

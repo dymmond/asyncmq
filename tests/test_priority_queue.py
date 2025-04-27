@@ -1,13 +1,14 @@
-# tests/test_priority_queue.py
 import asyncio
 import time  # Add this import
-import pytest
-from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.runner import run_worker
-from asyncmq.task import task
-from asyncmq.job import Job
-from asyncmq.task import TASK_REGISTRY
 
+import pytest
+
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.job import Job
+from asyncmq.runner import run_worker
+from asyncmq.task import TASK_REGISTRY, task
+
+pytestmark = pytest.mark.anyio
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
@@ -31,7 +32,7 @@ async def medium_priority_task():
     return "medium priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_priority_queue_order():
     backend = InMemoryBackend()
 
@@ -59,7 +60,7 @@ async def test_priority_queue_order():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_same_priority_jobs_order():
     backend = InMemoryBackend()
 
@@ -83,7 +84,7 @@ async def test_same_priority_jobs_order():
     assert result_2 == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_job_reordering_by_priority():
     backend = InMemoryBackend()
 
@@ -107,7 +108,7 @@ async def test_job_reordering_by_priority():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_priority_with_multiple_queues():
     backend = InMemoryBackend()
 
@@ -135,7 +136,7 @@ async def test_priority_with_multiple_queues():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_priority_queue_with_max_retries():
     backend = InMemoryBackend()
 
@@ -163,7 +164,7 @@ async def test_priority_queue_with_max_retries():
     assert result_b == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_priority_queue_with_delayed_jobs():
     backend = InMemoryBackend()
 
@@ -187,7 +188,7 @@ async def test_priority_queue_with_delayed_jobs():
     assert result_low == "low priority task completed"
 
 
-@pytest.mark.asyncio
+
 async def test_job_with_priority_and_ttl():
     backend = InMemoryBackend()
 
@@ -223,7 +224,7 @@ async def test_job_with_priority_and_ttl():
 
 
 
-@pytest.mark.asyncio
+
 async def test_empty_priority_queue():
     backend = InMemoryBackend()
 

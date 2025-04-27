@@ -13,8 +13,7 @@ from asyncmq.runner import run_worker
 from asyncmq.task import list_tasks, task
 from asyncmq.worker import Worker
 
-# Utility to reset global registry and listeners
-# and ensure no state leaks between tests or modules
+pytestmark = pytest.mark.anyio
 
 def reset_globals():
     list_tasks().clear()
@@ -29,7 +28,7 @@ def clear_between_tests():
     yield
     reset_globals()
 
-@pytest.mark.asyncio
+
 async def xtest_real_task_execution():
     @task(queue='test_exec')
     async def add(a, b):
@@ -56,7 +55,7 @@ async def xtest_real_task_execution():
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
 
-@pytest.mark.asyncio
+
 async def test_retries_and_dlq():
     @task(queue='retry', retries=1)
     async def flaky():
@@ -77,7 +76,7 @@ async def test_retries_and_dlq():
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
 
-@pytest.mark.asyncio
+
 async def test_ttl_expiration():
     @task(queue='ttl', retries=0)
     async def dummy():
@@ -100,7 +99,7 @@ async def test_ttl_expiration():
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
 
-@pytest.mark.asyncio
+
 async def xtest_dependencies_flow():
     order = []
 
@@ -136,7 +135,7 @@ async def xtest_dependencies_flow():
     child_idx = next(i for i, v in enumerate(order) if isinstance(v, tuple))
     assert child_idx > parent_idx
 
-@pytest.mark.asyncio
+
 async def test_rate_limiting():
     timestamps = []
 
@@ -160,7 +159,7 @@ async def test_rate_limiting():
     diffs = [t2 - t1 for t1, t2 in zip(timestamps, timestamps[1:])]
     assert all(diff >= 0.04 for diff in diffs)
 
-@pytest.mark.asyncio
+
 async def xtest_repeatables():
     count = 0
 

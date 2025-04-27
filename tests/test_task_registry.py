@@ -2,6 +2,7 @@ import pytest
 
 from asyncmq.task import TASK_REGISTRY, task
 
+pytestmark = pytest.mark.anyio
 
 @task(queue="default")
 async def foo():
@@ -55,13 +56,13 @@ def test_registry_values_have_expected_structure():
         assert "func" in value
         assert "queue" in value
 
-@pytest.mark.asyncio
+
 async def test_can_call_registered_multiply():
     id = get_task_id(multiply)
     result = await TASK_REGISTRY[id]["func"](2, 3)
     assert result == 6
 
-@pytest.mark.asyncio
+
 async def test_can_call_registered_shout():
     id = get_task_id(shout)
     result = await TASK_REGISTRY[id]["func"]("hi")
@@ -90,7 +91,7 @@ def test_task_id_format():
     for key in TASK_REGISTRY:
         assert "." in key  # expect module.function format
 
-@pytest.mark.asyncio
+
 async def test_add_is_async():
     func = TASK_REGISTRY[get_task_id(add)]["func"]
     result = await func(4, 5)

@@ -40,8 +40,8 @@ classifiers = [
 ]
 dependencies = [
   "anyio>=4.9.0,<6.0.0",
+  "redis>=5.2.1",
   "typer>=0.15.2",
-  "redis>=5.2.1"
 ]
 keywords = ["asyncmq"]
 
@@ -74,6 +74,7 @@ dependencies = [
 testing = [
     "fakeredis[asyncio]",
     "asyncpg",
+    "anyio[trio]>=4.9.0,<6.0.0",
     "autoflake>=2.0.2,<3.0.0",
     "esmerald>=3.7.7",
     "black==24.1.1,<25.0",
