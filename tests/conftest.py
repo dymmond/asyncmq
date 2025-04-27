@@ -1,3 +1,4 @@
+import pytest
 import pytest_asyncio
 import redis.asyncio as async_redis
 
@@ -19,3 +20,8 @@ async def redis():
     # teardown
     await client.flushall()
     await client.close()
+
+
+@pytest.fixture(scope="module")
+def anyio_backend():
+    return ("asyncio", {"debug": True})

@@ -39,6 +39,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = [
+  "anyio>=4.9.0,<6.0.0",
   "typer>=0.15.2",
   "redis>=5.2.1"
 ]
