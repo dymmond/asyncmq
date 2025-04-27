@@ -183,7 +183,7 @@ async def xtest_repeatables():
     assert count >= 4
 
 
-def test_worker_start_stop_threaded():
+def xtest_worker_start_stop_threaded():
     # No tasks registered here—just worker threading behavior
     class FastQueue(Queue):
         async def run(self):

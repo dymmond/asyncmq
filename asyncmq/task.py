@@ -1,7 +1,8 @@
-import asyncio
 import inspect
 import time
 from typing import Any, Callable, Dict, Optional
+
+import anyio
 
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
@@ -52,6 +53,7 @@ def task(
             # Register dependencies
             if job.depends_on:
                 await backend.add_dependencies(queue, job.to_dict())
+            # Enqueue immediately or delayed
             if delay and delay > 0:
                 run_at = time.time() + delay
                 job.delay_until = run_at
@@ -60,34 +62,36 @@ def task(
                 await backend.enqueue(queue, job.to_dict())
 
         async def wrapper(*args, **kwargs):
-            # Inject progress reporter if enabled
-            if progress:
-                def report(pct: float, data: Any = None):
-                    asyncio.create_task(
-                        event_emitter.emit(
+            # Use a local task group for any progress‐emit tasks
+            async with anyio.create_task_group() as tg:
+                if progress:
+                    def report(pct: float, data: Any = None):
+                        tg.start_soon(
+                            event_emitter.emit,
                             "job:progress",
-                            {"id": None, "progress": pct, "data": data}
+                            {"id": None, "progress": pct, "data": data},
                         )
-                    )
-                result = func(*args, report_progress=report, **kwargs)
-            else:
-                result = func(*args, **kwargs)
+                    result = func(*args, report_progress=report, **kwargs)
+                else:
+                    result = func(*args, **kwargs)
 
-            if inspect.iscoroutine(result):
-                return await result
-            return await asyncio.to_thread(lambda: result)
+                # If the function returned an awaitable, await it
+                if inspect.isawaitable(result):
+                    return await result
+                # Otherwise run synchronously in a thread
+                return await anyio.to_thread.run_sync(lambda: result)
 
-        # Preserve function metadata
+        # Preserve metadata
         wrapper.__name__ = name
         wrapper.__doc__ = func.__doc__
         wrapper.__module__ = module
 
-        # Attach helpers
+        # Attach helper methods/attributes
         wrapper.enqueue = enqueue_task  # type: ignore
         wrapper.task_id = task_id      # type: ignore
         wrapper._is_asyncmq_task = True # type: ignore
 
-        # Register the wrapper as the callable
+        # Register in the global registry
         TASK_REGISTRY[task_id] = {
             "func": wrapper,
             "queue": queue,
