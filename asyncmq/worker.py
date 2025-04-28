@@ -6,7 +6,7 @@ import anyio
 
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
-from asyncmq.task import TASK_REGISTRY
+from asyncmq.tasks import TASK_REGISTRY
 
 if TYPE_CHECKING:
     from asyncmq.queue import Queue

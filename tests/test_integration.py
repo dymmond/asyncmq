@@ -10,7 +10,7 @@ from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
 from asyncmq.queue import Queue
 from asyncmq.runner import run_worker
-from asyncmq.task import list_tasks, task
+from asyncmq.tasks import list_tasks, task
 from asyncmq.worker import Worker
 
 pytestmark = pytest.mark.anyio

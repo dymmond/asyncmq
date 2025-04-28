@@ -41,6 +41,7 @@ dependencies = [
   "anyio>=4.9.0,<6.0.0",
   "redis>=5.2.1",
   "typer>=0.15.2",
+  "monkay>=0.4.1"
 ]
 keywords = ["asyncmq"]
 
