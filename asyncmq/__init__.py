@@ -36,8 +36,9 @@ __all__ = [
     "Job",
     "Queue",
     "RedisBackend",
+    "settings",
     "task",
-    "Worker"
+    "Worker",
 ]
 
 _monkay.add_lazy_import("task", ".tasks.task")

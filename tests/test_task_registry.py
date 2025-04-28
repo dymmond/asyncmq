@@ -75,7 +75,7 @@ def test_registered_function_names():
     assert "multiply" in names
 
 def test_registry_supports_different_queues():
-    queues = set(v["queue"] for v in TASK_REGISTRY.values())
+    queues = {v["queue"] for v in TASK_REGISTRY.values()}
     assert {"default", "custom", "math", "text"}.issubset(queues)
 
 def test_task_id_collision_does_not_occur():
@@ -107,5 +107,5 @@ def test_task_registry_is_not_empty():
 
 def test_task_registration_via_decorator():
     from types import FunctionType
-    keys = [k for k in TASK_REGISTRY]
+    keys = list(TASK_REGISTRY)
     assert all(isinstance(TASK_REGISTRY[k]["func"], FunctionType) for k in keys)

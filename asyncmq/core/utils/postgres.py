@@ -1,7 +1,7 @@
 try:
     import asyncpg
 except ImportError:
-    raise ImportError("Please install asyncpg: `pip install asyncpg`")
+    raise ImportError("Please install asyncpg: `pip install asyncpg`") from None
 
 from asyncmq.conf import settings
 
