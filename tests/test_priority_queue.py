@@ -5,9 +5,9 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 from asyncmq.logging import logger
-from asyncmq.runner import run_worker
+from asyncmq.runners import run_worker
 from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio

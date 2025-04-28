@@ -5,8 +5,8 @@ import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
-from asyncmq.job import Job
-from asyncmq.runner import run_worker
+from asyncmq.jobs import Job  # Note: Updated import
+from asyncmq.runners import run_worker  # Note: Updated import
 
 
 class Queue:
@@ -169,7 +169,8 @@ class Queue:
     def add_repeatable(
         self,
         task_id: str,
-        every: float,
+        every: float | str | None = None,
+        cron: str | None = None,
         args: list[Any] | None = None,
         kwargs: dict[str, Any] | None = None,
         retries: int = 0,
@@ -184,13 +185,18 @@ class Queue:
         the job definition to an internal list (`_repeatables`). When the
         `run()` or `start()` method is called to start the worker, a separate
         scheduler task is launched which periodically checks these registered
-        definitions and enqueues new jobs based on the `every` interval.
+        definitions and enqueues new jobs based on the `every` interval or
+        `cron` expression.
 
         Args:
             task_id: The unique identifier string for the task function to
                      execute for repeatable jobs.
             every: The time interval in seconds between each repeatable job
-                   instance being enqueued.
+                   instance being enqueued (e.g., 60.0 for every minute) OR
+                   a string recognizable by the scheduler for interval definition.
+                   Defaults to None.
+            cron: A cron expression string defining the schedule for repeatable
+                  jobs (e.g., "0 * * * *" for hourly). Defaults to None.
             args: An optional list of positional arguments to pass to the task
                   function for each repeatable job instance. Defaults to [].
             kwargs: An optional dictionary of keyword arguments to pass to the
@@ -201,17 +207,34 @@ class Queue:
                  Defaults to None.
             priority: The priority for each instance of the repeatable job.
                       Defaults to 5.
+
+        Raises:
+            ValueError: If neither `every` nor `cron` is provided.
         """
-        # Add the job definition to the internal list of repeatables.
-        self._repeatables.append({
+        # Validate that either 'every' or 'cron' is provided.
+        if not every and not cron:
+            raise ValueError(
+                "Either 'every' (seconds or string) or 'cron' (expression) must be "
+                "provided."
+            )
+
+        # Create a dictionary representing the repeatable job entry.
+        entry = {
             "task_id": task_id,
             "args": args or [],
             "kwargs": kwargs or {},
-            "repeat_every": every,
-            "max_retries": retries,
+            "retries": retries,
             "ttl": ttl,
             "priority": priority,
-        })
+        }
+        # Add 'every' or 'cron' to the entry if provided.
+        if every:
+            entry["every"] = every
+        if cron:
+            entry["cron"] = cron
+
+        # Append the repeatable job entry to the internal list.
+        self._repeatables.append(entry)
 
     async def pause(self) -> None:
         """

@@ -4,9 +4,9 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
-from asyncmq.scheduler import repeatable_scheduler
+from asyncmq.schedulers import repeatable_scheduler
 from asyncmq.tasks import TASK_REGISTRY, task
-from asyncmq.worker import handle_job
+from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
 

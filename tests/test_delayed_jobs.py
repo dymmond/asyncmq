@@ -7,9 +7,9 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY, task
-from asyncmq.worker import handle_job
+from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
 

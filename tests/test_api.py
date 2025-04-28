@@ -3,9 +3,9 @@ import pytest
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
 from asyncmq.flow import FlowProducer
-from asyncmq.job import Job
-from asyncmq.queue import Queue
-from asyncmq.worker import Worker
+from asyncmq.jobs import Job
+from asyncmq.queues import Queue
+from asyncmq.workers import Worker
 
 pytestmark = pytest.mark.anyio
 

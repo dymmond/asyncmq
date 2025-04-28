@@ -308,5 +308,6 @@ def enable_logging() -> None:
         # If logging is not set up, call the setup function using the
         # logging configuration from settings.
         setup_logging(settings.logging_config)
+        settings.is_logging_setup = True
 
 enable_logging()
