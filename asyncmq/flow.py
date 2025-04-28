@@ -2,7 +2,7 @@ from typing import Awaitable, Callable
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
-from asyncmq.dependencies import add_dependencies
+from asyncmq.core.dependencies import add_dependencies
 from asyncmq.job import Job
 
 # Define the expected type signature for the add_dependencies function

@@ -4,8 +4,8 @@ from typing import Any, Tuple
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.enums import State
-from asyncmq.event import event_emitter
+from asyncmq.core.enums import State
+from asyncmq.core.event import event_emitter
 
 # Define a type alias for the tuple key used in dictionaries like job_states, job_results, etc.
 # It's a tuple of (queue_name: str, job_id: str). This provides a clear type hint

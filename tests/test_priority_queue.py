@@ -4,8 +4,9 @@ import time  # Add this import
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.job import Job
+from asyncmq.logging import logger
 from asyncmq.runner import run_worker
 from asyncmq.tasks import TASK_REGISTRY, task
 
@@ -212,8 +213,8 @@ async def test_job_with_priority_and_ttl():
     # Check job states to debug
     state_high = await backend.get_job_state("runner", job_high_priority.id)
     state_low = await backend.get_job_state("runner", job_low_priority.id)
-    print(f"Job High State: {state_high}")
-    print(f"Job Low State: {state_low}")
+    logger.info(f"Job High State: {state_high}")
+    logger.info(f"Job Low State: {state_low}")
 
     # Get the results of the jobs
     result_high = await backend.get_job_result("runner", job_high_priority.id)

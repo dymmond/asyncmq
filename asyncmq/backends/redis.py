@@ -6,8 +6,8 @@ import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.enums import State
-from asyncmq.event import event_emitter
+from asyncmq.core.enums import State
+from asyncmq.core.event import event_emitter
 from asyncmq.stores.redis_store import RedisJobStore
 
 # Lua script used to atomically retrieve and remove the highest priority job

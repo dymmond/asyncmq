@@ -1,6 +1,6 @@
 import time
 
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.job import Job
 
 

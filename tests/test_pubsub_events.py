@@ -1,7 +1,7 @@
 import pytest
 
-from asyncmq.enums import State
-from asyncmq.event import EventEmitter
+from asyncmq.core.enums import State
+from asyncmq.core.event import EventEmitter
 
 pytestmark = pytest.mark.anyio
 

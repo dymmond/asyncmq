@@ -1,7 +1,7 @@
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
 from asyncmq.queue import Queue

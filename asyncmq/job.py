@@ -2,7 +2,7 @@ import time
 import uuid
 from typing import Any, Callable
 
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 
 # A tuple listing all possible states that a job can transition through
 # during its lifecycle within the queue system.
