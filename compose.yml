@@ -6,11 +6,16 @@ services:
       - "6379:6379"
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17
     container_name: taskq_postgres
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+      POSTGRES_DB: "postgres"
+    expose:
+      - "5432"
+    command: >-
+      --jit=false
     ports:
       - "5432:5432"
-    environment:
-      POSTGRES_USER: taskq
-      POSTGRES_PASSWORD: taskq
-      POSTGRES_DB: taskq
