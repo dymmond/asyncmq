@@ -78,7 +78,7 @@ def test_add_repeatable():
     assert len(q._repeatables) == 1
     rep = q._repeatables[0]
     assert rep['task_id'] == 'repeat_task'
-    assert rep['repeat_every'] == 5
+    assert rep['every'] == 5
 
 
 
