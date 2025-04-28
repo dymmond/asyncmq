@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.scheduler import repeatable_scheduler
 from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.worker import handle_job
@@ -141,7 +142,7 @@ async def test_repeatable_job_status():
     await asyncio.sleep(2)
     scheduler.cancel()
     raw = await backend.dequeue("repeatable")
-    assert raw["status"] == "waiting"
+    assert raw["status"] == State.WAITING
 
 
 async def test_repeatable_job_interval_variation():

@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.tasks import task
 from asyncmq.worker import handle_job
 
@@ -28,11 +29,11 @@ async def test_job_lifecycle_changes():
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend,)
 
-    await wait_for_state(backend, "test", raw["id"], "completed")
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     state = await backend.get_job_state("test", raw["id"])
     result = await backend.get_job_result("test", raw["id"])
 
-    assert state == "completed"
+    assert state == State.COMPLETED
     assert result == 7
 
 @task(queue="test")
@@ -47,9 +48,9 @@ async def test_failed_job_goes_to_dlq():
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend,)
 
-    await wait_for_state(backend, "test", raw["id"], "failed")
+    await wait_for_state(backend, "test", raw["id"], State.FAILED)
     state = await backend.get_job_state("test", raw["id"])
-    assert state == "failed"
+    assert state == State.FAILED
 
 @task(queue="test")
 async def echo_task(value):
@@ -61,7 +62,7 @@ async def test_echo_result():
     await echo_task.enqueue(backend, "hello")
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend,)
-    await wait_for_state(backend, "test", raw["id"], "completed")
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     result = await backend.get_job_result("test", raw["id"])
     assert result == "hello"
 
@@ -75,7 +76,7 @@ async def test_sum_list_task():
     await sum_list.enqueue(backend, [1, 2, 3, 4])
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend,)
-    await wait_for_state(backend, "test", raw["id"], "completed")
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     result = await backend.get_job_result("test", raw["id"])
     assert result == 10
 
@@ -89,7 +90,7 @@ async def test_upper_case():
     await upper_case.enqueue(backend, "test")
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend,)
-    await wait_for_state(backend, "test", raw["id"], "completed")
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     result = await backend.get_job_result("test", raw["id"])
     assert result == "TEST"
 
@@ -103,6 +104,6 @@ async def test_multiply_task():
     await multiply.enqueue(backend, 6, 7)
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend)
-    await wait_for_state(backend, "test", raw["id"], "completed")
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     result = await backend.get_job_result("test", raw["id"])
     assert result == 42

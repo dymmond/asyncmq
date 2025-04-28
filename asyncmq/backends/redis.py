@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set
 from redis import asyncio as redis
 
 from asyncmq.backends.base import BaseBackend
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.stores.redis_store import RedisJobStore
 
@@ -83,7 +84,7 @@ class RedisBackend(BaseBackend):
         Jobs are stored in a Redis Sorted Set (`queue:{queue_name}:waiting`)
         where the score is calculated based on priority and enqueue timestamp
         to ensure priority-based ordering. The full job payload is also saved
-        in the job store, and its state is updated to "waiting".
+        in the job store, and its state is updated to State.WAITING.
 
         Args:
             queue_name: The name of the queue to enqueue the job onto.
@@ -98,8 +99,8 @@ class RedisBackend(BaseBackend):
         key: str = self._waiting_key(queue_name)
         # Add the job payload (as a JSON string) to the Sorted Set with the calculated score.
         await self.redis.zadd(key, {json.dumps(payload): score})
-        # Update the job's status to "waiting" and save the full payload in the job store.
-        payload['status'] = 'waiting'
+        # Update the job's status to State.WAITING and save the full payload in the job store.
+        payload['status'] = State.WAITING
         await self.job_store.save(queue_name, payload['id'], payload)
 
     async def dequeue(self, queue_name: str) -> Optional[Dict[str, Any]]:
@@ -108,8 +109,8 @@ class RedisBackend(BaseBackend):
 
         Uses a Lua script (`POP_SCRIPT`) to atomically retrieve and remove the
         highest priority job from the waiting queue's Sorted Set. If a job is
-        dequeued, it's marked as "active" in the job store and optionally
-        tracked in an "active" Redis Hash.
+        dequeued, it's marked as State.ACTIVE in the job store and optionally
+        tracked in an State.ACTIVE Redis Hash.
 
         Args:
             queue_name: The name of the queue to dequeue a job from.
@@ -127,7 +128,7 @@ class RedisBackend(BaseBackend):
             # Parse the JSON string back into a dictionary.
             payload: Dict[str, Any] = json.loads(raw)
             # Mark the job as active in the job store.
-            payload['status'] = 'active'
+            payload['status'] = State.ACTIVE
             await self.job_store.save(queue_name, payload['id'], payload)
             # Optionally track the job in an active hash (e.g., for monitoring).
             await self.redis.hset(self._active_key(queue_name), payload['id'], time.time())
@@ -142,7 +143,7 @@ class RedisBackend(BaseBackend):
         associated with the specified queue.
 
         Jobs are stored in a Redis Sorted Set (`queue:{queue_name}:dlq`)
-        scored by the current timestamp. The job's state is updated to "failed"
+        scored by the current timestamp. The job's state is updated to State.FAILED
         in the job store.
 
         Args:
@@ -151,23 +152,23 @@ class RedisBackend(BaseBackend):
         """
         # Get the Redis key for the DLQ's Sorted Set.
         key: str = self._dlq_key(queue_name)
-        # Add the job payload (with status updated to 'failed') to the DLQ Sorted Set, scored by current time.
-        await self.redis.zadd(key, {json.dumps({**payload, 'status': 'failed'}): time.time()})
-        # Update the job's state to "failed" in the job store.
-        await self.job_store.save(queue_name, payload['id'], {**payload, 'status': 'failed'})
+        # Add the job payload (with status updated to State.FAILED) to the DLQ Sorted Set, scored by current time.
+        await self.redis.zadd(key, {json.dumps({**payload, 'status': State.FAILED}): time.time()})
+        # Update the job's state to State.FAILED in the job store.
+        await self.job_store.save(queue_name, payload['id'], {**payload, 'status': State.FAILED})
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
         Asynchronously acknowledges the successful processing of a job.
 
-        Removes the job from the "active" Redis Hash. Optional cleanup
+        Removes the job from the State.ACTIVE Redis Hash. Optional cleanup
         in the job store might be needed depending on the store's lifecycle.
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job being acknowledged.
         """
-        # Remove the job from the "active" hash.
+        # Remove the job from the State.ACTIVE hash.
         await self.redis.hdel(self._active_key(queue_name), job_id)
         # Note: Additional cleanup in job_store (e.g., marking as completed or deleting)
         # might be handled by the worker logic calling this ack method.
@@ -178,7 +179,7 @@ class RedisBackend(BaseBackend):
         specific future time by adding it to a Redis Sorted Set for delayed jobs.
 
         Jobs are stored in a Redis Sorted Set (`queue:{queue_name}:delayed`)
-        scored by the `run_at` timestamp. The job's state is updated to "delayed"
+        scored by the `run_at` timestamp. The job's state is updated to State.EXPIRED
         in the job store.
 
         Args:
@@ -191,8 +192,8 @@ class RedisBackend(BaseBackend):
         key: str = self._delayed_key(queue_name)
         # Add the job payload to the delayed Sorted Set, scored by the run_at timestamp.
         await self.redis.zadd(key, {json.dumps(payload): run_at})
-        # Update the job's state to "delayed" in the job store.
-        payload['status'] = 'delayed'
+        # Update the job's state to State.EXPIRED in the job store.
+        payload['status'] = State.EXPIRED
         await self.job_store.save(queue_name, payload['id'], payload)
 
     async def get_due_delayed(self, queue_name: str) -> List[Dict[str, Any]]:
@@ -257,7 +258,7 @@ class RedisBackend(BaseBackend):
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
-            state: The new state string for the job (e.g., "active", "completed").
+            state: The new state string for the job (e.g., State.ACTIVE, State.COMPLETED).
         """
         # Load the job data from the job store.
         job: Optional[Dict[str, Any]] = await self.job_store.load(queue_name, job_id)
@@ -550,7 +551,7 @@ class RedisBackend(BaseBackend):
 
         # Execute the pipeline, sending all commands to Redis in a single round trip.
         await pipe.execute()
-        # Note: This bulk enqueue does not update the job state to 'waiting' in the job store
+        # Note: This bulk enqueue does not update the job state to State.WAITING in the job store
         # for each job individually after the bulk operation. A separate loop or modification
         # of the pipeline might be needed if this state update is critical immediately.
 
@@ -565,7 +566,7 @@ class RedisBackend(BaseBackend):
 
         Args:
             queue_name: The name of the queue from which to purge jobs.
-            state: The state of the jobs to be removed (e.g., "completed", "failed").
+            state: The state of the jobs to be removed (e.g., State.COMPLETED, State.FAILED).
             older_than: An optional timestamp. Only jobs in the specified state
                         whose relevant timestamp (completion, failure, expiration time)
                         is older than this value will be removed. If None, all jobs
@@ -584,7 +585,7 @@ class RedisBackend(BaseBackend):
                 await self.job_store.delete(queue_name, job['id'])
                 # Remove the job from the corresponding Redis Sorted Set based on its state.
                 # Note: This assumes a Sorted Set exists for each state, which is not
-                # explicitly defined for all states (like 'completed') in other methods.
+                # explicitly defined for all states (like State.COMPLETED) in other methods.
                 # This part might need adjustment based on the actual backend structure.
                 await self.redis.zrem(f"queue:{queue_name}:{state}", json.dumps(job))
 

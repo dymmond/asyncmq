@@ -1,13 +1,13 @@
-# tests/test_job_model.py
 import time
 
+from asyncmq.enums import State
 from asyncmq.job import Job
 
 
 def test_job_creation_defaults():
     job = Job(task_id="test.task", args=[1], kwargs={})
     assert job.task_id == "test.task"
-    assert job.status == "waiting"
+    assert job.status == State.WAITING
     assert job.priority == 5
     assert job.retries == 0
     assert job.max_retries == 3
@@ -19,7 +19,7 @@ def test_job_creation_defaults():
 
 def test_job_to_from_dict():
     job = Job(task_id="test.serialize", args=[1, 2], kwargs={"key": "value"})
-    job.status = "active"
+    job.status = State.ACTIVE
     job.result = 42
     job.priority = 2
     job.depends_on = ["abc"]

@@ -4,6 +4,7 @@ import time  # Add this import
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
 from asyncmq.tasks import TASK_REGISTRY, task
@@ -148,8 +149,8 @@ async def test_priority_queue_with_max_retries():
     await backend.enqueue("runner", job_b.to_dict())
 
     # Simulate job failure for job_b
-    job_b.status = "failed"
-    await backend.update_job_state("runner", job_b.id, "failed")
+    job_b.status = State.FAILED
+    await backend.update_job_state("runner", job_b.id, State.FAILED)
 
     # Run the worker to process jobs
     worker = asyncio.create_task(run_worker("runner", backend=backend))

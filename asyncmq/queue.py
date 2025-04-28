@@ -247,8 +247,8 @@ class Queue:
         and age.
 
         Args:
-            state: The state of the jobs to be purged (e.g., "completed",
-                   "failed", "expired"). The exact states supported depend
+            state: The state of the jobs to be purged (e.g., State.COMPLETED,
+                   State.FAILED, State.EXPIRED). The exact states supported depend
                    on the backend implementation.
             older_than: An optional timestamp (as a float, e.g., from time.time()).
                         Only jobs in the specified `state` whose processing

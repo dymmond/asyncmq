@@ -190,7 +190,7 @@ async def purge_jobs(queue: str, state: str, backend: BaseBackend | None = None,
         backend: An object providing the backend interface, expected to have
                  a `purge` method. Typed as `Any`.
         queue: The name of the queue from which to purge jobs.
-        state: The state of the jobs to be removed (e.g., "completed", "failed").
+        state: The state of the jobs to be removed (e.g., State.COMPLETED, State.FAILED).
         older_than: An optional timestamp. Only jobs in the specified state
                     whose relevant timestamp (completion/failure/expiration time)
                     is older than this value will be removed. If None, all jobs

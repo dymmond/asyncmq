@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.runner import run_worker
@@ -117,7 +118,7 @@ async def test_rate_limit_with_job_failure():
 
     # Check if the job is moved to the DLQ after failure
     state = await backend.get_job_state("runner", job.id)
-    assert state in {"failed", "delayed"}  # Depending on scan timing, job may still be delayed or failed
+    assert state in {State.FAILED, State.EXPIRED}  # Depending on scan timing, job may still be delayed or failed
 
 
 
@@ -150,4 +151,4 @@ async def test_rate_limit_with_multiple_jobs_in_one_period():
     # Last 2 should still be waiting for tokens
     for job in jobs[3:]:
         state = await backend.get_job_state("runner", job.id)
-        assert state == "waiting"
+        assert state == State.WAITING

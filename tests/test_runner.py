@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
 from asyncmq.tasks import TASK_REGISTRY, task
@@ -51,7 +52,7 @@ async def test_run_worker_success():
     result = await backend.get_job_result("runner", job.id)
     state = await backend.get_job_state("runner", job.id)
 
-    assert state == "completed"
+    assert state == State.COMPLETED
     assert result == "hi"
 
 
@@ -65,7 +66,7 @@ async def test_run_worker_failure_goes_to_dlq():
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_echo_value():
@@ -105,7 +106,7 @@ async def test_fail_then_succeed():
 
     result = await backend.get_job_result("runner", job.id)
     state = await backend.get_job_state("runner", job.id)
-    assert state == "completed"
+    assert state == State.COMPLETED
     assert result == "success"
 
 
@@ -132,7 +133,7 @@ async def test_job_ttl_expires():
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state in {"expired", "failed"}
+    assert state in {State.EXPIRED, State.FAILED}
 
 
 async def test_worker_handles_multiple_jobs():
@@ -150,7 +151,7 @@ async def test_worker_handles_multiple_jobs():
 
     for job_id in job_ids:
         state = await backend.get_job_state("runner", job_id)
-        assert state == "completed"
+        assert state == State.COMPLETED
 
 
 async def test_worker_respects_backoff():
@@ -163,7 +164,7 @@ async def test_worker_respects_backoff():
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_worker_skips_expired_jobs():
@@ -177,7 +178,7 @@ async def test_worker_skips_expired_jobs():
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed" or state == "expired"
+    assert state == State.FAILED or state == State.EXPIRED
 
 
 async def test_worker_can_recover_from_job_exception():
@@ -193,8 +194,8 @@ async def test_worker_can_recover_from_job_exception():
 
     state1 = await backend.get_job_state("runner", job1.id)
     state2 = await backend.get_job_state("runner", job2.id)
-    assert state1 == "failed"
-    assert state2 == "completed"
+    assert state1 == State.FAILED
+    assert state2 == State.COMPLETED
 
 
 async def test_worker_handles_zero_args():
@@ -240,4 +241,4 @@ async def test_worker_long_chain_jobs():
 
     for job_id in job_ids:
         state = await backend.get_job_state("runner", job_id)
-        assert state == "completed"
+        assert state == State.COMPLETED

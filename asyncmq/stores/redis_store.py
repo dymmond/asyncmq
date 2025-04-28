@@ -149,7 +149,7 @@ class RedisJobStore(BaseJobStore):
 
         Args:
             queue_name: The name of the queue.
-            status: The status of the jobs to retrieve (e.g., "waiting", "active").
+            status: The status of the jobs to retrieve (e.g., State.WAITING, State.ACTIVE).
 
         Returns:
             A list of dictionaries, where each dictionary contains the data

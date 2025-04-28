@@ -1,5 +1,6 @@
 import pytest
 
+from asyncmq.enums import State
 from asyncmq.event import EventEmitter
 
 pytestmark = pytest.mark.anyio
@@ -11,8 +12,8 @@ async def test_event_subscription_and_publish():
     def on_complete(data):
         events.append(f"completed:{data['id']}")
 
-    emitter.on("completed", on_complete)
-    await emitter.emit("completed", {"id": "abc123"})
+    emitter.on(State.COMPLETED, on_complete)
+    await emitter.emit(State.COMPLETED, {"id": "abc123"})
 
     assert "completed:abc123" in events
 

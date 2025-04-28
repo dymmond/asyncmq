@@ -5,6 +5,7 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
 from asyncmq.tasks import TASK_REGISTRY, task
@@ -79,7 +80,7 @@ async def test_job_moves_to_dlq_when_expired():
     await backend.move_to_dlq("test", job.to_dict())
     state = await backend.get_job_state("test", job.id)
 
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_multiple_delayed_jobs():
@@ -140,7 +141,7 @@ async def test_delayed_job_status_marked_delayed():
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
     state = await backend.get_job_state("test", job.id)
 
-    assert state == "delayed"
+    assert state == State.EXPIRED
 
 
 async def test_delayed_result_is_none_initially():

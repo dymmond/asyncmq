@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import anyio
 
 from asyncmq.backends.base import BaseBackend
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 
 # Define a type alias for the tuple key used in dictionaries like job_states, job_results, etc.
@@ -56,7 +57,7 @@ class InMemoryBackend(BaseBackend):
 
         The job is added to the in-memory list for the queue and the list
         is sorted by job priority (lower number = higher priority). The job's
-        initial state is set to "waiting". Access to the queue list and
+        initial state is set to State.WAITING. Access to the queue list and
         job_states dictionary is protected by the internal lock.
 
         Args:
@@ -70,8 +71,8 @@ class InMemoryBackend(BaseBackend):
             queue.append(payload)
             # Sort the queue by job priority.
             queue.sort(key=lambda job: job.get("priority", 5))
-            # Update the job's state to "waiting".
-            self.job_states[(queue_name, payload["id"])] = "waiting"
+            # Update the job's state to State.WAITING.
+            self.job_states[(queue_name, payload["id"])] = State.WAITING
 
     async def dequeue(self, queue_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -101,7 +102,7 @@ class InMemoryBackend(BaseBackend):
         associated with the specified queue.
 
         The job is appended to the in-memory list for the DLQ, and its state
-        is updated to "failed". Access to the DLQ list and job_states dictionary
+        is updated to State.FAILED. Access to the DLQ list and job_states dictionary
         is protected by the internal lock.
 
         Args:
@@ -113,8 +114,8 @@ class InMemoryBackend(BaseBackend):
             dlq: List[Dict[str, Any]] = self.dlqs.setdefault(queue_name, [])
             # Append the job payload to the DLQ list.
             dlq.append(payload)
-            # Update the job's state to "failed".
-            self.job_states[(queue_name, payload["id"])] = "failed"
+            # Update the job's state to State.FAILED.
+            self.job_states[(queue_name, payload["id"])] = State.FAILED
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -137,7 +138,7 @@ class InMemoryBackend(BaseBackend):
         specific future time by adding it to the in-memory delayed list.
 
         The job is stored as a tuple containing the run_at timestamp and the
-        job payload. Its state is updated to "delayed". Access to the delayed
+        job payload. Its state is updated to State.EXPIRED. Access to the delayed
         list and job_states dictionary is protected by the internal lock.
 
         Args:
@@ -151,8 +152,8 @@ class InMemoryBackend(BaseBackend):
             delayed_list: List[Tuple[float, Dict[str, Any]]] = self.delayed.setdefault(queue_name, [])
             # Append the run_at timestamp and job payload as a tuple.
             delayed_list.append((run_at, payload))
-            # Update the job's state to "delayed".
-            self.job_states[(queue_name, payload["id"])] = "delayed"
+            # Update the job's state to State.EXPIRED.
+            self.job_states[(queue_name, payload["id"])] = State.EXPIRED
 
     async def get_due_delayed(self, queue_name: str) -> List[Dict[str, Any]]:
         """
@@ -212,7 +213,7 @@ class InMemoryBackend(BaseBackend):
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
-            state: The new state string for the job (e.g., "active", "completed").
+            state: The new state string for the job (e.g., State.ACTIVE, State.COMPLETED).
         """
         async with self.lock:
             # Update the state for the job using the tuple key.
@@ -389,7 +390,7 @@ class InMemoryBackend(BaseBackend):
         Asynchronously enqueues multiple job payloads onto the specified queue
         in a single batch operation within the in-memory list.
 
-        Each job's state is set to "waiting". Access to the queue list and
+        Each job's state is set to State.WAITING. Access to the queue list and
         job_states dictionary is protected by the internal lock.
 
         Args:
@@ -402,9 +403,9 @@ class InMemoryBackend(BaseBackend):
             q: List[Dict[str, Any]] = self.queues.setdefault(queue_name, [])
             # Append all job payloads from the input list to the queue list.
             q.extend(jobs)
-            # Update the state for each enqueued job to "waiting".
+            # Update the state for each enqueued job to State.WAITING.
             for job in jobs:
-                self.job_states[(queue_name, job['id'])] = 'waiting'
+                self.job_states[(queue_name, job['id'])] = State.WAITING
             # Re-sort the queue after adding jobs (needed if priority is used).
             q.sort(key=lambda job: job.get("priority", 5))
 
@@ -421,7 +422,7 @@ class InMemoryBackend(BaseBackend):
 
         Args:
             queue_name: The name of the queue from which to purge jobs.
-            state: The state of the jobs to be removed (e.g., "completed", "failed").
+            state: The state of the jobs to be removed (e.g., State.COMPLETED, State.FAILED).
             older_than: An optional timestamp (ignored in this implementation).
         """
         # List to collect keys of jobs to delete.

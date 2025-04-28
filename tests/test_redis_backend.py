@@ -1,4 +1,3 @@
-# tests/test_redis_backend.py
 import asyncio
 import json
 import time
@@ -6,6 +5,7 @@ import time
 import pytest
 
 from asyncmq.backends.redis import RedisBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 
 
@@ -34,9 +34,9 @@ async def test_job_state_tracking(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.state", args=[], kwargs={})
     await backend.enqueue("test", job.to_dict())
-    await backend.update_job_state("test", job.id, "active")
+    await backend.update_job_state("test", job.id, State.ACTIVE)
     state = await backend.get_job_state("test", job.id)
-    assert state == "active"
+    assert state == State.ACTIVE
 
 
 @pytest.mark.asyncio
@@ -66,7 +66,7 @@ async def test_move_to_dlq(redis):
     job = Job(task_id="redis.dlq", args=[], kwargs={})
     await backend.move_to_dlq("test", job.to_dict())
     state = await backend.get_job_state("test", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 @pytest.mark.asyncio

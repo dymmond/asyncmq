@@ -122,13 +122,13 @@ class BaseBackend(ABC):
         """
         Asynchronously updates the status of a specific job in the backend storage.
 
-        This is used to reflect the job's current lifecycle state (e.g., "active",
-        "completed", "failed", "delayed").
+        This is used to reflect the job's current lifecycle state (e.g., State.ACTIVE,
+        State.COMPLETED, State.FAILED, State.EXPIRED).
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
-            state: The new state string for the job (e.g., "active", "completed").
+            state: The new state string for the job (e.g., State.ACTIVE, State.COMPLETED).
         """
         ...
 
@@ -278,7 +278,7 @@ class BaseBackend(ABC):
 
         Args:
             queue_name: The name of the queue from which to purge jobs.
-            state: The state of the jobs to be removed (e.g., "completed", "failed").
+            state: The state of the jobs to be removed (e.g., State.COMPLETED, State.FAILED).
             older_than: An optional timestamp. Only jobs in the specified state
                         whose relevant timestamp is older than this will be purged.
                         If None, all jobs in the state might be purged.

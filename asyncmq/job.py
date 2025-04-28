@@ -2,8 +2,10 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from asyncmq.enums import State
+
 # Define a type hint for the JOB_STATES tuple
-JOB_STATES: Tuple[str, ...] = ("waiting", "active", "completed", "failed", "delayed", "expired")
+JOB_STATES: Tuple[str, ...] = (State.WAITING, State.ACTIVE, State.COMPLETED, State.FAILED, State.DELAYED, State.EXPIRED)
 """
 A tuple listing all possible states that a job can transition through
 during its lifecycle within the queue system.
@@ -97,7 +99,7 @@ class Job:
         # Timestamp of the last failed attempt (None initially).
         self.last_attempt: Optional[float] = None
         # Current status of the job.
-        self.status: str = "waiting"
+        self.status: str = State.WAITING
         # Result of a completed job (None initially or on failure).
         self.result: Any = None
         # Absolute time until which the job should be delayed (None unless delayed).
@@ -144,7 +146,7 @@ class Job:
         )
         # Assign status, result, delay_until, and last_attempt separately
         # as they represent the job's dynamic state.
-        job.status = data.get("status", "waiting")
+        job.status = data.get("status", State.WAITING)
         job.result = data.get("result")
         job.delay_until = data.get("delay_until")
         job.last_attempt = data.get("last_attempt")

@@ -5,6 +5,7 @@ import time
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
@@ -94,7 +95,7 @@ async def test_ttl_expiration():
     await asyncio.sleep(0.2)
 
     expired = backend.dlqs.get('ttl', [])
-    assert any(job['status'] == 'expired' and job['id'] == job_id for job in expired)
+    assert any(job['status'] == State.EXPIRED and job['id'] == job_id for job in expired)
 
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)

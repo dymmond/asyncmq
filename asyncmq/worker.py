@@ -6,6 +6,7 @@ import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
 from asyncmq.tasks import TASK_REGISTRY
@@ -120,7 +121,7 @@ async def handle_job(
 
     # Perform Time-To-Live (TTL) check.
     if job.is_expired():
-        job.status = "expired"
+        job.status = State.EXPIRED
         # Emit an event indicating the job has expired.
         await event_emitter.emit("job:expired", job.to_dict())
         # Move the expired job to the Dead Letter Queue (DLQ) using the backend.
@@ -140,8 +141,8 @@ async def handle_job(
             await rate_limiter.acquire()
 
         # Mark the job as active in the backend before execution.
-        job.status = "active"
-        await backend.update_job_state(queue_name, job.id, "active")
+        job.status = State.ACTIVE
+        await backend.update_job_state(queue_name, job.id, State.ACTIVE)
         # Emit an event indicating that the job has started processing.
         await event_emitter.emit("job:started", job.to_dict())
 
@@ -152,14 +153,14 @@ async def handle_job(
 
         # --- Success Path ---
         # If the task execution completes without raising an exception:
-        job.status = "completed"
+        job.status = State.COMPLETED
         job.result = result  # Store the result of the task execution.
         # Acknowledge the job completion with the backend.
         await backend.ack(queue_name, job.id)
         # Save the result of the job execution using the backend.
         await backend.save_job_result(queue_name, job.id, result)
         # Update the job state to completed in the backend.
-        await backend.update_job_state(queue_name, job.id, "completed")
+        await backend.update_job_state(queue_name, job.id, State.COMPLETED)
         # Emit an event indicating the job has completed successfully.
         await event_emitter.emit("job:completed", job.to_dict())
 
@@ -179,7 +180,7 @@ async def handle_job(
         # Check if the maximum number of retries allowed for this job has been exceeded.
         if job.retries > job.max_retries:
             # If retries are exhausted, mark the job as failed.
-            job.status = "failed"
+            job.status = State.FAILED
             # Emit an event indicating the job has permanently failed.
             await event_emitter.emit("job:failed", job.to_dict())
             # Move the failed job to the Dead Letter Queue (DLQ) using the backend.
@@ -190,9 +191,9 @@ async def handle_job(
             # Calculate the absolute time until the job should be retried.
             job.delay_until = time.time() + delay
             # Mark the job status as delayed for the next retry.
-            job.status = "delayed"
+            job.status = State.EXPIRED
             # Update the job state in the backend to reflect it's delayed.
-            await backend.update_job_state(queue_name, job.id, "delayed")
+            await backend.update_job_state(queue_name, job.id, State.EXPIRED)
             # Re-enqueue the job with the calculated delay using the backend.
             await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
 
