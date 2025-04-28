@@ -53,8 +53,8 @@ Changelog = "https://asyncmq.dymmond.com/release-notes/"
 Funding = "https://github.com/sponsors/tarsil"
 Source = "https://github.com/dymmond/asyncmq"
 
-#[project.scripts]
-#asyncmq = "asyncmq.cli.__main__:app"
+[project.scripts]
+asyncmq = "asyncmq.cli.__main__:main"
 
 [tool.hatch.version]
 path = "asyncmq/__init__.py"

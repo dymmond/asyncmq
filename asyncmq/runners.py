@@ -5,8 +5,40 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
-from asyncmq.workers import process_job
+from asyncmq.workers import handle_job, process_job
 
+
+async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | None = None):
+    """
+    A single worker that keeps dequeuing and processing jobs.
+    """
+    backend = backend or settings.backend
+
+    while True:
+        job = await backend.dequeue(queue_name)
+        if job:
+            await handle_job(queue_name, job, backend)
+        await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
+
+
+async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBackend | None = None):
+    """
+    Start multiple workers for the same queue.
+    """
+    backend = backend or settings.backend
+
+    tasks = []
+    for worker_id in range(concurrency):
+        task = asyncio.create_task(worker_loop(queue_name, worker_id, backend))
+        tasks.append(task)
+
+    try:
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        # Graceful shutdown if Ctrl+C
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 async def run_worker(
     queue_name: str,
