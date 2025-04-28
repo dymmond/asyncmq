@@ -5,8 +5,9 @@ import time
 import pytest
 
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.job import Job
+from asyncmq.logging import logger
 
 
 @pytest.mark.asyncio
@@ -22,9 +23,9 @@ async def test_enqueue_and_dequeue(redis):
     if zmembers:
         try:
             decoded = [json.loads(item) for item in zmembers]
-            print(f"Redis waiting‐set content (decoded): {decoded}")
+            logger.info(f"Redis waiting‐set content (decoded): {decoded}")
         except json.JSONDecodeError:
-            print("Could not decode sorted‐set content as JSON.")
+            logger.info("Could not decode sorted‐set content as JSON.")
 
     result = await backend.dequeue("test")
     assert result["id"] == job.id

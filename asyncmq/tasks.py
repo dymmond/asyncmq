@@ -5,7 +5,7 @@ from typing import Any, Callable
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.event import event_emitter
+from asyncmq.core.event import event_emitter
 from asyncmq.job import Job
 
 # Global registry holding metadata for all functions registered as asyncmq tasks.

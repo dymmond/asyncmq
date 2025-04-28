@@ -4,9 +4,9 @@ import time
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.delayed_scanner import delayed_job_scanner
-from asyncmq.enums import State
-from asyncmq.event import event_emitter
+from asyncmq.core.delayed_scanner import delayed_job_scanner
+from asyncmq.core.enums import State
+from asyncmq.core.event import event_emitter
 from asyncmq.job import Job
 from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.worker import handle_job

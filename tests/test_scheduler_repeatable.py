@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.scheduler import repeatable_scheduler
 from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.worker import handle_job

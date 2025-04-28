@@ -4,6 +4,7 @@ from typing import Any
 from asyncmq import __version__
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
+from asyncmq.logging import LoggingConfig, StandardLoggingConfig
 
 
 @dataclass
@@ -15,6 +16,7 @@ class _BaseSettings:
     of tuples formats, with options to exclude None values and convert keys
     to uppercase.
     """
+    is_logging_setup: bool = False
 
     def dict(self, exclude_none: bool = False, upper: bool = False) -> dict[str, Any]:
         """
@@ -100,3 +102,23 @@ class Settings(_BaseSettings):
     debug: bool = False
     backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
     version: str = __version__
+
+    @property
+    def logging_config(self) -> LoggingConfig | None:
+        """
+        Returns the logging configuration based on the current settings.
+
+        If `debug` is True, the logging level is set to "DEBUG", otherwise it's
+        set to "INFO". It returns an instance of `StandardLoggingConfig`.
+        A more advanced implementation might return different `LoggingConfig`
+        subclasses or None based on other settings.
+
+        Returns:
+            An instance of `StandardLoggingConfig` with the appropriate level,
+            or potentially None if logging should be disabled (though this
+            implementation always returns a config).
+        """
+        # Determine the logging level based on the debug setting.
+        level = "DEBUG" if self.debug else "INFO"
+        # Return a StandardLoggingConfig instance with the determined level.
+        return StandardLoggingConfig(level=level)

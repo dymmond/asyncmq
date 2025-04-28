@@ -5,6 +5,7 @@ import anyio
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.job import Job
+from asyncmq.logging import logger
 
 
 async def delayed_job_scanner(
@@ -34,7 +35,7 @@ async def delayed_job_scanner(
     """
     # Use the provided backend or fall back to the default configured backend.
     backend = backend or settings.backend
-    print(f"Delayed job scanner started for queue: {queue_name}")
+    logger.info(f"Delayed job scanner started for queue: {queue_name}")
 
     # Main loop to continuously scan for delayed jobs.
     while True:
@@ -49,7 +50,7 @@ async def delayed_job_scanner(
             await backend.remove_delayed(queue_name, job.id)
             # Enqueue the job back into the main queue for processing.
             await backend.enqueue(queue_name, job.to_dict())
-            print(f"[{job.id}] Moved delayed job to queue")
+            logger.info(f"[{job.id}] Moved delayed job to queue")
 
         # Sleep for the specified interval before the next scan.
         await anyio.sleep(interval)

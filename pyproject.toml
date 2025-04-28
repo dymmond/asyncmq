@@ -112,6 +112,9 @@ serve = "mkdocs serve --dev-addr localhost:8000"
 features = ["testing"]
 template = "test"
 
+[tool.hatch.envs.hatch-test.env-vars]
+ASYNCMQ_SETTINGS_MODULE = "tests.settings.TestSettings"
+
 [tool.hatch.envs.test]
 features = ['testing']
 

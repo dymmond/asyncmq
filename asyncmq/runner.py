@@ -3,7 +3,7 @@ from typing import Any
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
-from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.worker import process_job
 

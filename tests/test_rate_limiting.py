@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.enums import State
+from asyncmq.core.enums import State
 from asyncmq.job import Job
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.runner import run_worker
