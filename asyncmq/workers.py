@@ -8,11 +8,11 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
 
 if TYPE_CHECKING:
-    from asyncmq.queue import Queue
+    from asyncmq.queues import Queue
 
 
 async def process_job(

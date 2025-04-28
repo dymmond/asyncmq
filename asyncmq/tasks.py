@@ -6,7 +6,7 @@ import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.event import event_emitter
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 
 # Global registry holding metadata for all functions registered as asyncmq tasks.
 # The dictionary is keyed by a unique task ID (usually 'module.function_name')

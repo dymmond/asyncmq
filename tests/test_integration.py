@@ -8,11 +8,11 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.flow import FlowProducer
-from asyncmq.job import Job
-from asyncmq.queue import Queue
-from asyncmq.runner import run_worker
+from asyncmq.jobs import Job
+from asyncmq.queues import Queue
+from asyncmq.runners import run_worker
 from asyncmq.tasks import list_tasks, task
-from asyncmq.worker import Worker
+from asyncmq.workers import Worker
 
 pytestmark = pytest.mark.anyio
 

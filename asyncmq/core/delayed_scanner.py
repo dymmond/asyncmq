@@ -4,7 +4,7 @@ import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
 

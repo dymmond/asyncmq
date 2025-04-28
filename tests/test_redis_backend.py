@@ -6,7 +6,7 @@ import pytest
 
 from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.enums import State
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
 

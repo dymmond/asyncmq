@@ -4,9 +4,8 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
-from asyncmq.job import Job
-from asyncmq.rate_limiter import RateLimiter
-from asyncmq.runner import run_worker
+from asyncmq.jobs import Job
+from asyncmq.runners import run_worker
 from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
@@ -36,7 +35,6 @@ async def raise_error():
 
 async def test_rate_limited_task_execution():
     backend = InMemoryBackend()
-    rate_limiter = RateLimiter(rate=3, interval=1)  # Limit to 3 requests per second
 
     high_priority_job = Job(task_id=get_task_id(high_priority_task), args=[], kwargs={}, priority=1)
     low_priority_job = Job(task_id=get_task_id(low_priority_task), args=[], kwargs={}, priority=10)
@@ -63,7 +61,6 @@ async def test_rate_limited_task_execution():
 
 async def test_rate_limit_with_multiple_workers():
     backend = InMemoryBackend()
-    rate_limiter = RateLimiter(rate=3, interval=1)
 
     high_priority_job = Job(task_id=get_task_id(high_priority_task), args=[], kwargs={}, priority=1)
     low_priority_job = Job(task_id=get_task_id(low_priority_task), args=[], kwargs={}, priority=10)
@@ -88,7 +85,6 @@ async def test_rate_limit_with_multiple_workers():
 
 async def test_rate_limit_with_task_retries():
     backend = InMemoryBackend()
-    rate_limiter = RateLimiter(rate=3, interval=1)
 
     job = Job(task_id=get_task_id(high_priority_task), args=[], kwargs={}, priority=1, max_retries=2)
 
@@ -106,7 +102,6 @@ async def test_rate_limit_with_task_retries():
 
 async def test_rate_limit_with_job_failure():
     backend = InMemoryBackend()
-    rate_limiter = RateLimiter(rate=3, interval=1)
 
     job = Job(task_id=get_task_id(raise_error), args=[], kwargs={}, priority=1, max_retries=1, backoff=0)
 

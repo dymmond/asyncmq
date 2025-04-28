@@ -1,7 +1,7 @@
 import time
 
 from asyncmq.core.enums import State
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 
 
 def test_job_creation_defaults():

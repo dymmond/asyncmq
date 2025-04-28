@@ -5,7 +5,7 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
-from asyncmq.worker import process_job
+from asyncmq.workers import process_job
 
 
 async def run_worker(
@@ -95,7 +95,7 @@ async def run_worker(
     if repeatables:
         # Import the scheduler function here to avoid circular dependencies
         # if this module is imported elsewhere first.
-        from asyncmq.scheduler import repeatable_scheduler
+        from asyncmq.schedulers import repeatable_scheduler
         # Add the repeatable scheduler task to the list of tasks to run.
         tasks.append(
             repeatable_scheduler(

@@ -4,7 +4,7 @@ from typing import Any
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.core.event import event_emitter
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 
 
 async def add_dependencies(

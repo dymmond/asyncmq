@@ -8,22 +8,23 @@ if TYPE_CHECKING:
     from .backends.memory import InMemoryBackend
     from .backends.redis import RedisBackend
     from .conf import settings
-    from .job import Job
-    from .queue import Queue
+    from .jobs import Job
+    from .queues import Queue
     from .stores.base import BaseJobStore
     from .tasks import task
-    from .worker import Worker
+    from .workers import Worker
 
 _monkay: Monkay = Monkay(
     globals(),
     lazy_imports={
         "BaseJobStore": ".stores.base.BaseJobStore",
         "InMemoryBackend": ".backends.memory.InMemoryBackend",
-        "Job": ".job.Job",
-        "Queue": ".queue.Queue",
+        "Job": ".jobs.Job",
+        "Queue": ".queues.Queue",
         "RedisBackend": ".backends.redis.RedisBackend",
-        "Worker": ".worker.Worker",
+        "Worker": ".workers.Worker",
         "settings": ".conf.settings",
+        "Settings": ".conf.global_settings.Settings",
     },
     skip_all_update=True,
     package="asyncmq",
@@ -35,8 +36,9 @@ __all__ = [
     "Job",
     "Queue",
     "RedisBackend",
+    "settings",
     "task",
-    "Worker"
+    "Worker",
 ]
 
 _monkay.add_lazy_import("task", ".tasks.task")

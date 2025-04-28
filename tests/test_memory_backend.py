@@ -5,7 +5,7 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
-from asyncmq.job import Job
+from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 

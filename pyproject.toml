@@ -39,11 +39,12 @@ classifiers = [
 ]
 dependencies = [
   "anyio>=4.9.0,<6.0.0",
+  "croniter>=6.0.0,<7.0.0",
   "redis>=5.2.1",
   "typer>=0.15.2",
   "monkay>=0.4.1"
 ]
-keywords = ["asyncmq"]
+keywords = ["asyncmq", "broker"]
 
 [project.urls]
 Homepage = "https://github.com/dymmond/asyncmq"
@@ -72,8 +73,6 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
-    "fakeredis[asyncio]",
-    "asyncpg",
     "anyio[trio]>=4.9.0,<6.0.0",
     "autoflake>=2.0.2,<3.0.0",
     "esmerald>=3.7.7",
@@ -82,7 +81,9 @@ testing = [
     "pytest>=7.2.2,<9.0.0",
     "pytest-cov>=4.0.0,<5.0.0",
     "pytest-asyncio>=0.26.0",
+    "structlog>=25.3.0",
 ]
+postgres = ["asyncpg>=0.30.0"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
@@ -109,7 +110,7 @@ build = "mkdocs build"
 serve = "mkdocs serve --dev-addr localhost:8000"
 
 [tool.hatch.envs.hatch-test]
-features = ["testing"]
+features = ["testing", "postgres"]
 template = "test"
 
 [tool.hatch.envs.hatch-test.env-vars]
