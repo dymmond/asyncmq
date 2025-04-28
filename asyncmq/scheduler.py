@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import anyio
 
@@ -9,9 +9,9 @@ from asyncmq.job import Job
 
 async def repeatable_scheduler(
     queue_name: str,
-    jobs: List[Dict[str, Any]],
+    jobs: list[dict[str, Any]],
     backend: BaseBackend | None = None,
-    interval: Optional[float] = None,
+    interval: float | None = None,
 ) -> None:
     """
     Schedules and enqueues jobs that are configured to repeat at defined intervals.
@@ -49,10 +49,11 @@ async def repeatable_scheduler(
                   calculated based on the minimum positive `repeat_every` of
                   the provided jobs. Defaults to None.
     """
+    # Use the provided backend or fall back to the default configured backend.
     backend = backend or settings.backend
     # Dictionary to store the last time each repeatable job definition was enqueued.
     # Key is the task ID (string), value is the timestamp (float) from anyio.current_time().
-    last_run: Dict[str, float] = {}
+    last_run: dict[str, float] = {}
 
     # Determine the frequency at which the scheduler loop should run.
     if interval is None:
@@ -72,7 +73,7 @@ async def repeatable_scheduler(
     # The main scheduling loop runs indefinitely.
     while True:
         # Get the current time from a monotonic clock.
-        now: float = anyio.current_time()  # monotonic clock
+        now: float = anyio.current_time()
         # Iterate through each job definition provided.
         for job_def in jobs:
             # Get the unique identifier for the task.
@@ -90,12 +91,16 @@ async def repeatable_scheduler(
                     task_id=job_def["task_id"],
                     args=job_def.get("args", []),
                     kwargs=job_def.get("kwargs", {}),
-                    max_retries=job_def.get("max_retries", 3), # Default retries if not specified in definition
+                    max_retries=job_def.get(
+                        "max_retries", 3
+                    ),  # Default retries if not specified
                     ttl=job_def.get("ttl"),
-                    priority=job_def.get("priority", 5), # Default priority if not specified
-                    repeat_every=repeat_every,          # Include repeat_every in the new job instance
+                    priority=job_def.get(
+                        "priority", 5
+                    ),  # Default priority if not specified
+                    repeat_every=repeat_every,  # Include repeat_every in the new job instance
                 )
-                # Enqueue the newly created job instance onto the target queue using the backend.
+                # Enqueue the newly created job instance onto the target queue.
                 await backend.enqueue(queue_name, job.to_dict())
                 # Update the last run time for this job definition to the current time.
                 last_run[key] = now

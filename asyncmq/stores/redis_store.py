@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis.asyncio as redis
 
@@ -14,6 +14,7 @@ class RedisJobStore(BaseJobStore):
     Job data is stored as JSON strings in Redis keys, and the IDs of jobs
     belonging to a queue are tracked in a Redis Set.
     """
+
     def __init__(self, redis_url: str = "redis://localhost") -> None:
         """
         Initializes the RedisJobStore by establishing a connection to Redis.
@@ -22,8 +23,7 @@ class RedisJobStore(BaseJobStore):
             redis_url: The connection URL for the Redis instance. Defaults to
                        "redis://localhost".
         """
-        # Establish an asynchronous connection to the Redis server.
-        # decode_responses=True ensures Redis returns strings instead of bytes.
+        # Connect to the Redis instance.
         self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)
 
     def _key(self, queue_name: str, job_id: str) -> str:
@@ -39,7 +39,7 @@ class RedisJobStore(BaseJobStore):
         Returns:
             The formatted Redis key string.
         """
-        # Format the key string using the queue name and job ID.
+        # Return the formatted Redis key for a job.
         return f"jobs:{queue_name}:{job_id}"
 
     def _set_key(self, queue_name: str) -> str:
@@ -55,10 +55,10 @@ class RedisJobStore(BaseJobStore):
         Returns:
             The formatted Redis key string for the Set.
         """
-        # Format the key string for the Set using the queue name.
+        # Return the formatted Redis key for the set of job IDs for a queue.
         return f"jobs:{queue_name}:ids"
 
-    async def save(self, queue_name: str, job_id: str, data: Dict[str, Any]) -> None:
+    async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """
         Asynchronously saves the data for a specific job in Redis.
 
@@ -73,12 +73,12 @@ class RedisJobStore(BaseJobStore):
         """
         # Serialize the job data dictionary to a JSON string.
         job_data_json: str = json.dumps(data)
-        # Store the JSON string in Redis using the generated job key.
+        # Store the JSON data in Redis using the job's key.
         await self.redis.set(self._key(queue_name, job_id), job_data_json)
-        # Add the job ID to the Set of job IDs for this queue.
+        # Add the job ID to the set of job IDs for this queue.
         await self.redis.sadd(self._set_key(queue_name), job_id)
 
-    async def load(self, queue_name: str, job_id: str) -> Optional[Dict[str, Any]]:
+    async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
         Asynchronously loads the data for a specific job from Redis by its ID.
 
@@ -93,10 +93,9 @@ class RedisJobStore(BaseJobStore):
             A dictionary containing the job's data if the key exists and
             contains valid JSON, otherwise None.
         """
-        # Retrieve the raw JSON string from Redis using the generated job key.
-        raw: Optional[str] = await self.redis.get(self._key(queue_name, job_id))
-        # If raw data was retrieved, parse the JSON string into a dictionary.
-        # Otherwise, return None.
+        # Retrieve the raw JSON string from Redis using the job's key.
+        raw: str | None = await self.redis.get(self._key(queue_name, job_id))
+        # Parse the JSON string into a dictionary if it exists, otherwise return None.
         return json.loads(raw) if raw else None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
@@ -110,12 +109,12 @@ class RedisJobStore(BaseJobStore):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
         """
-        # Delete the Redis key that stores the job's data.
+        # Delete the Redis key storing the job data.
         await self.redis.delete(self._key(queue_name, job_id))
-        # Remove the job ID from the Set of job IDs for this queue.
+        # Remove the job ID from the set of job IDs for this queue.
         await self.redis.srem(self._set_key(queue_name), job_id)
 
-    async def all_jobs(self, queue_name: str) -> List[Dict[str, Any]]:
+    async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves data for all jobs associated with a specific
         queue by fetching all IDs from the queue's Set and loading each job
@@ -129,16 +128,20 @@ class RedisJobStore(BaseJobStore):
             in the specified queue. Jobs that cannot be loaded (e.g., key deleted
             between fetching ID and loading) are skipped.
         """
-        # Get all job IDs stored in the Set for the queue.
-        ids: List[str] = await self.redis.smembers(self._set_key(queue_name))
-        # Use a list comprehension to load the data for each job ID.
-        # Filter out any potential None results from load if a key vanished.
-        jobs_data: List[Dict[str, Any]] = [
-            job for job_id in ids if job_id and (job := await self.load(queue_name, job_id)) is not None
+        # Get all job IDs from the set for the given queue.
+        ids: list[str] = await self.redis.smembers(self._set_key(queue_name))
+        jobs_data: list[dict[str, Any]] = [
+            # Load each job by its ID and add it to the list if loading is successful.
+            job
+            for job_id in ids
+            if job_id and (job := await self.load(queue_name, job_id)) is not None
         ]
+        # Return the list of loaded job data dictionaries.
         return jobs_data
 
-    async def jobs_by_status(self, queue_name: str, status: str) -> List[Dict[str, Any]]:
+    async def jobs_by_status(
+        self, queue_name: str, status: str
+    ) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves data for jobs in a specific queue that are
         currently in a given status by loading all jobs and filtering in memory.
@@ -149,16 +152,17 @@ class RedisJobStore(BaseJobStore):
 
         Args:
             queue_name: The name of the queue.
-            status: The status of the jobs to retrieve (e.g., State.WAITING, State.ACTIVE).
+            status: The status of the jobs to retrieve (e.g., "waiting", "active").
 
         Returns:
             A list of dictionaries, where each dictionary contains the data
             for a job matching the criteria.
         """
-        # Retrieve data for all jobs in the queue.
-        all_jobs: List[Dict[str, Any]] = await self.all_jobs(queue_name)
-        # Filter the loaded jobs in memory based on their "status" field.
-        filtered_jobs: List[Dict[str, Any]] = [
+        # Load all jobs for the specified queue.
+        all_jobs: list[dict[str, Any]] = await self.all_jobs(queue_name)
+        # Filter the list of jobs to include only those matching the specified status.
+        filtered_jobs: list[dict[str, Any]] = [
             job for job in all_jobs if job and job.get("status") == status
         ]
+        # Return the filtered list of jobs.
         return filtered_jobs

@@ -1,5 +1,5 @@
 from collections import deque
-from typing import Any, Awaitable, Callable, Deque
+from typing import Any, Awaitable, Callable
 
 import anyio
 
@@ -38,7 +38,7 @@ class RateLimiter:
         self.interval: float = interval
         # A deque storing the monotonic timestamps when each token was acquired.
         # This acts as the "bucket" for the token-bucket algorithm.
-        self.timestamps: Deque[float] = deque()
+        self.timestamps: deque[float] = deque()
 
     async def acquire(self) -> None:
         """
@@ -65,28 +65,24 @@ class RateLimiter:
         # Get the current time using a monotonic clock.
         now: float = anyio.current_time()
 
-        # Remove timestamps from the left (oldest) that are outside the current window (interval).
-        # This simulates expired tokens being removed from the bucket.
+        # Remove timestamps that are older than the interval from the left of the deque.
         while self.timestamps and (now - self.timestamps[0]) >= self.interval:
             self.timestamps.popleft()
 
-        # Check if there is space available in the token bucket (i.e., less than max rate).
+        # If the bucket has space (fewer timestamps than the rate), acquire immediately.
         if len(self.timestamps) < self.rate:
-            # If space is available, a token can be acquired immediately.
             self.timestamps.append(now)
-            return  # Token acquired, exit the function.
+            return
 
         # If the bucket is full, calculate how long to wait for the oldest token to expire.
-        earliest: float = self.timestamps[0]  # Timestamp of the oldest token.
-        # Time remaining until the oldest token is outside the window.
+        earliest: float = self.timestamps[0]
         wait: float = self.interval - (now - earliest)
 
-        # If the wait time is positive, sleep until the token expires.
+        # If waiting is required, sleep for the calculated duration.
         if wait > 0:
             await anyio.sleep(wait)
 
-        # After waiting (or if wait was not needed), acquire the new token.
-        # We get the time again to record the actual acquisition time after the potential sleep.
+        # After waiting (if any), acquire the token by adding the current time.
         self.timestamps.append(anyio.current_time())
 
     async def schedule_job(
@@ -115,7 +111,7 @@ class RateLimiter:
         Returns:
             The result returned by the `job` callable.
         """
-        # First, acquire a token from the rate limiter. This might wait.
+        # Wait until a token is available from the rate limiter.
         await self.acquire()
-        # Once the token is acquired, execute the provided asynchronous job and return its result.
+        # Execute the provided asynchronous job function with its arguments.
         return await job(*args, **kwargs)

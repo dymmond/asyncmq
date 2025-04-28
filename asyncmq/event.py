@@ -1,18 +1,12 @@
 import inspect
-from typing import Any, Callable, Coroutine, Dict, List, Union
+from typing import Any, Callable, Coroutine
 
 import anyio
 
 # Define a type alias for callbacks that can be either synchronous or asynchronous.
-Callback = Union[
-    Callable[[Any], Any],
-    Callable[[Any], Coroutine[Any, Any, Any]]
-]
-"""
-Type alias representing a function that can be registered as an event listener.
-A callback can be either a synchronous function or a coroutine function.
-Both are expected to accept a single argument (the event data) of type `Any`.
-"""
+# A synchronous callback takes Any and returns Any.
+# An asynchronous callback takes Any and returns an Awaitable that resolves to Any.
+Callback = Callable[[Any], Any] | Callable[[Any], Coroutine[Any, Any, Any]]
 
 
 class EventEmitter:
@@ -24,15 +18,16 @@ class EventEmitter:
     listeners for that event are invoked. It handles both synchronous and
     asynchronous listeners using AnyIO's task group and thread offloading.
     """
+
     def __init__(self) -> None:
         """
         Initializes a new EventEmitter instance.
 
         Creates an empty dictionary to store listeners, keyed by event name.
+        Each value is a list of registered callback functions for that event.
         """
-        # A dictionary where keys are event names (string) and values are
-        # lists of registered callback functions (Callback type).
-        self._listeners: Dict[str, List[Callback]] = {}
+        # Dictionary to store registered callbacks, keyed by event name.
+        self._listeners: dict[str, list[Callback]] = {}
 
     def on(self, event: str, callback: Callback) -> None:
         """
@@ -48,8 +43,8 @@ class EventEmitter:
             callback: The callable function (synchronous or asynchronous) to
                       be executed when the event is emitted.
         """
-        # Use setdefault to ensure the event key exists with an empty list if not present,
-        # then append the callback to the list of listeners for this event.
+        # Add the callback to the list of listeners for the given event.
+        # Use setdefault to create an empty list if the event is not yet present.
         self._listeners.setdefault(event, []).append(callback)
 
     def off(self, event: str, callback: Callback) -> None:
@@ -62,19 +57,18 @@ class EventEmitter:
         the internal dictionary.
 
         Args:
-            event: The name of the event (string) from which to unregister the callback.
+            event: The name of the event (string) from which to unregister
+                   the callback.
             callback: The specific callable function to unregister.
         """
-        # Check if the event exists in the listeners dictionary.
+        # If the event does not exist, there are no listeners to remove.
         if event not in self._listeners:
-            return # If the event doesn't exist, there's nothing to unregister.
+            return
 
-        # Filter the list of listeners for the event, keeping only callbacks that are not
-        # the one being unregistered.
+        # Filter out the specific callback from the list of listeners for the event.
         self._listeners[event] = [cb for cb in self._listeners[event] if cb != callback]
 
-        # If the list of listeners for this event is now empty, remove the event entry
-        # from the dictionary to clean up.
+        # If the list of listeners for this event becomes empty, remove the event key.
         if not self._listeners[event]:
             del self._listeners[event]
 
@@ -93,34 +87,29 @@ class EventEmitter:
             data: The data associated with the event, which will be passed
                   as an argument to the listener callbacks.
         """
-        # Get the list of listeners for the event. Create a copy to avoid issues
-        # if a listener modifies the _listeners dictionary during iteration.
-        listeners: List[Callback] = list(self._listeners.get(event, []))
+        # Get the list of listeners for the event, defaulting to an empty list.
+        # Create a copy to avoid issues if listeners modify the list during emission.
+        listeners: list[Callback] = list(self._listeners.get(event, []))
 
-        # If there are no listeners for this event, simply return.
+        # If there are no listeners for this event, return immediately.
         if not listeners:
             return
 
-        # Create an AnyIO TaskGroup to manage the concurrent execution of listeners.
+        # Create a TaskGroup to run callbacks concurrently.
         async with anyio.create_task_group() as tg:
-            # Iterate through each registered callback for the event.
+            # Iterate through each registered callback.
             for cb in listeners:
-                # Check if the callback is an asynchronous function (coroutine function).
+                # Check if the callback is an asynchronous function.
                 if inspect.iscoroutinefunction(cb):
                     # If it's async, start it directly as a new task in the TaskGroup.
                     tg.start_soon(cb, data)
                 else:
-                    # If it's a synchronous function, run it in a thread using AnyIO.
-                    # This prevents synchronous code from blocking the event loop.
-                    # anyio.to_thread.run_sync takes the sync function, its arguments,
-                    # and runs it in a worker thread. tg.start_soon runs this thread execution task.
+                    # If it's synchronous, run it in a thread to avoid blocking
+                    # the main event loop, also started as a task.
                     tg.start_soon(anyio.to_thread.run_sync, cb, data)
 
 
-# Global singleton instance of the EventEmitter.
+# The singleton instance of the `EventEmitter` class, providing a global event bus
+# for the asyncmq system. Components can register listeners or emit events using
+# this instance.
 event_emitter: EventEmitter = EventEmitter()
-"""
-The singleton instance of the `EventEmitter` class, providing a global event bus
-for the asyncmq system. Components can register listeners or emit events using
-this instance.
-"""
