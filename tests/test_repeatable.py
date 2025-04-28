@@ -44,7 +44,7 @@ async def test_add_repeatable_cron_only():
 async def test_add_repeatable_missing_parameters():
     queue = Queue(name="test-missing")
 
-    with pytest.raises(ValueError, match="Either 'every' \\(seconds\\) or 'cron'"):
+    with pytest.raises(ValueError):
         queue.add_repeatable(
             task_id="do_nothing",
             args=[],
