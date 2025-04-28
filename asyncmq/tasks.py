@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import anyio
 
+from asyncmq.backends.base import BaseBackend
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
 
@@ -70,7 +71,7 @@ def task(
         task_id = f"{module}.{name}"
 
         async def enqueue_task(
-            backend: Any,  # Type is Any as backend interface is not strictly defined here.
+            backend: type[BaseBackend],  # Type is Any as backend interface is not strictly defined here.
             *args: Any,
             delay: float = 0,
             priority: int = 5,

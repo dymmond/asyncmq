@@ -2,12 +2,14 @@ from typing import Any, Dict, List
 
 import anyio
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.job import Job
 
 
 async def delayed_job_scanner(
     queue_name: str,
-    backend: Any,
+    backend: BaseBackend | None = None,
     interval: float = 2.0,
 ) -> None:
     """
@@ -29,6 +31,7 @@ async def delayed_job_scanner(
         interval: The time in seconds to wait between consecutive scans for
                   due delayed jobs. Defaults to 2.0 seconds.
     """
+    backend = backend or settings.backend
     # Print a message indicating the scanner has started (as in original code).
     print(f"Delayed job scanner started for queue: {queue_name}")
 

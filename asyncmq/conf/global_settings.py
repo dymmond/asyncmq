@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar
-from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from asyncmq import __version__
+from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.redis import RedisBackend
 
 
 @dataclass

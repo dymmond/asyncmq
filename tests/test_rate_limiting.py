@@ -45,7 +45,7 @@ async def test_rate_limited_task_execution():
     await backend.enqueue("runner", low_priority_job.to_dict())
     await backend.enqueue("runner", medium_priority_job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend, concurrency=3, rate_limit=3, rate_interval=1))
+    worker = asyncio.create_task(run_worker("runner", backend=backend, concurrency=3, rate_limit=3, rate_interval=1))
     await asyncio.sleep(2)  # Let the rate-limiting occur
     worker.cancel()
 
@@ -70,8 +70,8 @@ async def test_rate_limit_with_multiple_workers():
     await backend.enqueue("runner", high_priority_job.to_dict())
     await backend.enqueue("runner", low_priority_job.to_dict())
 
-    worker_1 = asyncio.create_task(run_worker("runner", backend, concurrency=3, rate_limit=3, rate_interval=1))
-    worker_2 = asyncio.create_task(run_worker("runner", backend, concurrency=3, rate_limit=3, rate_interval=1))
+    worker_1 = asyncio.create_task(run_worker("runner", backend=backend, concurrency=3, rate_limit=3, rate_interval=1))
+    worker_2 = asyncio.create_task(run_worker("runner", backend=backend, concurrency=3, rate_limit=3, rate_interval=1))
     await asyncio.sleep(2)  # Let the rate-limiting occur
     worker_1.cancel()
     worker_2.cancel()
@@ -93,7 +93,7 @@ async def test_rate_limit_with_task_retries():
 
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend, concurrency=3, rate_limit=3, rate_interval=1))
+    worker = asyncio.create_task(run_worker("runner", backend=backend, concurrency=3, rate_limit=3, rate_interval=1))
     await asyncio.sleep(2)  # Let the rate-limiting occur
     worker.cancel()
 
@@ -111,7 +111,7 @@ async def test_rate_limit_with_job_failure():
 
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend, concurrency=3, rate_limit=3, rate_interval=1))
+    worker = asyncio.create_task(run_worker("runner", backend=backend, concurrency=3, rate_limit=3, rate_interval=1))
     await asyncio.sleep(2)  # Let the rate-limiting occur
     worker.cancel()
 
@@ -134,7 +134,7 @@ async def test_rate_limit_with_multiple_jobs_in_one_period():
     worker = asyncio.create_task(
         run_worker(
             "runner",
-            backend,
+            backend=backend,
             concurrency=3,
             rate_limit=3,
             rate_interval=1

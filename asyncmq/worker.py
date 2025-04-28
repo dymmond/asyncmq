@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import anyio
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
 from asyncmq.tasks import TASK_REGISTRY
@@ -14,8 +16,8 @@ if TYPE_CHECKING:
 
 async def process_job(
     queue_name: str,
-    backend: Any,
     limiter: anyio.CapacityLimiter,
+    backend: BaseBackend | None = None,
     rate_limiter: Optional[Any] = None,
 ) -> None:
     """
@@ -52,6 +54,8 @@ async def process_job(
                       specific type is not defined, hence typed as `Optional[Any]`.
                       Defaults to None, meaning no rate limiting is applied at this level.
     """
+    backend = backend or settings.backend
+
     async with anyio.create_task_group() as tg:
         while True:
             # Check if the queue is currently paused.
@@ -69,7 +73,7 @@ async def process_job(
                     continue
 
                 # Spawn a task to handle the main work of processing the job.
-                tg.start_soon(handle_job, queue_name, backend, raw_job, rate_limiter)
+                tg.start_soon(handle_job, queue_name, raw_job, backend, rate_limiter)
 
                 # Check for and register job dependencies if they exist.
                 # The original code also spawns handle_job again here if dependencies exist,
@@ -82,8 +86,8 @@ async def process_job(
 
 async def handle_job(
     queue_name: str,
-    backend: Any,  # Type is Any as per original code structure.
     raw_job: Dict[str, Any],
+    backend: BaseBackend | None = None,
     rate_limiter: Optional[Any] = None,  # Type is Optional[Any] as per original code structure.
 ) -> None:
     """
@@ -110,6 +114,7 @@ async def handle_job(
                       job's task. Its specific type is not defined, hence typed
                       as `Optional[Any]`. Defaults to None.
     """
+    backend = backend or settings.backend
     # Convert the raw dictionary data into a Job object.
     job = Job.from_dict(raw_job)
 

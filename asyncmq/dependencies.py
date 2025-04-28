@@ -1,11 +1,13 @@
 import random
 from typing import Any, Dict, List, Optional
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
 
 
-async def add_dependencies(backend: Any, queue: str, job: Job) -> None:
+async def add_dependencies(queue: str, job: Job, backend: BaseBackend | None = None) -> None:
     """
     Registers a job's dependencies with the backend and links dependent
     (child) jobs to this job's completion.
@@ -21,6 +23,8 @@ async def add_dependencies(backend: Any, queue: str, job: Job) -> None:
         queue: The name of the queue the job belongs to.
         job: The `Job` instance whose dependencies need to be registered.
     """
+    backend = backend or settings.backend
+
     # If the job has no dependencies listed, there's nothing to do.
     if not job.depends_on:
         return
@@ -28,7 +32,7 @@ async def add_dependencies(backend: Any, queue: str, job: Job) -> None:
     await backend.add_dependencies(queue, job.to_dict())
 
 
-async def resolve_dependency(backend: Any, queue: str, parent_id: str) -> None:
+async def resolve_dependency(queue: str, parent_id: str, backend: BaseBackend | None = None) -> None:
     """
     Checks for and potentially enqueues jobs whose dependencies are now met
     after a parent job's completion.
@@ -45,11 +49,12 @@ async def resolve_dependency(backend: Any, queue: str, parent_id: str) -> None:
         queue: The name of the queue the parent job belonged to.
         parent_id: The unique ID of the job that just completed.
     """
+    backend = backend or settings.backend
     # Delegate the dependency resolution process to the backend.
     await backend.resolve_dependency(queue, parent_id)
 
 
-async def pause_queue(backend: Any, queue: str) -> None:
+async def pause_queue(queue: str, backend: BaseBackend | None = None) -> None:
     """
     Signals the backend to temporarily stop consuming new jobs from the
     specified queue.
@@ -59,11 +64,12 @@ async def pause_queue(backend: Any, queue: str) -> None:
                  a `pause_queue` method. Typed as `Any`.
         queue: The name of the queue to pause.
     """
+    backend = backend or settings.backend
     # Delegate the pause operation to the backend.
     await backend.pause_queue(queue)
 
 
-async def resume_queue(backend: Any, queue: str) -> None:
+async def resume_queue(queue: str, backend: BaseBackend | None = None) -> None:
     """
     Signals the backend to resume consuming jobs from a queue that was
     previously paused.
@@ -73,11 +79,12 @@ async def resume_queue(backend: Any, queue: str) -> None:
                  a `resume_queue` method. Typed as `Any`.
         queue: The name of the queue to resume.
     """
+    backend = backend or settings.backend
     # Delegate the resume operation to the backend.
     await backend.resume_queue(queue)
 
 
-async def is_queue_paused(backend: Any, queue: str) -> bool:
+async def is_queue_paused(queue: str, backend: BaseBackend | None = None) -> bool:
     """
     Checks if a specific queue is currently marked as paused by the backend.
 
@@ -89,6 +96,7 @@ async def is_queue_paused(backend: Any, queue: str) -> bool:
     Returns:
         True if the queue is paused, False otherwise.
     """
+    backend = backend or settings.backend
     # Delegate the check operation to the backend and return its result.
     return await backend.is_queue_paused(queue)
 
@@ -121,7 +129,7 @@ def jittered_backoff(base_delay: float, attempt: int, jitter: float = 0.1) -> fl
 
 
 async def report_progress(
-    backend: Any, queue: str, job: Job, pct: float, info: Any = None
+    queue: str, job: Job, pct: float, backend: BaseBackend | None = None, info: Any = None
 ) -> None:
     """
     Records the progress percentage of a job in the backend and emits a
@@ -135,6 +143,7 @@ async def report_progress(
         pct: The progress percentage as a float between 0.0 and 1.0.
         info: Optional additional data to include with the progress report.
     """
+    backend = backend or settings.backend
     # Persist the progress percentage with the backend.
     await backend.save_job_progress(queue, job.id, pct)
     # Emit a local event for real-time monitoring or other listeners.
@@ -154,7 +163,7 @@ Assigns the `report_progress` function as a method (`report_progress`) to the
 """
 
 
-async def bulk_enqueue(backend: Any, queue: str, jobs: List[Dict[str, Any]]) -> None:
+async def bulk_enqueue(queue: str, jobs: List[Dict[str, Any]], backend: BaseBackend | None = None) -> None:
     """
     Enqueues multiple jobs onto a queue in a single batch operation via the backend.
 
@@ -167,11 +176,12 @@ async def bulk_enqueue(backend: Any, queue: str, jobs: List[Dict[str, Any]]) -> 
         queue: The name of the queue to enqueue jobs onto.
         jobs: A list of job payloads (dictionaries) to be enqueued.
     """
+    backend = backend or settings.backend
     # Delegate the bulk enqueue operation to the backend.
     await backend.bulk_enqueue(queue, queue, jobs) # Note: Original code had queue twice? Assuming first is channel, second is queue name. Fixing to backend method signature.
 
 
-async def purge_jobs(backend: Any, queue: str, state: str, older_than: Optional[float] = None) -> None:
+async def purge_jobs(queue: str, state: str, backend: BaseBackend | None = None, older_than: Optional[float] = None) -> None:
     """
     Removes jobs from a queue based on their state and optional age criteria
     via the backend.
@@ -186,11 +196,12 @@ async def purge_jobs(backend: Any, queue: str, state: str, older_than: Optional[
                     is older than this value will be removed. If None, all jobs
                     in the specified state might be purged.
     """
+    backend = backend or settings.backend
     # Delegate the purge operation to the backend.
     await backend.purge(queue, state, older_than)
 
 
-async def emit_event(backend: Any, event: str, data: Dict[str, Any]) -> None:
+async def emit_event(event: str, data: Dict[str, Any], backend: BaseBackend | None = None) -> None:
     """
     Emits an event both locally through the `event_emitter` and, if the backend
     supports it, broadcasts the event for distributed listeners.
@@ -202,6 +213,7 @@ async def emit_event(backend: Any, event: str, data: Dict[str, Any]) -> None:
         event: The name of the event to emit.
         data: The data associated with the event.
     """
+    backend = backend or settings.backend
     # Emit the event to local listeners via the global event emitter.
     await event_emitter.emit(event, data)
     # If the backend has an emit_event method, use it for distributed broadcasting.
@@ -239,7 +251,7 @@ class Lock:
         Returns:
             True if the lock was acquired successfully, False otherwise.
         """
-        # Delegate the acquire call to the backend's lock object.
+        # Delegate the acquired call to the backend's lock object.
         return await self._lock.acquire()
 
     async def release(self) -> bool:
@@ -257,7 +269,7 @@ class Lock:
         return await self._lock.release()
 
 
-async def create_lock(backend: Any, key: str, ttl: int = 30) -> Lock:
+async def create_lock(key: str, ttl: int = 30, backend: BaseBackend | None = None) -> Lock:
     """
     Creates a new distributed lock instance for a given key via the backend.
 

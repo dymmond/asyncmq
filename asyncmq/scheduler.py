@@ -2,13 +2,15 @@ from typing import Any, Dict, List, Optional
 
 import anyio
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.job import Job
 
 
 async def repeatable_scheduler(
-    backend: Any,
     queue_name: str,
     jobs: List[Dict[str, Any]],
+    backend: BaseBackend | None = None,
     interval: Optional[float] = None,
 ) -> None:
     """
@@ -47,6 +49,7 @@ async def repeatable_scheduler(
                   calculated based on the minimum positive `repeat_every` of
                   the provided jobs. Defaults to None.
     """
+    backend = backend or settings.backend
     # Dictionary to store the last time each repeatable job definition was enqueued.
     # Key is the task ID (string), value is the timestamp (float) from anyio.current_time().
     last_run: Dict[str, float] = {}

@@ -26,7 +26,7 @@ async def test_job_lifecycle_changes():
     await simple_task.enqueue(backend, 3, 4)
 
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend,)
 
     await wait_for_state(backend, "test", raw["id"], "completed")
     state = await backend.get_job_state("test", raw["id"])
@@ -45,7 +45,7 @@ async def test_failed_job_goes_to_dlq():
     await failing_task.enqueue(backend)
 
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend,)
 
     await wait_for_state(backend, "test", raw["id"], "failed")
     state = await backend.get_job_state("test", raw["id"])
@@ -60,7 +60,7 @@ async def test_echo_result():
     backend = InMemoryBackend()
     await echo_task.enqueue(backend, "hello")
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend,)
     await wait_for_state(backend, "test", raw["id"], "completed")
     result = await backend.get_job_result("test", raw["id"])
     assert result == "hello"
@@ -74,7 +74,7 @@ async def test_sum_list_task():
     backend = InMemoryBackend()
     await sum_list.enqueue(backend, [1, 2, 3, 4])
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend,)
     await wait_for_state(backend, "test", raw["id"], "completed")
     result = await backend.get_job_result("test", raw["id"])
     assert result == 10
@@ -88,7 +88,7 @@ async def test_upper_case():
     backend = InMemoryBackend()
     await upper_case.enqueue(backend, "test")
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend,)
     await wait_for_state(backend, "test", raw["id"], "completed")
     result = await backend.get_job_result("test", raw["id"])
     assert result == "TEST"
@@ -102,7 +102,7 @@ async def test_multiply_task():
     backend = InMemoryBackend()
     await multiply.enqueue(backend, 6, 7)
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend)
     await wait_for_state(backend, "test", raw["id"], "completed")
     result = await backend.get_job_result("test", raw["id"])
     assert result == 42

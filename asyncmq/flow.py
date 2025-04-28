@@ -1,7 +1,7 @@
 from typing import Awaitable, Callable, List, Optional
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf import settings
 from asyncmq.dependencies import add_dependencies
 from asyncmq.job import Job
 
@@ -29,7 +29,7 @@ class FlowProducer:
                      instance is created and used by default.
         """
         # Store the backend instance, defaulting to RedisBackend if none is provided.
-        self.backend: BaseBackend = backend or RedisBackend()
+        self.backend: BaseBackend = backend or settings.backend
         # Store a reference to the dependency management function.
         # The type hint describes a callable that takes a BaseBackend, a string,
         # and a Job, and returns an Awaitable resolving to None.

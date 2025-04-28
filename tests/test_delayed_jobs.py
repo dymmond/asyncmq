@@ -34,7 +34,7 @@ async def test_delayed_enqueue_and_scan():
     run_at = time.time() + 0.3
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
 
-    task = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    task = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.5)
     task.cancel()
 
@@ -113,7 +113,7 @@ async def test_scan_does_not_repeat():
     job = Job(task_id="scan.once", args=[], kwargs={})
     run_at = time.time() + 0.3
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
-    task = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    task = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.6)
     task.cancel()
     enqueued = await backend.dequeue("test")
@@ -162,13 +162,13 @@ async def test_delayed_then_execute():
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
 
     # Run the scanner to move job into active queue
-    scanner = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    scanner = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.3)
     scanner.cancel()
 
     # Now the job should be ready for dequeue
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend)
 
     result = await backend.get_job_result("test", job.id)
     assert result == 6

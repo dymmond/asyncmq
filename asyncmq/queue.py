@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf import settings
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
 
@@ -54,7 +54,7 @@ class Queue:
         """
         self.name: str = name
         # Use the provided backend or instantiate RedisBackend if none is given.
-        self.backend: BaseBackend = backend or RedisBackend()
+        self.backend: BaseBackend = backend or settings.backend
         # A list to store definitions of repeatable jobs added to this queue.
         self._repeatables: List[Dict[str, Any]] = []
         self.concurrency: int = concurrency

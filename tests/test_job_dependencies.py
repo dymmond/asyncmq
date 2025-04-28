@@ -46,7 +46,7 @@ async def test_job_dependencies():
     await backend.enqueue("runner", job_c.to_dict())  # job_c depends on job_b
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time for all jobs to finish
     worker.cancel()
 
@@ -76,7 +76,7 @@ async def test_independent_jobs():
     await backend.enqueue("runner", job_c.to_dict())
 
     # Run the worker
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)
     worker.cancel()
 
@@ -107,7 +107,7 @@ async def test_multiple_dependencies():
     await backend.enqueue("runner", job_b.to_dict())
     await backend.enqueue("runner", job_c.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)
     worker.cancel()
 
