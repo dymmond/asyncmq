@@ -3,9 +3,10 @@ import asyncio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
-from asyncmq.task import TASK_REGISTRY, task
+from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 
@@ -44,14 +45,14 @@ async def test_run_worker_success():
     job = Job(task_id=get_task_id(hello), args=[], kwargs={})
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
     result = await backend.get_job_result("runner", job.id)
     state = await backend.get_job_state("runner", job.id)
 
-    assert state == "completed"
+    assert state == State.COMPLETED
     assert result == "hi"
 
 
@@ -60,12 +61,12 @@ async def test_run_worker_failure_goes_to_dlq():
     job = Job(task_id=get_task_id(raise_error), args=[], kwargs={}, max_retries=0)
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_echo_value():
@@ -73,7 +74,7 @@ async def test_echo_value():
     job = Job(task_id=get_task_id(echo), args=["hello world"], kwargs={})
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
@@ -86,7 +87,7 @@ async def test_addition_task():
     job = Job(task_id=get_task_id(add), args=[3, 4], kwargs={})
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
@@ -99,19 +100,19 @@ async def test_fail_then_succeed():
     job = Job(task_id=get_task_id(fail_once_then_succeed), args=[], kwargs={}, backoff=0.1)
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(1.5)
     worker.cancel()
 
     result = await backend.get_job_result("runner", job.id)
     state = await backend.get_job_state("runner", job.id)
-    assert state == "completed"
+    assert state == State.COMPLETED
     assert result == "success"
 
 
 async def test_worker_cancels_gracefully():
     backend = InMemoryBackend()
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
 
     worker.cancel()
     await asyncio.sleep(0.3)
@@ -127,12 +128,12 @@ async def test_job_ttl_expires():
     # Wait for job to expire before worker starts
     await asyncio.sleep(0.2)
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.3)
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state in {"expired", "failed"}
+    assert state in {State.EXPIRED, State.FAILED}
 
 
 async def test_worker_handles_multiple_jobs():
@@ -144,13 +145,13 @@ async def test_worker_handles_multiple_jobs():
         await backend.enqueue("runner", job.to_dict())
         job_ids.append(job.id)
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)
     worker.cancel()
 
     for job_id in job_ids:
         state = await backend.get_job_state("runner", job_id)
-        assert state == "completed"
+        assert state == State.COMPLETED
 
 
 async def test_worker_respects_backoff():
@@ -158,12 +159,12 @@ async def test_worker_respects_backoff():
     job = Job(task_id=get_task_id(raise_error), args=[], kwargs={}, max_retries=2, backoff=0.2)
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_worker_skips_expired_jobs():
@@ -172,12 +173,12 @@ async def test_worker_skips_expired_jobs():
     await backend.enqueue("runner", job.to_dict())
     await asyncio.sleep(0.3)
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
     state = await backend.get_job_state("runner", job.id)
-    assert state == "failed" or state == "expired"
+    assert state == State.FAILED or state == State.EXPIRED
 
 
 async def test_worker_can_recover_from_job_exception():
@@ -187,21 +188,21 @@ async def test_worker_can_recover_from_job_exception():
     await backend.enqueue("runner", job1.to_dict())
     await backend.enqueue("runner", job2.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(1)
     worker.cancel()
 
     state1 = await backend.get_job_state("runner", job1.id)
     state2 = await backend.get_job_state("runner", job2.id)
-    assert state1 == "failed"
-    assert state2 == "completed"
+    assert state1 == State.FAILED
+    assert state2 == State.COMPLETED
 
 
 async def test_worker_handles_zero_args():
     backend = InMemoryBackend()
     job = Job(task_id=get_task_id(hello), args=[], kwargs={})
     await backend.enqueue("runner", job.to_dict())
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
     result = await backend.get_job_result("runner", job.id)
@@ -217,7 +218,7 @@ async def test_worker_handles_kwargs():
     job = Job(task_id=get_task_id(greet), args=[], kwargs={"name": "Tarsil"})
     await backend.enqueue("runner", job.to_dict())
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(0.5)
     worker.cancel()
 
@@ -234,10 +235,10 @@ async def test_worker_long_chain_jobs():
         await backend.enqueue("runner", job.to_dict())
         job_ids.append(job.id)
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(3)
     worker.cancel()
 
     for job_id in job_ids:
         state = await backend.get_job_state("runner", job_id)
-        assert state == "completed"
+        assert state == State.COMPLETED

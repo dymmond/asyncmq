@@ -1,13 +1,19 @@
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable
 
-# Define a type hint for the JOB_STATES tuple
-JOB_STATES: Tuple[str, ...] = ("waiting", "active", "completed", "failed", "delayed", "expired")
-"""
-A tuple listing all possible states that a job can transition through
-during its lifecycle within the queue system.
-"""
+from asyncmq.enums import State
+
+# A tuple listing all possible states that a job can transition through
+# during its lifecycle within the queue system.
+JOB_STATES: tuple[str, ...] = (
+    State.WAITING,
+    State.ACTIVE,
+    State.COMPLETED,
+    State.FAILED,
+    State.DELAYED,
+    State.EXPIRED,
+)
 
 
 class Job:
@@ -19,20 +25,21 @@ class Job:
     includes metadata such as the task ID, arguments, status, timestamps,
     and configuration for retry behavior and time-to-live.
     """
+
     def __init__(
         self,
         task_id: str,
-        args: List[Any],
-        kwargs: Dict[str, Any],
+        args: list[Any],
+        kwargs: dict[str, Any],
         retries: int = 0,
         max_retries: int = 3,
-        backoff: Union[float, Any, None] = 1.5, # Original hint includes Any, suggesting flexibility.
-        ttl: Optional[int] = None,
-        job_id: Optional[str] = None,
-        created_at: Optional[float] = None,
+        backoff: float | int | Callable | None = 1.5,
+        ttl: int | None = None,
+        job_id: str | None = None,
+        created_at: float | None = None,
         priority: int = 5,
-        repeat_every: Optional[Union[float, int]] = None,
-        depends_on: Optional[List[str]] = None, # Corrected type hint to List[str] based on usage
+        repeat_every: float | int | None = None,
+        depends_on: list[str] | None = None,
     ) -> None:
         """
         Initializes a new Job instance.
@@ -58,9 +65,8 @@ class Job:
                        retry count.
                      - If a callable that accepts no arguments (`callable()`),
                        the delay is the result of calling it.
-                     - If None, there is no delay between retries (retries happen immediately).
-                     Defaults to 1.5. Note: Original type hint includes `Any` which
-                     suggests other callable types might be supported.
+                     - If None, there is no delay between retries (retries happen
+                       immediately). Defaults to 1.5.
             ttl: The time-to-live (TTL) for the job in seconds, measured from
                  its creation time (`created_at`). If the current time exceeds
                  `created_at + ttl`, the job is considered expired. Defaults to None
@@ -80,37 +86,28 @@ class Job:
                         This job will not be executed until all jobs listed in
                         `depends_on` have completed successfully. Defaults to None.
         """
-        # Assign or generate a unique ID for the job.
+        # Generate a unique ID if none is provided.
         self.id: str = job_id or str(uuid.uuid4())
         self.task_id: str = task_id
-        # Store the arguments and keyword arguments for task execution.
-        self.args: List[Any] = args
-        self.kwargs: Dict[str, Any] = kwargs
-        # Store retry information.
+        self.args: list[Any] = args
+        self.kwargs: dict[str, Any] = kwargs
         self.retries: int = retries
         self.max_retries: int = max_retries
-        self.backoff: Union[float, Any, None] = backoff
-        # Store Time-to-Live.
-        self.ttl: Optional[int] = ttl
-        # Record creation timestamp.
+        self.backoff: float | int | Callable | None = backoff
+        self.ttl: int | None = ttl
+        # Record creation time, defaulting to the current time if not provided.
         self.created_at: float = created_at or time.time()
-        # Timestamp of the last failed attempt (None initially).
-        self.last_attempt: Optional[float] = None
-        # Current status of the job.
-        self.status: str = "waiting"
-        # Result of a completed job (None initially or on failure).
+        self.last_attempt: float | None = None
+        self.status: str = State.WAITING
         self.result: Any = None
-        # Absolute time until which the job should be delayed (None unless delayed).
-        self.delay_until: Optional[float] = None
-        # Job priority.
+        self.delay_until: float | None = None
         self.priority: int = priority
-        # Repeat interval for repeatable jobs.
-        self.repeat_every: Optional[Union[float, int]] = repeat_every
-        # List of job IDs this job depends on.
-        self.depends_on: List[str] = depends_on or []
+        self.repeat_every: float | int | None = repeat_every
+        # Ensure depends_on is always a list, defaulting to empty if None.
+        self.depends_on: list[str] = depends_on or []
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "Job":
+    def from_dict(data: dict[str, Any]) -> "Job":
         """
         Creates a Job instance from a dictionary representation.
 
@@ -125,30 +122,27 @@ class Job:
         Returns:
             A new Job instance populated with the data from the dictionary.
         """
-        # Create a Job instance using values from the dictionary.
-        # Use .get() with defaults for optional keys or keys that might not
-        # be present in older data formats.
-        job: Job = Job(
-            task_id=data["task"], # "task" key is expected
-            args=data.get("args", []), # Default to empty list if missing
-            kwargs=data.get("kwargs", {}), # Default to empty dict if missing
-            retries=data.get("retries", 0), # Default to 0 if missing
-            max_retries=data.get("max_retries", 3), # Default to 3 if missing
+        # Create a Job instance, mapping dictionary keys to constructor arguments.
+        job = Job(
+            task_id=data["task"],  # Use "task" key for task_id.
+            args=data.get("args", []),
+            kwargs=data.get("kwargs", {}),
+            retries=data.get("retries", 0),
+            max_retries=data.get("max_retries", 3),
             backoff=data.get("backoff"),
             ttl=data.get("ttl"),
-            job_id=data["id"], # "id" key is expected
+            job_id=data["id"],  # Use "id" key for job_id.
             created_at=data.get("created_at"),
-            priority=data.get("priority", 5), # Default to 5 if missing
+            priority=data.get("priority", 5),
             repeat_every=data.get("repeat_every"),
-            depends_on=data.get("depends_on", []), # Default to empty list if missing
+            depends_on=data.get("depends_on", []),
         )
-        # Assign status, result, delay_until, and last_attempt separately
-        # as they represent the job's dynamic state.
-        job.status = data.get("status", "waiting")
+        # Set remaining attributes from the dictionary data.
+        job.status = data.get("status", State.WAITING)
         job.result = data.get("result")
         job.delay_until = data.get("delay_until")
         job.last_attempt = data.get("last_attempt")
-        # Return the reconstructed Job instance.
+        # Return the fully populated Job instance.
         return job
 
     def is_expired(self) -> bool:
@@ -161,10 +155,10 @@ class Job:
         Returns:
             True if the job is expired, False otherwise.
         """
-        # If TTL is not set, the job cannot expire.
+        # If TTL is not set, the job cannot expire based on TTL.
         if self.ttl is None:
             return False
-        # Calculate if the current time is past the expiration time (created_at + ttl).
+        # Check if the current time is past the expiration time (created_at + ttl).
         return (time.time() - self.created_at) > self.ttl
 
     def next_retry_delay(self) -> float:
@@ -183,36 +177,36 @@ class Job:
         Returns:
             The calculated delay in seconds as a float.
         """
-        # If no backoff is configured, retry immediately.
+        # If backoff is None, there is no delay.
         if self.backoff is None:
             return 0.0
 
-        # Handle numeric backoff (int or float).
+        # If backoff is a number, calculate exponential backoff.
         if isinstance(self.backoff, (int, float)):
             try:
-                # Calculate delay using backoff raised to the power of the retry count.
+                # Calculate delay as backoff base raised to the power of retries.
                 return float(self.backoff) ** self.retries
             except Exception:
-                # Fallback to the backoff value itself if the power calculation fails.
+                # Fallback to the base value if calculation fails (e.g., large retries).
                 return float(self.backoff)
 
-        # Handle callable backoff.
+        # If backoff is a callable.
         if callable(self.backoff):
             try:
-                # Attempt to call the backoff function with the retry count.
+                # Try calling the callable with the retry count.
                 return float(self.backoff(self.retries))
             except TypeError:
+                # If calling with retry count fails, try calling without arguments.
                 try:
-                    # If calling with retry count fails, attempt to call without arguments.
                     return float(self.backoff())
                 except Exception:
-                    # If the callable cannot be invoked, fall back to no delay.
+                    # If callable execution fails, return 0 delay.
                     return 0.0
 
-        # If backoff is not a number or callable, fall back to no delay.
+        # If backoff is none of the expected types, return 0 delay.
         return 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serializes the Job instance into a dictionary representation.
 
@@ -222,6 +216,7 @@ class Job:
         Returns:
             A dictionary containing all relevant attributes of the Job instance.
         """
+        # Return a dictionary containing key attributes of the Job instance.
         return {
             "id": self.id,
             "task": self.task_id,

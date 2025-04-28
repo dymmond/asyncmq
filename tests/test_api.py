@@ -1,6 +1,7 @@
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
 from asyncmq.queue import Queue
@@ -99,9 +100,9 @@ async def test_clean():
 
     job_id = await q.add('task_clean')
     state = await backend.get_job_state('queue6', job_id)
-    assert state == 'waiting'
+    assert state == State.WAITING
 
-    await q.clean('waiting')
+    await q.clean(State.WAITING)
     state2 = await backend.get_job_state('queue6', job_id)
     assert state2 is None
 

@@ -1,6 +1,8 @@
 import asyncio
-from typing import Any, List, Optional
+from typing import Any
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.worker import process_job
@@ -8,11 +10,11 @@ from asyncmq.worker import process_job
 
 async def run_worker(
     queue_name: str,
-    backend: Any,  # The specific type of the backend object is not defined in the original code.
+    backend: BaseBackend | None = None,
     concurrency: int = 3,
-    rate_limit: Optional[int] = None,
+    rate_limit: int | None = None,
     rate_interval: float = 1.0,
-    repeatables: Optional[list] = None # The specific type of items in the list is not defined in the original code.
+    repeatables: list[Any] | None = None
 ) -> None:
     """
     Launches and manages a worker process responsible for consuming and
@@ -30,8 +32,8 @@ async def run_worker(
                     process jobs.
         backend: An object that provides the interface for interacting with the
                  underlying queue storage mechanism (e.g., methods for dequeueing,
-                 enqueuing, updating job states, etc.). Its specific type is
-                 not explicitly defined in the original code.
+                 enqueuing, updating job states, etc.). If `None`, the default
+                 backend from `settings` is used.
         concurrency: The maximum number of jobs that can be processed
                      simultaneously by this worker. This is controlled by an
                      asyncio Semaphore. Defaults to 3.
@@ -50,6 +52,8 @@ async def run_worker(
                      structure of the dictionaries is expected by the
                      `repeatable_scheduler`. Defaults to None.
     """
+    # Use the provided backend or fall back to the default configured backend.
+    backend = backend or settings.backend
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 
@@ -70,10 +74,11 @@ async def run_worker(
                 """
                 # Create a future that will never complete, blocking the caller.
                 await asyncio.Future()
-        rate_limiter: Optional[Any] = _BlockAll() # Type hint for the special blocker instance.
+        # Assign the special blocker instance.
+        rate_limiter: Any | None = _BlockAll()
     elif rate_limit is None:
         # If rate_limit is None, no rate limiting is applied.
-        rate_limiter: Optional[Any] = None
+        rate_limiter: Any | None = None
     else:
         # If rate_limit is a positive integer, initialize the standard RateLimiter.
         rate_limiter = RateLimiter(rate_limit, rate_interval)
@@ -81,8 +86,8 @@ async def run_worker(
     # Build the list of core asynchronous tasks that constitute the worker.
     # 1. The main process_job task that pulls jobs from the queue and handles them.
     # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
-    tasks: List[Any] = [
-        process_job(queue_name, backend, semaphore, rate_limiter=rate_limiter),
+    tasks: list[Any] = [
+        process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),
         delayed_job_scanner(queue_name, backend, interval=0.1)
     ]
 
@@ -92,7 +97,11 @@ async def run_worker(
         # if this module is imported elsewhere first.
         from asyncmq.scheduler import repeatable_scheduler
         # Add the repeatable scheduler task to the list of tasks to run.
-        tasks.append(repeatable_scheduler(backend, queue_name, repeatables))
+        tasks.append(
+            repeatable_scheduler(
+                queue_name, repeatables, backend=backend, interval=0.1
+            )
+        )
 
     # Use asyncio.gather to run all the created tasks concurrently.
     # This function will wait for all tasks to complete (which, for these

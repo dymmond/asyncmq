@@ -1,13 +1,15 @@
-from typing import Any, Dict, List
+from typing import Any
 
 import anyio
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import settings
 from asyncmq.job import Job
 
 
 async def delayed_job_scanner(
     queue_name: str,
-    backend: Any,
+    backend: BaseBackend | None = None,
     interval: float = 2.0,
 ) -> None:
     """
@@ -25,29 +27,29 @@ async def delayed_job_scanner(
         queue_name: The name of the queue whose delayed jobs should be scanned.
         backend: An object providing the necessary interface for interacting
                  with the queue storage, including methods like `get_due_delayed`,
-                 `remove_delayed`, and `enqueue`. Typed as `Any`.
+                 `remove_delayed`, and `enqueue`. If `None`, the default backend
+                 from `settings` is used.
         interval: The time in seconds to wait between consecutive scans for
                   due delayed jobs. Defaults to 2.0 seconds.
     """
-    # Print a message indicating the scanner has started (as in original code).
+    # Use the provided backend or fall back to the default configured backend.
+    backend = backend or settings.backend
     print(f"Delayed job scanner started for queue: {queue_name}")
 
-    # The scanner runs in an infinite loop.
+    # Main loop to continuously scan for delayed jobs.
     while True:
-        # Retrieve delayed jobs that are due from the backend.
-        jobs: List[Dict[str, Any]] = await backend.get_due_delayed(queue_name)
+        # Get jobs from the backend that are due for processing.
+        jobs: list[dict[str, Any]] = await backend.get_due_delayed(queue_name)
 
-        # Iterate through each delayed job that is now due.
+        # Process each due job found.
         for job_data in jobs:
-            # Convert the raw job data dictionary into a Job instance.
-            job: Job = Job.from_dict(job_data)
+            # Convert the raw job data dictionary back into a Job object.
+            job = Job.from_dict(job_data)
             # Remove the job from the backend's delayed storage.
             await backend.remove_delayed(queue_name, job.id)
-            # Enqueue the job into the main processing queue.
+            # Enqueue the job back into the main queue for processing.
             await backend.enqueue(queue_name, job.to_dict())
-            # Print a message indicating the job was moved (as in original code).
             print(f"[{job.id}] Moved delayed job to queue")
 
-        # Pause execution for the specified interval before the next scan.
-        # anyio.sleep provides a portable sleep across different async backends (asyncio, Trio, etc.).
+        # Sleep for the specified interval before the next scan.
         await anyio.sleep(interval)

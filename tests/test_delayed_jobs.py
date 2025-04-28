@@ -5,9 +5,10 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.delayed_scanner import delayed_job_scanner
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.job import Job
-from asyncmq.task import TASK_REGISTRY, task
+from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.worker import handle_job
 
 pytestmark = pytest.mark.anyio
@@ -34,7 +35,7 @@ async def test_delayed_enqueue_and_scan():
     run_at = time.time() + 0.3
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
 
-    task = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    task = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.5)
     task.cancel()
 
@@ -79,7 +80,7 @@ async def test_job_moves_to_dlq_when_expired():
     await backend.move_to_dlq("test", job.to_dict())
     state = await backend.get_job_state("test", job.id)
 
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 async def test_multiple_delayed_jobs():
@@ -113,7 +114,7 @@ async def test_scan_does_not_repeat():
     job = Job(task_id="scan.once", args=[], kwargs={})
     run_at = time.time() + 0.3
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
-    task = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    task = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.6)
     task.cancel()
     enqueued = await backend.dequeue("test")
@@ -140,7 +141,7 @@ async def test_delayed_job_status_marked_delayed():
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
     state = await backend.get_job_state("test", job.id)
 
-    assert state == "delayed"
+    assert state == State.EXPIRED
 
 
 async def test_delayed_result_is_none_initially():
@@ -162,13 +163,13 @@ async def test_delayed_then_execute():
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
 
     # Run the scanner to move job into active queue
-    scanner = asyncio.create_task(delayed_job_scanner("test", backend, interval=0.1))
+    scanner = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
     await asyncio.sleep(0.3)
     scanner.cancel()
 
     # Now the job should be ready for dequeue
     raw = await backend.dequeue("test")
-    await handle_job("test", backend, raw)
+    await handle_job("test", raw, backend=backend)
 
     result = await backend.get_job_result("test", job.id)
     assert result == 6

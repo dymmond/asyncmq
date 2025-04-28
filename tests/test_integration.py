@@ -5,12 +5,13 @@ import time
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.event import event_emitter
 from asyncmq.flow import FlowProducer
 from asyncmq.job import Job
 from asyncmq.queue import Queue
 from asyncmq.runner import run_worker
-from asyncmq.task import list_tasks, task
+from asyncmq.tasks import list_tasks, task
 from asyncmq.worker import Worker
 
 pytestmark = pytest.mark.anyio
@@ -44,7 +45,7 @@ async def xtest_real_task_execution():
     event_emitter.on('job:completed', on_complete)
 
     worker = asyncio.create_task(
-        run_worker('test_exec', backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+        run_worker('test_exec', backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
     )
     job_id = await q.add('add', args=[2, 3])
     data = await asyncio.wait_for(fut, timeout=2)
@@ -65,7 +66,7 @@ async def test_retries_and_dlq():
     q = Queue('retry', backend=backend)
 
     worker = asyncio.create_task(
-        run_worker('retry', backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+        run_worker('retry', backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
     )
     job_id = await q.add('flaky')
     await asyncio.sleep(0.5)
@@ -89,12 +90,12 @@ async def test_ttl_expiration():
     await asyncio.sleep(0.02)
 
     worker = asyncio.create_task(
-        run_worker('ttl', backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+        run_worker('ttl', backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
     )
     await asyncio.sleep(0.2)
 
     expired = backend.dlqs.get('ttl', [])
-    assert any(job['status'] == 'expired' and job['id'] == job_id for job in expired)
+    assert any(job['status'] == State.EXPIRED and job['id'] == job_id for job in expired)
 
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
@@ -124,7 +125,7 @@ async def xtest_dependencies_flow():
     assert ids == ['p1', 'c1']
 
     worker = asyncio.create_task(
-        run_worker('flow', backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+        run_worker('flow', backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
     )
     await asyncio.sleep(0.5)
 
@@ -147,7 +148,7 @@ async def test_rate_limiting():
     q = Queue('rate', backend=backend, concurrency=5, rate_limit=1, rate_interval=0.05)
 
     worker = asyncio.create_task(
-        run_worker('rate', backend, concurrency=5, rate_limit=1, rate_interval=0.05, repeatables=None)
+        run_worker('rate', backend=backend, concurrency=5, rate_limit=1, rate_interval=0.05, repeatables=None)
     )
     for _ in range(3):
         await q.add('job_task')
@@ -156,7 +157,7 @@ async def test_rate_limiting():
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
 
-    diffs = [t2 - t1 for t1, t2 in zip(timestamps, timestamps[1:])]
+    diffs = [t2 - t1 for t1, t2 in zip(timestamps, timestamps[1:], strict=False)]
     assert all(diff >= 0.04 for diff in diffs)
 
 
@@ -173,7 +174,7 @@ async def xtest_repeatables():
     q.add_repeatable('rep_task', every=0.05)
 
     worker = asyncio.create_task(
-        run_worker('rep', backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=q._repeatables)
+        run_worker('rep', backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=q._repeatables)
     )
     await asyncio.sleep(0.3)
 

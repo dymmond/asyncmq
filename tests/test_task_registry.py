@@ -1,6 +1,6 @@
 import pytest
 
-from asyncmq.task import TASK_REGISTRY, task
+from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 

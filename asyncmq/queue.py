@@ -1,10 +1,10 @@
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf import settings
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
 
@@ -25,16 +25,17 @@ class Queue:
     - Clean up jobs based on state and age (`clean`).
     - Start a worker process to consume jobs from this queue (`run`, `start`).
     """
+
     def __init__(
         self,
         name: str,
-        backend: Optional[BaseBackend] = None,
+        backend: BaseBackend | None = None,
         concurrency: int = 3,
-        rate_limit: Optional[int] = None,
+        rate_limit: int | None = None,
         rate_interval: float = 1.0,
     ) -> None:
         """
-        Initializes a Queue instance.
+        Intializes a Queue instance.
 
         Args:
             name: The unique name of the queue. Jobs and workers are associated
@@ -53,24 +54,24 @@ class Queue:
                            applies. Defaults to 1.0 second.
         """
         self.name: str = name
-        # Use the provided backend or instantiate RedisBackend if none is given.
-        self.backend: BaseBackend = backend or RedisBackend()
-        # A list to store definitions of repeatable jobs added to this queue.
-        self._repeatables: List[Dict[str, Any]] = []
+        # Use the provided backend or fall back to the default configured backend.
+        self.backend: BaseBackend = backend or settings.backend
+        # Internal list to store configurations for repeatable jobs.
+        self._repeatables: list[dict[str, Any]] = []
         self.concurrency: int = concurrency
-        self.rate_limit: Optional[int] = rate_limit
+        self.rate_limit: int | None = rate_limit
         self.rate_interval: float = rate_interval
 
     async def add(
         self,
         task_id: str,
-        args: Optional[List[Any]] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
+        args: list[Any] | None = None,
+        kwargs: dict[str, Any] | None = None,
         retries: int = 0,
-        ttl: Optional[int] = None,
-        backoff: Optional[float] = None,
+        ttl: int | None = None,
+        backoff: float | None = None,
         priority: int = 5,
-        delay: Optional[float] = None,
+        delay: float | None = None,
     ) -> str:
         """
         Creates and enqueues a single job onto this queue.
@@ -101,31 +102,30 @@ class Queue:
         Returns:
             The unique ID string assigned to the newly created job.
         """
-        # Create a new Job instance with the provided parameters.
-        job: Job = Job(
+        # Create a Job object from the provided arguments and configuration.
+        job = Job(
             task_id=task_id,
             args=args or [],
             kwargs=kwargs or {},
-            retries=0,  # Start with 0 retries for a new job.
+            retries=0,
             max_retries=retries,
             backoff=backoff,
             ttl=ttl,
             priority=priority,
         )
-        # Check if a delay is specified for this job.
+        # Enqueue the job, either with a delay or immediately, using the backend.
         if delay is not None:
-            # If delayed, calculate the absolute time when the job should become available.
             job.delay_until = time.time() + delay
-            # Enqueue the job with the calculated delay using the backend.
-            await self.backend.enqueue_delayed(self.name, job.to_dict(), job.delay_until)
+            await self.backend.enqueue_delayed(
+                self.name, job.to_dict(), job.delay_until
+            )
         else:
-            # If no delay, enqueue the job for immediate processing.
             await self.backend.enqueue(self.name, job.to_dict())
 
-        # Return the ID of the created job.
+        # Return the ID of the newly created job.
         return job.id
 
-    async def add_bulk(self, jobs: List[Dict[str, Any]]) -> List[str]:
+    async def add_bulk(self, jobs: list[dict[str, Any]]) -> list[str]:
         """
         Creates and enqueues multiple jobs onto this queue in a single batch operation.
 
@@ -143,27 +143,24 @@ class Queue:
             A list of unique ID strings for the newly created jobs, in the
             same order as the input list of job configurations.
         """
-        created_ids: List[str] = []
-        payloads: List[Dict[str, Any]] = []
-        # Iterate through each job configuration dictionary in the input list.
+        created_ids: list[str] = []
+        payloads: list[dict[str, Any]] = []
+        # Iterate through job configurations, create Job objects, and prepare payloads.
         for cfg in jobs:
-            # Create a Job instance from the configuration dictionary.
-            job: Job = Job(
-                task_id=cfg.get("task_id"), # task_id is expected to be present
+            job = Job(
+                task_id=cfg.get("task_id"),
                 args=cfg.get("args", []),
                 kwargs=cfg.get("kwargs", {}),
-                retries=0, # New jobs start with 0 retries.
-                max_retries=cfg.get("retries", 0), # Default max_retries to 0 if not specified.
+                retries=0,
+                max_retries=cfg.get("retries", 0),
                 backoff=cfg.get("backoff"),
                 ttl=cfg.get("ttl"),
-                priority=cfg.get("priority", 5), # Default priority to 5 if not specified.
+                priority=cfg.get("priority", 5),
             )
-            # Store the ID of the created job.
             created_ids.append(job.id)
-            # Convert the Job instance to a dictionary payload for the backend.
             payloads.append(job.to_dict())
 
-        # Use the backend to enqueue all job payloads in a single bulk operation.
+        # Enqueue all job payloads in a single bulk operation via the backend.
         await self.backend.bulk_enqueue(self.name, payloads)
 
         # Return the list of IDs for the created jobs.
@@ -173,10 +170,10 @@ class Queue:
         self,
         task_id: str,
         every: float,
-        args: Optional[List[Any]] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
+        args: list[Any] | None = None,
+        kwargs: dict[str, Any] | None = None,
         retries: int = 0,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
         priority: int = 5,
     ) -> None:
         """
@@ -205,12 +202,12 @@ class Queue:
             priority: The priority for each instance of the repeatable job.
                       Defaults to 5.
         """
-        # Append the repeatable job definition as a dictionary to the internal list.
+        # Add the job definition to the internal list of repeatables.
         self._repeatables.append({
             "task_id": task_id,
             "args": args or [],
             "kwargs": kwargs or {},
-            "repeat_every": every,  # Store the interval for repeating
+            "repeat_every": every,
             "max_retries": retries,
             "ttl": ttl,
             "priority": priority,
@@ -224,7 +221,7 @@ class Queue:
         until the queue is resumed. Jobs currently being processed might finish
         depending on the backend implementation and worker logic.
         """
-        # Instruct the backend to pause the queue by name.
+        # Instruct the backend to pause this queue.
         await self.backend.pause_queue(self.name)
 
     async def resume(self) -> None:
@@ -234,13 +231,13 @@ class Queue:
         If the queue was previously paused, workers will begin dequeueing and
         processing jobs again after this method is called.
         """
-        # Instruct the backend to resume the queue by name.
+        # Instruct the backend to resume this queue.
         await self.backend.resume_queue(self.name)
 
     async def clean(
         self,
         state: str,
-        older_than: Optional[float] = None,
+        older_than: float | None = None,
     ) -> None:
         """
         Requests the backend to purge jobs from this queue based on their state
@@ -256,7 +253,7 @@ class Queue:
                         older than this value will be purged. If None, all
                         jobs in the specified state are potentially purged.
         """
-        # Instruct the backend to purge jobs in the specified state older than the given timestamp.
+        # Instruct the backend to purge jobs from this queue based on state and age.
         await self.backend.purge(self.name, state, older_than)
 
     async def run(self) -> None:
@@ -270,15 +267,14 @@ class Queue:
         initialization. This is an asynchronous function and will run until
         cancelled.
         """
-        # Call the run_worker function with the queue's configuration.
-        # The worker will manage the job processing loops internally.
+        # Start the worker process with configured parameters.
         await run_worker(
             self.name,
             self.backend,
             concurrency=self.concurrency,
             rate_limit=self.rate_limit,
             rate_interval=self.rate_interval,
-            repeatables=self._repeatables, # Pass the list of repeatable job definitions
+            repeatables=self._repeatables,
         )
 
     def start(self) -> None:
@@ -292,5 +288,5 @@ class Queue:
         worker's `run()` method completes (which usually happens when the worker
         task is cancelled).
         """
-        # Use anyio.run to execute the asynchronous run() method.
+        # Run the asynchronous 'run' method within an AnyIO event loop.
         anyio.run(self.run)

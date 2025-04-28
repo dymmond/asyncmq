@@ -4,6 +4,7 @@ import time
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 
 pytestmark = pytest.mark.anyio
@@ -21,9 +22,9 @@ async def test_job_state_tracking():
     backend = InMemoryBackend()
     job = Job(task_id="state.test", args=[], kwargs={})
     await backend.enqueue("test", job.to_dict())
-    await backend.update_job_state("test", job.id, "active")
+    await backend.update_job_state("test", job.id, State.ACTIVE)
     state = await backend.get_job_state("test", job.id)
-    assert state == "active"
+    assert state == State.ACTIVE
 
 
 
@@ -54,7 +55,7 @@ async def test_move_to_dlq():
     await backend.move_to_dlq("test", job.to_dict())
     # no direct getter, so we check state
     state = await backend.get_job_state("test", job.id)
-    assert state == "failed"
+    assert state == State.FAILED
 
 
 

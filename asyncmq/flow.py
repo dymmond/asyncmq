@@ -1,7 +1,7 @@
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf import settings
 from asyncmq.dependencies import add_dependencies
 from asyncmq.job import Job
 
@@ -19,7 +19,8 @@ class FlowProducer:
     completion of others. It ensures that each job is enqueued and its
     dependencies are registered with the backend.
     """
-    def __init__(self, backend: Optional[BaseBackend] = None) -> None:
+
+    def __init__(self, backend: BaseBackend | None = None) -> None:
         """
         Initializes the FlowProducer with an optional backend instance.
 
@@ -28,14 +29,12 @@ class FlowProducer:
                      the queue and managing dependencies. If None, a `RedisBackend`
                      instance is created and used by default.
         """
-        # Store the backend instance, defaulting to RedisBackend if none is provided.
-        self.backend: BaseBackend = backend or RedisBackend()
-        # Store a reference to the dependency management function.
-        # The type hint describes a callable that takes a BaseBackend, a string,
-        # and a Job, and returns an Awaitable resolving to None.
+        # Use the provided backend or fall back to the default configured backend.
+        self.backend: BaseBackend = backend or settings.backend
+        # Assign the dependency management function.
         self._add_dependencies: _AddDependenciesCallable = add_dependencies
 
-    async def add_flow(self, queue: str, jobs: List[Job]) -> List[str]:
+    async def add_flow(self, queue: str, jobs: list[Job]) -> list[str]:
         """
         Adds a set of jobs, including their defined dependencies, to the queue.
 
@@ -55,18 +54,15 @@ class FlowProducer:
             A list of the unique ID strings for all the jobs that were created
             and processed in this flow, in the same order as the input `jobs` list.
         """
-        created_ids: List[str] = []
-        # Iterate through each Job instance in the provided list.
+        created_ids: list[str] = []
+        # Iterate through each job in the provided list.
         for job in jobs:
-            # Add the ID of the job to the list of created IDs.
+            # Append the job's ID to the list of created IDs.
             created_ids.append(job.id)
-            # Enqueue the job itself onto the specified queue using the backend.
-            # The job's state and parameters are stored via its dictionary representation.
+            # Enqueue the job's dictionary representation using the backend.
             await self.backend.enqueue(queue, job.to_dict())
-            # Register any dependencies specified in the job's `depends_on` list
-            # with the backend. This step ensures that jobs waiting on this one
-            # can be unlocked later.
+            # Add any dependencies defined for this job using the internal function.
             await self._add_dependencies(self.backend, queue, job)
 
-        # Return the list of IDs for the jobs that were added as part of this flow.
+        # Return the list of IDs for all jobs added in this flow.
         return created_ids

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class BaseJobStore(ABC):
@@ -10,8 +10,9 @@ class BaseJobStore(ABC):
     implementations for all the abstract methods. This store is responsible
     for persisting, retrieving, and deleting job data dictionaries.
     """
+
     @abstractmethod
-    async def save(self, queue_name: str, job_id: str, data: Dict[str, Any]) -> None:
+    async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """
         Asynchronously saves or updates the data for a specific job in the store.
 
@@ -23,10 +24,11 @@ class BaseJobStore(ABC):
             job_id: The unique identifier of the job.
             data: A dictionary containing the job's data and metadata to be saved.
         """
+        # Abstract method - requires implementation in subclasses.
         ...
 
     @abstractmethod
-    async def load(self, queue_name: str, job_id: str) -> Optional[Dict[str, Any]]:
+    async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
         Asynchronously loads the data for a specific job from the store.
 
@@ -38,6 +40,7 @@ class BaseJobStore(ABC):
             A dictionary containing the job's data and metadata if found,
             otherwise None.
         """
+        # Abstract method - requires implementation in subclasses.
         ...
 
     @abstractmethod
@@ -49,12 +52,14 @@ class BaseJobStore(ABC):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
         """
+        # Abstract method - requires implementation in subclasses.
         ...
 
     @abstractmethod
-    async def all_jobs(self, queue_name: str) -> List[Dict[str, Any]]:
+    async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
-        Asynchronously retrieves data for all jobs associated with a specific queue.
+        Asynchronously retrieves data for all jobs associated with a specific
+        queue.
 
         Args:
             queue_name: The name of the queue.
@@ -63,10 +68,13 @@ class BaseJobStore(ABC):
             A list of dictionaries, where each dictionary contains the data
             for a job in the specified queue.
         """
+        # Abstract method - requires implementation in subclasses.
         ...
 
     @abstractmethod
-    async def jobs_by_status(self, queue_name: str, status: str) -> List[Dict[str, Any]]:
+    async def jobs_by_status(
+        self, queue_name: str, status: str
+    ) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves data for jobs in a specific queue that are
         currently in a given status.
@@ -79,4 +87,5 @@ class BaseJobStore(ABC):
             A list of dictionaries, where each dictionary contains the data
             for a job matching the criteria.
         """
+        # Abstract method - requires implementation in subclasses.
         ...

@@ -4,9 +4,10 @@ import time  # Add this import
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.enums import State
 from asyncmq.job import Job
 from asyncmq.runner import run_worker
-from asyncmq.task import TASK_REGISTRY, task
+from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 
@@ -46,7 +47,7 @@ async def test_priority_queue_order():
     await backend.enqueue("runner", low_priority_job.to_dict())
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time for all jobs to finish
     worker.cancel()
 
@@ -72,7 +73,7 @@ async def test_same_priority_jobs_order():
     await backend.enqueue("runner", job_2.to_dict())
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time for all jobs to finish
     worker.cancel()
 
@@ -96,7 +97,7 @@ async def test_job_reordering_by_priority():
     await backend.enqueue("runner", high_priority_job.to_dict())
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time for all jobs to finish
     worker.cancel()
 
@@ -120,11 +121,11 @@ async def test_priority_with_multiple_queues():
     await backend.enqueue("runner_2", low_priority_job.to_dict())
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner_1", backend))
+    worker = asyncio.create_task(run_worker("runner_1", backend=backend))
     await asyncio.sleep(1)  # Allow enough time for jobs in runner_1 to finish
     worker.cancel()
 
-    worker = asyncio.create_task(run_worker("runner_2", backend))
+    worker = asyncio.create_task(run_worker("runner_2", backend=backend))
     await asyncio.sleep(1)  # Allow enough time for jobs in runner_2 to finish
     worker.cancel()
 
@@ -148,11 +149,11 @@ async def test_priority_queue_with_max_retries():
     await backend.enqueue("runner", job_b.to_dict())
 
     # Simulate job failure for job_b
-    job_b.status = "failed"
-    await backend.update_job_state("runner", job_b.id, "failed")
+    job_b.status = State.FAILED
+    await backend.update_job_state("runner", job_b.id, State.FAILED)
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time for jobs to finish
     worker.cancel()
 
@@ -176,7 +177,7 @@ async def test_priority_queue_with_delayed_jobs():
     await backend.enqueue_delayed("runner", low_priority_job.to_dict(), time.time() + 2)
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(3)  # Allow enough time for all jobs to finish
     worker.cancel()
 
@@ -204,7 +205,7 @@ async def test_job_with_priority_and_ttl():
     await asyncio.sleep(0.5)  # Reduced sleep time to give jobs time to process before TTL expiration
 
     # Run the worker to process jobs
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(1.5)  # Allow enough time for jobs to finish before TTL expires
     worker.cancel()
 
@@ -228,7 +229,7 @@ async def test_job_with_priority_and_ttl():
 async def test_empty_priority_queue():
     backend = InMemoryBackend()
 
-    worker = asyncio.create_task(run_worker("runner", backend))
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
     await asyncio.sleep(2)  # Allow enough time to run
     worker.cancel()
 
