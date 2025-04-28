@@ -1,22 +1,62 @@
+from __future__ import annotations
+
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from asyncmq import __version__
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.logging import LoggingConfig, StandardLoggingConfig
+
+if TYPE_CHECKING:
+    from asyncmq.logging import LoggingConfig
 
 
 @dataclass
-class _BaseSettings:
+class Settings:
     """
-    Base class for asyncmq settings dataclasses.
+    Configuration settings for the asyncmq system.
 
-    Provides utility methods for dumping settings into dictionary or list
-    of tuples formats, with options to exclude None values and convert keys
-    to uppercase.
+    Inherits utility methods from `_PostgresSettings`.
+
+    Attributes:
+        debug: A boolean indicating whether the application is running in
+               debug mode. Defaults to False.
+        backend: The default backend instance to use for queue operations.
+                 Defaults to an instance of `RedisBackend`.
+                 NOTE: The type hint is for the class, but the default is
+                 an instance based on the original code logic.
+        version: A string representing the version of AsyncMQ. Defaults to
+                 the package's `__version__`.
     """
+    debug: bool = False
+    backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
+    version: str = __version__
     is_logging_setup: bool = False
+    jobs_table_name: str = "asyncmq_jobs"
+    """The name of the database table used to store job data by the PostgreSQL backend."""
+    asyncmq_postgres_backend_url: str | None = None
+    """The connection URL (DSN) for the PostgreSQL database."""
+    logging_level: str = "INFO"
+
+    @property
+    def logging_config(self) -> "LoggingConfig" | None:
+        """
+        Returns the logging configuration based on the current settings.
+
+        If `debug` is True, the logging level is set to "DEBUG", otherwise it's
+        set to "INFO". It returns an instance of `StandardLoggingConfig`.
+        A more advanced implementation might return different `LoggingConfig`
+        subclasses or None based on other settings.
+
+        Returns:
+            An instance of `StandardLoggingConfig` with the appropriate level,
+            or potentially None if logging should be disabled (though this
+            implementation always returns a config).
+        """
+        from asyncmq.core.utils.logging import StandardLoggingConfig
+
+        # Return a StandardLoggingConfig instance with the determined level.
+        return StandardLoggingConfig(level=self.logging_level)
 
     def dict(self, exclude_none: bool = False, upper: bool = False) -> dict[str, Any]:
         """
@@ -79,46 +119,3 @@ class _BaseSettings:
             return [(k, v) for k, v in original.items() if v is not None]
         # If keys should be upper-cased, filter, convert, and return a list of tuples.
         return [(k.upper(), v) for k, v in original.items() if v is not None]
-
-
-@dataclass
-class Settings(_BaseSettings):
-    """
-    Configuration settings for the asyncmq system.
-
-    Inherits utility methods from `_BaseSettings`.
-
-    Attributes:
-        debug: A boolean indicating whether the application is running in
-               debug mode. Defaults to False.
-        backend: The default backend instance to use for queue operations.
-                 Defaults to an instance of `RedisBackend`.
-                 NOTE: The type hint is for the class, but the default is
-                 an instance based on the original code logic.
-        version: A string representing the version of AsyncMQ. Defaults to
-                 the package's `__version__`.
-    """
-
-    debug: bool = False
-    backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
-    version: str = __version__
-
-    @property
-    def logging_config(self) -> LoggingConfig | None:
-        """
-        Returns the logging configuration based on the current settings.
-
-        If `debug` is True, the logging level is set to "DEBUG", otherwise it's
-        set to "INFO". It returns an instance of `StandardLoggingConfig`.
-        A more advanced implementation might return different `LoggingConfig`
-        subclasses or None based on other settings.
-
-        Returns:
-            An instance of `StandardLoggingConfig` with the appropriate level,
-            or potentially None if logging should be disabled (though this
-            implementation always returns a config).
-        """
-        # Determine the logging level based on the debug setting.
-        level = "DEBUG" if self.debug else "INFO"
-        # Return a StandardLoggingConfig instance with the determined level.
-        return StandardLoggingConfig(level=level)

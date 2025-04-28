@@ -26,9 +26,9 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: asyncmq
-          POSTGRES_PASSWORD: asyncmq
-          POSTGRES_DB: asyncmq
+          POSTGRES_USER: taskq
+          POSTGRES_PASSWORD: taskq
+          POSTGRES_DB: taskq
         ports:
           - 5432:5432
         options: >-

@@ -6,7 +6,7 @@ import anyio
 try:
     from croniter import croniter
 except ImportError:
-    raise ImportError("Please install croniter: pip install croniter")
+    raise ImportError("Please install croniter: pip install croniter") from None
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings

@@ -24,6 +24,7 @@ _monkay: Monkay = Monkay(
         "RedisBackend": ".backends.redis.RedisBackend",
         "Worker": ".workers.Worker",
         "settings": ".conf.settings",
+        "Settings": ".conf.global_settings.Settings",
     },
     skip_all_update=True,
     package="asyncmq",
@@ -35,8 +36,9 @@ __all__ = [
     "Job",
     "Queue",
     "RedisBackend",
+    "settings",
     "task",
-    "Worker"
+    "Worker",
 ]
 
 _monkay.add_lazy_import("task", ".tasks.task")
