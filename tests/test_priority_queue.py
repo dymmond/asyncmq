@@ -12,6 +12,7 @@ from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 
+
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
         if entry["func"] == func:
@@ -32,7 +33,6 @@ async def low_priority_task():
 @task(queue="runner")
 async def medium_priority_task():
     return "medium priority task completed"
-
 
 
 async def test_priority_queue_order():
@@ -62,7 +62,6 @@ async def test_priority_queue_order():
     assert result_low == "low priority task completed"
 
 
-
 async def test_same_priority_jobs_order():
     backend = InMemoryBackend()
 
@@ -86,7 +85,6 @@ async def test_same_priority_jobs_order():
     assert result_2 == "low priority task completed"
 
 
-
 async def test_job_reordering_by_priority():
     backend = InMemoryBackend()
 
@@ -108,7 +106,6 @@ async def test_job_reordering_by_priority():
 
     assert result_high == "high priority task completed"
     assert result_low == "low priority task completed"
-
 
 
 async def test_priority_with_multiple_queues():
@@ -138,7 +135,6 @@ async def test_priority_with_multiple_queues():
     assert result_low == "low priority task completed"
 
 
-
 async def test_priority_queue_with_max_retries():
     backend = InMemoryBackend()
 
@@ -166,7 +162,6 @@ async def test_priority_queue_with_max_retries():
     assert result_b == "low priority task completed"
 
 
-
 async def test_priority_queue_with_delayed_jobs():
     backend = InMemoryBackend()
 
@@ -188,7 +183,6 @@ async def test_priority_queue_with_delayed_jobs():
 
     assert result_high == "high priority task completed"
     assert result_low == "low priority task completed"
-
 
 
 async def test_job_with_priority_and_ttl():
@@ -223,8 +217,6 @@ async def test_job_with_priority_and_ttl():
     # Verify the results (ensure high priority job processed before TTL expires)
     assert result_high == "high priority task completed"
     assert result_low == "low priority task completed"
-
-
 
 
 async def test_empty_priority_queue():

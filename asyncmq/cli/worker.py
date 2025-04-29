@@ -17,7 +17,7 @@ console = Console()
 
 @click.group(name="worker", invoke_without_command=True)
 @click.pass_context
-def worker_app(ctx: click.Context):
+def worker_app(ctx: click.Context) -> None:
     """
     Manages AsyncMQ worker processes.
 
@@ -42,7 +42,7 @@ def _print_worker_help() -> None:
     and examples of how to use the worker start command. The help message is
     formatted within a Rich Panel.
     """
-    text = Text() # Create a Rich Text object to build the formatted output.
+    text = Text()  # Create a Rich Text object to build the formatted output.
     # Add the centered AsyncMQ logo with bold cyan styling.
     text.append(get_centered_logo(), style="bold cyan")
     # Add a header for worker commands with bold cyan styling.
@@ -60,9 +60,7 @@ def _print_worker_help() -> None:
 
 @worker_app.command("start")
 @click.argument("queue")
-@click.option(
-    "--concurrency", default=1, help="Number of concurrent workers."
-)
+@click.option("--concurrency", default=1, help="Number of concurrent workers.")
 def start_worker_cli(queue: str, concurrency: int):
     """
     Starts an AsyncMQ worker process for a specified queue.
@@ -82,9 +80,7 @@ def start_worker_cli(queue: str, concurrency: int):
         raise click.UsageError("Queue name cannot be empty")
 
     # Print the worker banner with configuration details.
-    print_worker_banner(
-        queue, concurrency, settings.backend.__class__.__name__, __version__
-    )
+    print_worker_banner(queue, concurrency, settings.backend.__class__.__name__, __version__)
 
     try:
         # Start the worker using anyio's run function.

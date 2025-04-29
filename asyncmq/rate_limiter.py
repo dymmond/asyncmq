@@ -85,12 +85,7 @@ class RateLimiter:
         # After waiting (if any), acquire the token by adding the current time.
         self.timestamps.append(anyio.current_time())
 
-    async def schedule_job(
-        self,
-        job: Callable[..., Awaitable[Any]],
-        *args: Any,
-        **kwargs: Any
-    ) -> Any:
+    async def schedule_job(self, job: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
         """
         Acquires a token from the rate limiter and then executes the provided
         asynchronous callable (job).

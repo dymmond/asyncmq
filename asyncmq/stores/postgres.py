@@ -21,6 +21,7 @@ class PostgresJobStore(BaseJobStore):
     and timestamps. It includes methods for saving, loading, deleting, and
     querying jobs by queue or status. It manages an internal connection pool.
     """
+
     def __init__(self, dsn: str | None = None) -> None:
         """
         Initializes the PostgresJobStore instance.
@@ -40,10 +41,7 @@ class PostgresJobStore(BaseJobStore):
         # Check if a DSN is provided or available in settings.
         if not dsn and not settings.asyncmq_postgres_backend_url:
             # Raise an error if no DSN source is available.
-            raise ValueError(
-                "Either 'dsn' or 'settings.asyncmq_postgres_backend_url' must be "
-                "provided."
-            )
+            raise ValueError("Either 'dsn' or 'settings.asyncmq_postgres_backend_url' must be " "provided.")
         # Store the resolved DSN, prioritizing the explicit 'dsn' argument.
         self.dsn = dsn or settings.asyncmq_postgres_backend_url
         # Initialize the connection pool to None; it will be created on first connection.
@@ -100,7 +98,7 @@ class PostgresJobStore(BaseJobStore):
                 queue_name,
                 job_id,
                 json.dumps(data),  # Serialize data dictionary to JSON string.
-                data.get("status")
+                data.get("status"),
             )
 
     async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
@@ -128,12 +126,12 @@ class PostgresJobStore(BaseJobStore):
                 """,
                 # Pass parameters to the query.
                 queue_name,
-                job_id
+                job_id,
             )
             # If a row was found, return the data column (which is JSONB and decoded by asyncpg).
             # Otherwise, return None.
             if row:
-                return json.loads(row["data"]) # Note: asyncpg decodes JSONB automatically
+                return json.loads(row["data"])  # Note: asyncpg decodes JSONB automatically
             return None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
@@ -156,9 +154,8 @@ class PostgresJobStore(BaseJobStore):
                 """,
                 # Pass parameters to the query.
                 queue_name,
-                job_id
+                job_id,
             )
-
 
     async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -182,7 +179,7 @@ class PostgresJobStore(BaseJobStore):
                 SELECT data FROM {settings.jobs_table_name} WHERE queue_name = $1
                 """,
                 # Pass the queue name as a parameter.
-                queue_name
+                queue_name,
             )
             # Extract and return the 'data' column (JSONB) from each row as a list of dictionaries.
             return [json.loads(row["data"]) for row in rows]
@@ -211,7 +208,7 @@ class PostgresJobStore(BaseJobStore):
                 """,
                 # Pass parameters to the query.
                 queue_name,
-                status
+                status,
             )
             # Extract and return the 'data' column (JSONB) from each row as a list of dictionaries.
             return [json.loads(row["data"]) for row in rows]

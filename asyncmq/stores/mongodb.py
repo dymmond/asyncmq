@@ -1,7 +1,7 @@
 from typing import Any
 
 try:
-    import motor # noqa
+    import motor  # noqa
 except ImportError:
     raise ImportError("Please install motor: `pip install motor`") from None
 
@@ -20,9 +20,7 @@ class MongoDBStore(BaseJobStore):
     method to be called before use to ensure indexes are initialized.
     """
 
-    def __init__(
-        self, mongo_url: str = "mongodb://localhost", database: str = "asyncmq"
-    ) -> None:
+    def __init__(self, mongo_url: str = "mongodb://localhost", database: str = "asyncmq") -> None:
         """
         Initializes the MongoDB job store client and collection references.
 
@@ -52,16 +50,12 @@ class MongoDBStore(BaseJobStore):
         # Ensure a unique compound index on queue_name and job_id for efficient
         # save/load/delete operations and to prevent duplicates. background=False
         # means index creation will block until complete.
-        await self.collection.create_index(
-            [("queue_name", 1), ("job_id", 1)], unique=True, background=False
-        )
+        await self.collection.create_index([("queue_name", 1), ("job_id", 1)], unique=True, background=False)
         # Ensure an index on the 'status' field for efficient status-based queries.
         # background=False means index creation will block until complete.
         await self.collection.create_index("status", background=False)
 
-    async def save(
-        self, queue_name: str, job_id: str, data: dict[str, Any]
-    ) -> None:
+    async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """
         Saves or updates a job document in the MongoDB collection.
 
@@ -98,9 +92,7 @@ class MongoDBStore(BaseJobStore):
             A dictionary representing the job document if found, otherwise None.
         """
         # Find a single document matching the queue name and job ID.
-        return await self.collection.find_one(
-            {"queue_name": queue_name, "job_id": job_id}
-        )
+        return await self.collection.find_one({"queue_name": queue_name, "job_id": job_id})
 
     async def delete(self, queue_name: str, job_id: str) -> None:
         """
@@ -111,9 +103,7 @@ class MongoDBStore(BaseJobStore):
             job_id: The unique identifier of the job to delete.
         """
         # Delete a single document matching the queue name and job ID.
-        await self.collection.delete_one(
-            {"queue_name": queue_name, "job_id": job_id}
-        )
+        await self.collection.delete_one({"queue_name": queue_name, "job_id": job_id})
 
     async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -130,9 +120,7 @@ class MongoDBStore(BaseJobStore):
         # Convert the asynchronous cursor results to a list. length=None fetches all.
         return await cursor.to_list(length=None)
 
-    async def jobs_by_status(
-        self, queue_name: str, status: str
-    ) -> list[dict[str, Any]]:
+    async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
         """
         Retrieves job documents for a specific queue and status.
 

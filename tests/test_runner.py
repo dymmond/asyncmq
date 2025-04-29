@@ -10,27 +10,33 @@ from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 
+
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
         if entry["func"] == func:
             return key
     raise RuntimeError(f"Task {func.__name__} is not registered.")
 
+
 @task(queue="runner")
 async def hello():
     return "hi"
+
 
 @task(queue="runner")
 async def raise_error():
     raise RuntimeError("fail")
 
+
 @task(queue="runner")
 async def echo(value):
     return value
 
+
 @task(queue="runner")
 async def add(x, y):
     return x + y
+
 
 @task(queue="runner")
 async def fail_once_then_succeed():

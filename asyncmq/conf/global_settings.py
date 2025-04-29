@@ -28,15 +28,23 @@ class Settings:
         version: A string representing the version of AsyncMQ. Defaults to
                  the package's `__version__`.
     """
+
     debug: bool = False
     logging_level: str = "INFO"
-    backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
+    backend: BaseBackend = RedisBackend()  # Keeping original logic default
     version: str = __version__
     is_logging_setup: bool = False
+
+    # For Postgres and MongoDB
+    jobs_table_schema: str = "asyncmq"
     jobs_table_name: str = "asyncmq_jobs"
     asyncmq_postgres_backend_url: str | None = None
     asyncmq_mongodb_backend_url: str | None = None
     asyncmq_mongodb_database_name: str | None = "asyncmq"
+
+    # For stalled recovery scheduler
+    stalled_check_interval: float = 60.0
+    stalled_threshold: float = 30.0
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:

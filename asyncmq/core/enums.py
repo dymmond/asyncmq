@@ -8,6 +8,7 @@ class StrEnum(str, Enum):
     This allows enum members to be used directly as strings while also providing
     the benefits of an Enum (e.g., unique values, iteration).
     """
+
     ...
 
 
@@ -19,6 +20,7 @@ class State(StrEnum):
     to completion, failure, or being delayed/expired. Inherits from `StrEnum`
     so that state members can be treated directly as their string values.
     """
+
     WAITING = "waiting"
     """The job is queued and waiting to be processed by a worker."""
     ACTIVE = "active"

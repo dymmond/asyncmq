@@ -7,9 +7,7 @@ from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 
 
-async def add_dependencies(
-    queue: str, job: Job, backend: BaseBackend | None = None
-) -> None:
+async def add_dependencies(queue: str, job: Job, backend: BaseBackend | None = None) -> None:
     """
     Registers a job's dependencies with the backend and links dependent
     (child) jobs to this job's completion.
@@ -36,9 +34,7 @@ async def add_dependencies(
     await backend.add_dependencies(queue, job.to_dict())
 
 
-async def resolve_dependency(
-    queue: str, parent_id: str, backend: BaseBackend | None = None
-) -> None:
+async def resolve_dependency(queue: str, parent_id: str, backend: BaseBackend | None = None) -> None:
     """
     Checks for and potentially enqueues jobs whose dependencies are now met
     after a parent job's completion.
@@ -96,9 +92,7 @@ async def resume_queue(queue: str, backend: BaseBackend | None = None) -> None:
     await backend.resume_queue(queue)
 
 
-async def is_queue_paused(
-    queue: str, backend: BaseBackend | None = None
-) -> bool:
+async def is_queue_paused(queue: str, backend: BaseBackend | None = None) -> bool:
     """
     Checks if a specific queue is currently marked as paused by the backend.
 
@@ -117,9 +111,7 @@ async def is_queue_paused(
     return await backend.is_queue_paused(queue)
 
 
-def jittered_backoff(
-    base_delay: float, attempt: int, jitter: float = 0.1
-) -> float:
+def jittered_backoff(base_delay: float, attempt: int, jitter: float = 0.1) -> float:
     """
     Computes a retry delay using an exponential backoff strategy with added
     random jitter.
@@ -180,9 +172,7 @@ async def report_progress(
 Job.report_progress = report_progress
 
 
-async def bulk_enqueue(
-    queue: str, jobs: list[dict[str, Any]], backend: BaseBackend | None = None
-) -> None:
+async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: BaseBackend | None = None) -> None:
     """
     Enqueues multiple jobs onto a queue in a single batch operation via the backend.
 
@@ -228,9 +218,7 @@ async def purge_jobs(
     await backend.purge(queue, state, older_than)
 
 
-async def emit_event(
-    event: str, data: dict[str, Any], backend: BaseBackend | None = None
-) -> None:
+async def emit_event(event: str, data: dict[str, Any], backend: BaseBackend | None = None) -> None:
     """
     Emits an event both locally through the `event_emitter` and, if the backend
     supports it, broadcasts the event for distributed listeners.
@@ -248,7 +236,7 @@ async def emit_event(
     # Emit the event to local listeners via the global event emitter.
     await event_emitter.emit(event, data)
     # If the backend has an emit_event method, use it for distributed broadcasting.
-    if hasattr(backend, 'emit_event'):
+    if hasattr(backend, "emit_event"):
         await backend.emit_event(event, data)
 
 
@@ -260,6 +248,7 @@ class Lock:
     for interacting with a distributed lock managed by the backend, abstracting
     away backend-specific lock implementations.
     """
+
     def __init__(self, lock_obj: Any) -> None:
         """
         Initializes the Lock wrapper.

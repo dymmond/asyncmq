@@ -13,7 +13,7 @@ console = Console()
 
 @click.group(name="queue", invoke_without_command=True)
 @click.pass_context
-def queue_app(ctx: click.Context):
+def queue_app(ctx: click.Context) -> None:
     """
     Manages AsyncMQ queues.
 
@@ -39,7 +39,7 @@ def _print_queue_help() -> None:
     and examples of how to use the queue commands. The help message is
     formatted within a Rich Panel.
     """
-    text = Text() # Create a Rich Text object to build the formatted output.
+    text = Text()  # Create a Rich Text object to build the formatted output.
     # Add the centered AsyncMQ logo with bold cyan styling.
     text.append(get_centered_logo(), style="bold cyan")
     # Add a header for queue commands with bold cyan styling.
@@ -65,7 +65,7 @@ def list_queues() -> None:
     and prints them to the console. Note that queue listing support depends
     on the specific backend implementation.
     """
-    backend = settings.backend # Get the configured backend instance.
+    backend = settings.backend  # Get the configured backend instance.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     console.print("[bold green]Fetching queues...[/bold green]")
 
@@ -96,7 +96,7 @@ def pause_queue(queue: str) -> None:
     Args:
         queue: The name of the queue to pause.
     """
-    backend = settings.backend # Get the configured backend instance.
+    backend = settings.backend  # Get the configured backend instance.
     # Call the backend's pause_queue method using anyio.run for async operation.
     anyio.run(backend.pause_queue, queue)
 
@@ -117,7 +117,7 @@ def resume_queue(queue: str) -> None:
     Args:
         queue: The name of the queue to resume.
     """
-    backend = settings.backend # Get the configured backend instance.
+    backend = settings.backend  # Get the configured backend instance.
     # Call the backend's resume_queue method using anyio.run for async operation.
     anyio.run(backend.resume_queue, queue)
 
@@ -139,7 +139,7 @@ def info_queue(queue: str) -> None:
     Args:
         queue: The name of the queue to get information about.
     """
-    backend = settings.backend # Get the configured backend instance.
+    backend = settings.backend  # Get the configured backend instance.
 
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating data fetching is in progress.

@@ -18,9 +18,11 @@ pytestmark = pytest.mark.anyio
 TASK_REGISTRY.clear()
 event_emitter._listeners.clear()
 
+
 @task(queue="test")
 async def sum_task(values):
     return sum(values)
+
 
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
@@ -152,7 +154,6 @@ async def test_delayed_result_is_none_initially():
     result = await backend.get_job_result("test", job.id)
 
     assert result is None
-
 
 
 async def test_delayed_then_execute():

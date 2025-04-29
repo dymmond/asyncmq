@@ -28,10 +28,7 @@ async def install_or_drop_postgres_backend(connection_string: str | None = None,
     # Define the SQL schema for the jobs table and its indexes.
     # The table name is pulled from settings, but index names are hardcoded.
     if not connection_string and not settings.asyncmq_postgres_backend_url:
-        raise ValueError(
-            "Either 'connection_string' or 'settings.asyncmq_postgres_backend_url' must be "
-            "provided."
-        )
+        raise ValueError("Either 'connection_string' or 'settings.asyncmq_postgres_backend_url' must be " "provided.")
 
     dsn = connection_string or settings.asyncmq_postgres_backend_url
     if not drop:

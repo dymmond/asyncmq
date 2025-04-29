@@ -49,6 +49,7 @@ WORKERS_LOGO = r"""
  ███ ███   ██████  ██   ██ ██   ██ ███████ ██   ██ ███████
 """.rstrip()
 
+
 def get_centered_logo(display_text: str = ASYNCMQ_LOGO) -> str:
     """
     Centers the display_text based on the current terminal width.
@@ -76,9 +77,7 @@ def get_centered_logo(display_text: str = ASYNCMQ_LOGO) -> str:
     return centered_logo
 
 
-def print_worker_banner(
-    queue: str, concurrency: int, backend_name: str, version: str
-) -> None:
+def print_worker_banner(queue: str, concurrency: int, backend_name: str, version: str) -> None:
     """
     Prints a styled banner to the console for the AsyncMQ worker.
 
@@ -117,7 +116,9 @@ def print_worker_banner(
     console.print(Panel(text, title="[b cyan]AsyncMQ Worker", border_style="cyan"))
 
 
-def get_print_banner(display_text: str, title: str, border_style: str = "cyan", style: str = "bold cyan", centered: bool = False) -> Any:
+def get_print_banner(
+    display_text: str, title: str, border_style: str = "cyan", style: str = "bold cyan", centered: bool = False
+) -> Any:
     text = Text()
     if centered:
         text.append(get_centered_logo(display_text), style=style)

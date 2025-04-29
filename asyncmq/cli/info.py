@@ -12,7 +12,7 @@ console = Console()
 
 @click.group(name="info", invoke_without_command=True)
 @click.pass_context
-def info_app(ctx: click.Context):
+def info_app(ctx: click.Context) -> None:
     """
     Provides information about the AsyncMQ installation and configuration.
 
@@ -38,7 +38,7 @@ def _print_info_help() -> None:
     description, and examples of how to use the info commands (version,
     backend). The help message is formatted within a Rich Panel.
     """
-    text = Text() # Create a Rich Text object to build the formatted output.
+    text = Text()  # Create a Rich Text object to build the formatted output.
     # Add the centered AsyncMQ logo with bold cyan styling.
     text.append(get_centered_logo(), style="bold cyan")
     # Add a header for information commands with bold cyan styling.
@@ -88,6 +88,4 @@ def backend() -> None:
 
     get_print_banner(INFO_LOGO, "AsyncMQ Backend")
     # Print the formatted string showing the current backend module and class.
-    console.print(
-        f"[green]Current backend:[/green] [cyan]{backend_module}.{backend_class}[/cyan]"
-    )
+    console.print(f"[green]Current backend:[/green] [cyan]{backend_module}.{backend_class}[/cyan]")

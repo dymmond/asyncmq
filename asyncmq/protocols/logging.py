@@ -15,6 +15,7 @@ class LoggerProtocol(Protocol):
     The `@runtime_checkable` decorator allows using `isinstance()` with this
     Protocol.
     """
+
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """
         Logs a message with level DEBUG.

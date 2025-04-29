@@ -5,6 +5,7 @@ from asyncmq.core.event import EventEmitter
 
 pytestmark = pytest.mark.anyio
 
+
 async def test_event_subscription_and_publish():
     emitter = EventEmitter()
     events = []
@@ -92,8 +93,11 @@ async def test_off_removes_only_targeted_handler():
     emitter = EventEmitter()
     result = []
 
-    def one(d): result.append("one")
-    def two(d): result.append("two")
+    def one(d):
+        result.append("one")
+
+    def two(d):
+        result.append("two")
 
     emitter.on("e", one)
     emitter.on("e", two)
@@ -115,7 +119,9 @@ async def test_handler_modifies_external_state():
     emitter = EventEmitter()
     state = {"count": 0}
 
-    def inc(_): state["count"] += 1
+    def inc(_):
+        state["count"] += 1
+
     emitter.on("tick", inc)
     await emitter.emit("tick", {})
     await emitter.emit("tick", {})

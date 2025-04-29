@@ -116,9 +116,7 @@ class Queue:
         # Enqueue the job, either with a delay or immediately, using the backend.
         if delay is not None:
             job.delay_until = time.time() + delay
-            await self.backend.enqueue_delayed(
-                self.name, job.to_dict(), job.delay_until
-            )
+            await self.backend.enqueue_delayed(self.name, job.to_dict(), job.delay_until)
         else:
             await self.backend.enqueue(self.name, job.to_dict())
 
@@ -213,10 +211,7 @@ class Queue:
         """
         # Validate that either 'every' or 'cron' is provided.
         if not every and not cron:
-            raise ValueError(
-                "Either 'every' (seconds or string) or 'cron' (expression) must be "
-                "provided."
-            )
+            raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be " "provided.")
 
         # Create a dictionary representing the repeatable job entry.
         entry = {

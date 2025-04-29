@@ -46,6 +46,8 @@ class InMemoryBackend(BaseBackend):
         self.paused: set[str] = set()
         # An anyio Lock to synchronize access to the in-memory data structures.
         self.lock: anyio.Lock = anyio.Lock()
+        self.heartbeats: dict[tuple[str, str], float] = {}
+        self.active_jobs: dict[tuple[str, str], dict] = {}
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -122,12 +124,10 @@ class InMemoryBackend(BaseBackend):
             queue_name: The name of the queue the job belonged to.
             job_id: The ID of the acknowledged job.
         """
-        # No action needed; state update is handled elsewhere.
-        pass
+        self.heartbeats.pop((queue_name, job_id), None)
+        self.active_jobs.pop((queue_name, job_id), None)
 
-    async def enqueue_delayed(
-        self, queue_name: str, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Asynchronously schedules a job to be available for processing at a
         specific future time.
@@ -174,9 +174,7 @@ class InMemoryBackend(BaseBackend):
                 if run_at <= now:
                     due_jobs.append(payload)  # Add due jobs to the 'due_jobs' list.
                 else:
-                    still_delayed.append(
-                        (run_at, payload)
-                    )  # Add remaining jobs to 'still_delayed'.
+                    still_delayed.append((run_at, payload))  # Add remaining jobs to 'still_delayed'.
             # Update the in-memory delayed list with only the remaining jobs.
             self.delayed[queue_name] = still_delayed
             return due_jobs  # Return the list of jobs that were due.
@@ -192,9 +190,7 @@ class InMemoryBackend(BaseBackend):
         # This method is not fully implemented in the provided code.
         pass
 
-    async def update_job_state(
-        self, queue_name: str, job_id: str, state: str
-    ) -> None:
+    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
         Asynchronously updates the processing state of a job in memory.
 
@@ -249,9 +245,7 @@ class InMemoryBackend(BaseBackend):
         # Return the result for the job key if it exists.
         return self.job_results.get((queue_name, job_id))
 
-    async def add_dependencies(
-        self, queue_name: str, job_dict: dict[str, Any]
-    ) -> None:
+    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
         Asynchronously registers a job's dependencies in memory.
 
@@ -279,9 +273,7 @@ class InMemoryBackend(BaseBackend):
         for parent_id in parent_deps:
             parent_children_key: _JobKey = (queue_name, parent_id)
             # Add the child job ID to the set of children waiting on this parent.
-            self.deps_children.setdefault(parent_children_key, set()).add(
-                child_job_id
-            )
+            self.deps_children.setdefault(parent_children_key, set()).add(child_job_id)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -310,9 +302,7 @@ class InMemoryBackend(BaseBackend):
                 # Check if the child job now has no pending dependencies.
                 if not self.deps_pending[child_pend_key]:
                     # If all dependencies are met, fetch the job data.
-                    raw: dict[str, Any] | None = self._fetch_job_data(
-                        queue_name, child_id
-                    )
+                    raw: dict[str, Any] | None = self._fetch_job_data(queue_name, child_id)
                     # If the job data was found.
                     if raw:
                         # Enqueue the child job.
@@ -357,9 +347,7 @@ class InMemoryBackend(BaseBackend):
         # Check if the queue name is in the set of paused queues.
         return queue_name in self.paused
 
-    async def save_job_progress(
-        self, queue_name: str, job_id: str, progress: float
-    ) -> None:
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
         Asynchronously saves the progress percentage for a specific job in memory.
 
@@ -371,9 +359,7 @@ class InMemoryBackend(BaseBackend):
         # Store the progress for the job key.
         self.job_progress[(queue_name, job_id)] = progress
 
-    async def bulk_enqueue(
-        self, queue_name: str, jobs: list[dict[str, Any]]
-    ) -> None:
+    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """
         Asynchronously enqueues multiple job payloads onto the specified queue
         in a single batch operation.
@@ -398,9 +384,7 @@ class InMemoryBackend(BaseBackend):
             # Sort the queue based on job priority after adding all jobs.
             q.sort(key=lambda job: job.get("priority", 5))
 
-    async def purge(
-        self, queue_name: str, state: str, older_than: float | None = None
-    ) -> None:
+    async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
         Removes jobs from memory based on their state and optional age criteria.
 
@@ -644,3 +628,103 @@ class InMemoryBackend(BaseBackend):
                 self.job_progress.pop(job_key, None)
                 return True  # Indicate successful removal.
             return False  # Indicate job was not found.
+
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        """
+        Records or updates the last heartbeat timestamp for a specific job in memory.
+
+        This method acquires an exclusive lock to safely update the in-memory
+        heartbeats dictionary, associating the provided timestamp with the given
+        job identified by its queue name and job ID.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            timestamp: The Unix timestamp (float) representing the time of the heartbeat.
+        """
+        # Acquire the lock to ensure safe concurrent modification of self.heartbeats
+        async with self.lock:
+            # Store the heartbeat timestamp. The key is a tuple combining
+            # queue name and job ID for uniqueness.
+            self.heartbeats[(queue_name, job_id)] = timestamp
+
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        """
+        Retrieves a list of jobs currently tracked by heartbeats that have not
+        sent a heartbeat since a specified timestamp.
+
+        This method iterates through all recorded heartbeats, checks if a heartbeat
+        timestamp is older than the `older_than` threshold, and if so, attempts
+        to find the corresponding job's full data payload within the in-memory queues.
+
+        Args:
+            older_than: A Unix timestamp (float). Any job with a heartbeat timestamp
+                        strictly less than this value will be considered stalled.
+
+        Returns:
+            A list of dictionaries. Each dictionary contains 'queue_name' and
+            'job_data' for each stalled job found. 'job_data' is the original
+            dictionary payload of the job from the queues.
+        """
+        stalled: list[dict[str, Any]] = [] # Initialize an empty list to collect stalled job details
+
+        # Acquire the lock to ensure safe concurrent access to both self.heartbeats
+        # and self.queues during the check and lookup process.
+        async with self.lock:
+            # Iterate over a copy of the heartbeats items. This avoids potential issues
+            # if heartbeats were modified by another task during iteration (though
+            # modifications are limited by the lock here, copying is a robust pattern).
+            for (q, jid), ts in list(self.heartbeats.items()):
+                # Check if the job's last heartbeat timestamp is older than the threshold
+                if ts < older_than:
+                    # Look up the full job payload in the relevant waiting queue.
+                    # We use .get(q, []) to handle cases where a queue might not exist
+                    # or is empty, providing a default empty list to iterate over.
+                    # The generator expression efficiently finds the payload dictionary
+                    # where the 'id' key matches the job_id.
+                    # We use .get("id") on the payload for safety against missing keys.
+                    payload = next(
+                        (p for p in self.queues.get(q, []) if p.get("id") == jid),
+                        None, # If no matching payload is found in the queue, return None
+                    )
+                    # If a corresponding job payload was found in the queue, add it
+                    # to the list of stalled jobs with its queue name.
+                    if payload:
+                        stalled.append({"queue_name": q, "job_data": payload})
+
+        return stalled # Return the list of identified stalled jobs
+
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        """
+        Re-enqueues a stalled job back onto its waiting queue in memory and removes
+        its associated heartbeat entry.
+
+        This method assumes the job is being moved from a "running" or "stalled"
+        conceptual state back to a "waiting" state. It appends the job's data
+        back to the end of the specified queue in the in-memory queues dictionary
+        and removes the job's entry from the in-memory heartbeats dictionary,
+        signifying it's no longer actively being tracked by heartbeat.
+
+        Args:
+            queue_name: The name of the queue the job should be added back into.
+            job_data: The dictionary containing the job's data payload. This
+                      dictionary must contain an 'id' key to identify the job
+                      for heartbeat removal.
+        """
+        # Acquire the lock to ensure safe concurrent modification of both self.queues
+        # and self.heartbeats.
+        async with self.lock:
+            # Append the job data back to the list associated with the queue_name.
+            # setdefault(queue_name, []) ensures that if the queue_name does not
+            # already exist as a key in self.queues, it is created with an empty
+            # list as its value before appending the job_data.
+            self.queues.setdefault(queue_name, []).append(job_data)
+
+            # Remove the heartbeat entry for this specific job from the heartbeats
+            # dictionary. This stops tracking its heartbeat as it's now re-enqueued.
+            # Use .pop((queue_name, job_data["id"]), None) with a default of None
+            # to prevent a KeyError if the heartbeat entry was somehow already removed
+            # (e.g., by another process or cleanup task, or if 'id' is missing).
+            # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
+            # might be job_data.get("id").
+            self.heartbeats.pop((queue_name, job_data["id"]), None)

@@ -7,6 +7,7 @@ REDIS_URL = "redis://localhost:6379"
 # Use pytest-asyncio
 pytest_plugins = ("pytest_asyncio",)
 
+
 @pytest_asyncio.fixture(scope="function")
 async def redis():
     """
@@ -22,6 +23,6 @@ async def redis():
     await client.close()
 
 
-@pytest.fixture(scope="module", params=['asyncio', 'trio'])
+@pytest.fixture(scope="module", params=["asyncio", "trio"])
 def anyio_backend():
     return ("asyncio", {"debug": True})

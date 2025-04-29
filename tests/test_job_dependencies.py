@@ -9,20 +9,24 @@ from asyncmq.tasks import TASK_REGISTRY, task
 
 pytestmark = pytest.mark.anyio
 
+
 def get_task_id(func):
     for key, entry in TASK_REGISTRY.items():
         if entry["func"] == func:
             return key
     raise RuntimeError(f"Task {func.__name__} is not registered.")
 
+
 # Define the tasks
 @task(queue="runner")
 async def task_a():
     return "task_a completed"
 
+
 @task(queue="runner")
 async def task_b():
     return "task_b completed"
+
 
 @task(queue="runner")
 async def task_c():
@@ -61,7 +65,6 @@ async def test_job_dependencies():
     assert result_c == "task_c completed"
 
 
-
 async def test_independent_jobs():
     backend = InMemoryBackend()
 
@@ -89,19 +92,13 @@ async def test_independent_jobs():
     assert results == {"task_a completed", "task_b completed", "task_c completed"}
 
 
-
 async def test_multiple_dependencies():
     backend = InMemoryBackend()
 
     # A and B run first; C depends on both A and B
     job_a = Job(task_id=get_task_id(task_a), args=[], kwargs={})
     job_b = Job(task_id=get_task_id(task_b), args=[], kwargs={})
-    job_c = Job(
-        task_id=get_task_id(task_c),
-        args=[],
-        kwargs={},
-        depends_on=[job_a.id, job_b.id]
-    )
+    job_c = Job(task_id=get_task_id(task_c), args=[], kwargs={}, depends_on=[job_a.id, job_b.id])
 
     await backend.enqueue("runner", job_a.to_dict())
     await backend.enqueue("runner", job_b.to_dict())

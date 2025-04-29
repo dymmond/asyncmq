@@ -93,6 +93,7 @@ clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
 lint = "ruff check --fix --line-length 99  asyncmq tests {args}"
+format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
 
 [tool.hatch.envs.docs]
 dependencies = [
@@ -147,6 +148,7 @@ warn_redundant_casts = true
 no_implicit_optional = false
 strict_equality = false
 strict_optional = false
+disable_error_code = "attr-defined,has-type,override,misc,safe-super"
 
 [tool.ruff]
 line-length = 120
@@ -174,6 +176,13 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "docs_src.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "motor.*",
+]
+ignore_missing_imports = true
 ignore_errors = true
 
 [tool.pytest.ini_options]

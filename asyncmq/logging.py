@@ -72,9 +72,7 @@ class LoggerProxy:
             # Check if the real logger has been bound.
             if not self._logger:
                 # If not bound, raise an error.
-                raise RuntimeError(
-                    "Logger is not configured yet. Please call setup_logging() first."
-                )
+                raise RuntimeError("Logger is not configured yet. Please call setup_logging() first.")
             # If bound, get and return the requested attribute from the real logger.
             return getattr(self._logger, item)
 
@@ -171,7 +169,6 @@ class LoggingConfig(ABC):
         raise NotImplementedError("`get_logger()` must be implemented in subclasses.")
 
 
-
 def setup_logging(logging_config: LoggingConfig | None = None) -> None:
     """
     Sets up the logging system for the application using a provided or default configuration.
@@ -238,5 +235,6 @@ def enable_logging() -> None:
         # logging configuration from settings.
         setup_logging(settings.logging_config)
         settings.is_logging_setup = True
+
 
 enable_logging()
