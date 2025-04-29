@@ -22,7 +22,6 @@ class DummyBackend(InMemoryBackend):
         self.resumed = True
 
 
-
 async def test_add_job_without_delay():
     backend = InMemoryBackend()
     q = Queue('queue1', backend=backend)
@@ -35,7 +34,6 @@ async def test_add_job_without_delay():
     assert raw['task'] == 'task1'
     assert raw['args'] == [1]
     assert raw['kwargs'] == {'a': 2}
-
 
 
 async def test_add_job_with_delay():
@@ -51,7 +49,6 @@ async def test_add_job_with_delay():
     # In delayed storage
     delayed = backend.delayed.get('queue2', [])
     assert any(payload['id'] == job_id for _, payload in delayed)
-
 
 
 async def test_add_bulk():
@@ -81,7 +78,6 @@ def test_add_repeatable():
     assert rep['every'] == 5
 
 
-
 async def test_pause_resume():
     backend = DummyBackend()
     q = Queue('queue5', backend=backend)
@@ -91,7 +87,6 @@ async def test_pause_resume():
 
     await q.resume()
     assert backend.resumed is True
-
 
 
 async def test_clean():
@@ -105,7 +100,6 @@ async def test_clean():
     await q.clean(State.WAITING)
     state2 = await backend.get_job_state('queue6', job_id)
     assert state2 is None
-
 
 
 async def test_flowproducer_add_flow(monkeypatch):
@@ -128,6 +122,7 @@ async def test_flowproducer_add_flow(monkeypatch):
     enq2 = await backend.dequeue('queue7')
     assert enq1['id'] == 'idA'
     assert enq2['id'] == 'idB'
+
     assert called == [('queue7', 'idA'), ('queue7', 'idB')]
 
 

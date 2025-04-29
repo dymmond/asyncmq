@@ -1,5 +1,5 @@
 import time
-from typing import Any, Tuple
+from typing import Any
 
 import anyio
 
@@ -7,157 +7,539 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 
-_JobKey = Tuple[str, str]
+# Type alias for a job key, which is a tuple of (queue_name, job_id).
+_JobKey = tuple[str, str]
+
 
 class InMemoryBackend(BaseBackend):
+    """
+    An in-memory implementation of the AsyncMQ backend.
+
+    This backend stores all queue data, job states, results, and dependencies
+    directly in Python dictionaries and lists in memory. It is suitable for
+    testing, development, and simple use cases where persistence across process
+    restarts is not required. It uses an anyio Lock for thread-safe access
+    to its internal data structures within a single process.
+    """
+
     def __init__(self) -> None:
+        """
+        Initializes the in-memory backend with empty data structures.
+        """
+        # Dictionary mapping queue names to lists of waiting job payloads.
         self.queues: dict[str, list[dict[str, Any]]] = {}
+        # Dictionary mapping queue names to lists of failed job payloads (Dead Letter Queue).
         self.dlqs: dict[str, list[dict[str, Any]]] = {}
+        # Dictionary mapping queue names to lists of (run_at_timestamp, job_payload) for delayed jobs.
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
+        # Dictionary mapping job keys (_JobKey) to their current state string.
         self.job_states: dict[_JobKey, str] = {}
+        # Dictionary mapping job keys (_JobKey) to their execution result.
         self.job_results: dict[_JobKey, Any] = {}
+        # Dictionary mapping job keys (_JobKey) to their progress percentage (float).
         self.job_progress: dict[_JobKey, float] = {}
+        # Dictionary mapping child job keys (_JobKey) to a set of parent job IDs they are waiting on.
         self.deps_pending: dict[_JobKey, set[str]] = {}
+        # Dictionary mapping parent job keys (_JobKey) to a set of child job IDs that depend on them.
         self.deps_children: dict[_JobKey, set[str]] = {}
+        # Set of queue names that are currently paused.
         self.paused: set[str] = set()
+        # An anyio Lock to synchronize access to the in-memory data structures.
         self.lock: anyio.Lock = anyio.Lock()
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Asynchronously enqueues a job payload onto the specified queue.
+
+        Adds the job payload to the in-memory list for the queue and updates
+        its state to WAITING. The queue is sorted by job priority after adding.
+
+        Args:
+            queue_name: The name of the queue to add the job to.
+            payload: A dictionary containing the job data, including an 'id'
+                     and optionally a 'priority'.
+        """
         async with self.lock:
+            # Get or create the list for the queue.
             queue = self.queues.setdefault(queue_name, [])
+            # Append the new job payload to the list.
             queue.append(payload)
+            # Sort the queue based on job priority (lower number is higher priority).
             queue.sort(key=lambda job: job.get("priority", 5))
+            # Update the job's state to WAITING.
             self.job_states[(queue_name, payload["id"])] = State.WAITING
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
+        """
+        Asynchronously attempts to dequeue the next job from the specified queue.
+
+        Removes and returns the first job from the in-memory queue list if
+        available. Does not update job state here; state transition to ACTIVE
+        is handled by the worker.
+
+        Args:
+            queue_name: The name of the queue to dequeue from.
+
+        Returns:
+            The job dictionary if a job was available, otherwise None.
+        """
         async with self.lock:
+            # Get the list for the queue, defaulting to empty.
             queue = self.queues.get(queue_name, [])
+            # If the queue is not empty, pop and return the first job.
             if queue:
                 return queue.pop(0)
+            # Return None if the queue is empty.
             return None
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Asynchronously moves a failed job to the Dead Letter Queue (DLQ).
+
+        Adds the job payload to the in-memory DLQ list for the queue and updates
+        its state to FAILED.
+
+        Args:
+            queue_name: The name of the queue the job originated from.
+            payload: A dictionary containing the job data, including an 'id'.
+        """
         async with self.lock:
+            # Get or create the list for the DLQ.
             dlq = self.dlqs.setdefault(queue_name, [])
+            # Append the failed job payload to the DLQ list.
             dlq.append(payload)
+            # Update the job's state to FAILED.
             self.job_states[(queue_name, payload["id"])] = State.FAILED
 
     async def ack(self, queue_name: str, job_id: str) -> None:
+        """
+        Acknowledges successful processing of a job.
+
+        This method is a no-op in this in-memory backend as state transitions
+        (like completion) are handled by `update_job_state`.
+
+        Args:
+            queue_name: The name of the queue the job belonged to.
+            job_id: The ID of the acknowledged job.
+        """
+        # No action needed; state update is handled elsewhere.
         pass
 
-    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+    async def enqueue_delayed(
+        self, queue_name: str, payload: dict[str, Any], run_at: float
+    ) -> None:
+        """
+        Asynchronously schedules a job to be available for processing at a
+        specific future time.
+
+        Adds the job payload and its scheduled run time to the in-memory delayed
+        list for the queue and updates the job's state to EXPIRED.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            payload: A dictionary containing the job data, including an 'id'.
+            run_at: The absolute timestamp (float) when the job should become
+                    available for processing.
+        """
         async with self.lock:
+            # Get or create the list for delayed jobs.
             delayed_list = self.delayed.setdefault(queue_name, [])
+            # Append the run_at timestamp and job payload as a tuple.
             delayed_list.append((run_at, payload))
+            # Update the job's state to EXPIRED (or DELAYED).
             self.job_states[(queue_name, payload["id"])] = State.EXPIRED
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves delayed jobs that are now due for processing.
+
+        Checks the in-memory delayed list for jobs whose scheduled run time
+        is less than or equal to the current time. Removes due jobs from the
+        delayed list and returns their payloads.
+
+        Args:
+            queue_name: The name of the queue to check for due delayed jobs.
+
+        Returns:
+            A list of job dictionaries that are ready to be processed.
+        """
         async with self.lock:
+            # Get the current time.
             now = time.time()
-            due_jobs = []
-            still_delayed = []
+            due_jobs = []  # List to hold jobs that are due.
+            still_delayed = []  # List to hold jobs that are not yet due.
+            # Iterate through the delayed jobs for the queue.
             for run_at, payload in self.delayed.get(queue_name, []):
+                # Check if the job's run time is now or in the past.
                 if run_at <= now:
-                    due_jobs.append(payload)
+                    due_jobs.append(payload)  # Add due jobs to the 'due_jobs' list.
                 else:
-                    still_delayed.append((run_at, payload))
+                    still_delayed.append(
+                        (run_at, payload)
+                    )  # Add remaining jobs to 'still_delayed'.
+            # Update the in-memory delayed list with only the remaining jobs.
             self.delayed[queue_name] = still_delayed
-            return due_jobs
+            return due_jobs  # Return the list of jobs that were due.
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+        """
+        Asynchronously removes a specific job from the delayed list by its ID.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The ID of the job to remove.
+        """
+        # This method is not fully implemented in the provided code.
         pass
 
-    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+    async def update_job_state(
+        self, queue_name: str, job_id: str, state: str
+    ) -> None:
+        """
+        Asynchronously updates the processing state of a job in memory.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            state: A string representing the new state of the job.
+        """
         async with self.lock:
+            # Update the state for the job key.
             self.job_states[(queue_name, job_id)] = state
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
+        """
+        Asynchronously saves the result of a completed job in memory.
+
+        Args:
+            queue_name: The name of the queue the job belonged to.
+            job_id: The unique identifier of the job whose result is to be saved.
+            result: The result data of the job.
+        """
         async with self.lock:
+            # Store the result for the job key.
             self.job_results[(queue_name, job_id)] = result
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
+        """
+        Retrieves the current processing state of a job from memory.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job whose state is requested.
+
+        Returns:
+            A string representing the job's state if found, otherwise None.
+        """
+        # Return the state for the job key if it exists.
         return self.job_states.get((queue_name, job_id))
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
+        """
+        Retrieves the result data of a job from memory.
+
+        Args:
+            queue_name: The name of the queue the job belonged to.
+            job_id: The unique identifier of the job whose result is requested.
+
+        Returns:
+            The job's result data if the job is found and has a result,
+            otherwise None.
+        """
+        # Return the result for the job key if it exists.
         return self.job_results.get((queue_name, job_id))
 
-    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
-        child_job_id = job_dict['id']
+    async def add_dependencies(
+        self, queue_name: str, job_dict: dict[str, Any]
+    ) -> None:
+        """
+        Asynchronously registers a job's dependencies in memory.
+
+        Uses dictionaries to track which parent jobs a child job is waiting on
+        (`deps_pending`) and which child jobs are waiting on a parent job
+        (`deps_children`).
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_dict: The job data dictionary, expected to contain at least
+                      an "id" key and an optional "depends_on" list of parent job IDs.
+        """
+        child_job_id = job_dict["id"]
         child_pend_key: _JobKey = (queue_name, child_job_id)
-        parent_deps: set[str] = set(job_dict.get('depends_on', []))
+        # Get the set of parent job IDs this child depends on.
+        parent_deps: set[str] = set(job_dict.get("depends_on", []))
+
+        # If there are dependencies.
         if not parent_deps:
-            return
+            return  # Exit if no dependencies are specified.
+
+        # Store the set of parent IDs the child is waiting on.
         self.deps_pending[child_pend_key] = parent_deps
+        # For each parent ID, register the child as a dependent.
         for parent_id in parent_deps:
             parent_children_key: _JobKey = (queue_name, parent_id)
-            self.deps_children.setdefault(parent_children_key, set()).add(child_job_id)
+            # Add the child job ID to the set of children waiting on this parent.
+            self.deps_children.setdefault(parent_children_key, set()).add(
+                child_job_id
+            )
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
+        """
+        Asynchronously signals that a parent job has completed and checks if
+        dependent child jobs are now ready to be enqueued.
+
+        Removes the `parent_id` from the pending dependencies set of its children.
+        If a child job's pending dependencies set becomes empty, it is enqueued.
+        Cleans up dependency tracking data in memory.
+
+        Args:
+            queue_name: The name of the queue the parent job belonged to.
+            parent_id: The unique identifier of the job that just completed.
+        """
         parent_children_key: _JobKey = (queue_name, parent_id)
+        # Get a list of child job IDs waiting on this parent.
         children: list[str] = list(self.deps_children.get(parent_children_key, set()))
+
+        # Iterate through each child job ID.
         for child_id in children:
             child_pend_key: _JobKey = (queue_name, child_id)
+            # Check if the child job is still in the pending dependencies tracking.
             if child_pend_key in self.deps_pending:
+                # Remove the completed parent's ID from the child's pending set.
                 self.deps_pending[child_pend_key].discard(parent_id)
+                # Check if the child job now has no pending dependencies.
                 if not self.deps_pending[child_pend_key]:
-                    raw: dict[str, Any] | None = self._fetch_job_data(queue_name, child_id)
+                    # If all dependencies are met, fetch the job data.
+                    raw: dict[str, Any] | None = self._fetch_job_data(
+                        queue_name, child_id
+                    )
+                    # If the job data was found.
                     if raw:
+                        # Enqueue the child job.
                         await self.enqueue(queue_name, raw)
-                        await event_emitter.emit('job:ready', {'id': child_id})
+                        # Emit an event indicating the job is now ready.
+                        await event_emitter.emit("job:ready", {"id": child_id})
+                    # Delete the child's empty pending dependencies entry.
                     del self.deps_pending[child_pend_key]
+        # Remove the parent's children tracking entry.
         self.deps_children.pop(parent_children_key, None)
 
     async def pause_queue(self, queue_name: str) -> None:
+        """
+        Asynchronously marks the specified queue as paused in memory.
+
+        Args:
+            queue_name: The name of the queue to pause.
+        """
+        # Add the queue name to the set of paused queues.
         self.paused.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
+        """
+        Asynchronously marks the specified queue as resumed in memory.
+
+        Args:
+            queue_name: The name of the queue to resume.
+        """
+        # Remove the queue name from the set of paused queues.
         self.paused.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
+        """
+        Checks if the specified queue is currently marked as paused in memory.
+
+        Args:
+            queue_name: The name of the queue to check.
+
+        Returns:
+            True if the queue is paused, False otherwise.
+        """
+        # Check if the queue name is in the set of paused queues.
         return queue_name in self.paused
 
-    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
+    async def save_job_progress(
+        self, queue_name: str, job_id: str, progress: float
+    ) -> None:
+        """
+        Asynchronously saves the progress percentage for a specific job in memory.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            progress: The progress value, typically a float between 0.0 and 1.0.
+        """
+        # Store the progress for the job key.
         self.job_progress[(queue_name, job_id)] = progress
 
-    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
+    async def bulk_enqueue(
+        self, queue_name: str, jobs: list[dict[str, Any]]
+    ) -> None:
+        """
+        Asynchronously enqueues multiple job payloads onto the specified queue
+        in a single batch operation.
+
+        Adds the job payloads to the in-memory list for the queue and updates
+        their states to WAITING. The queue is sorted by job priority after adding.
+
+        Args:
+            queue_name: The name of the queue to enqueue jobs onto.
+            jobs: A list of job payloads (dictionaries) to be enqueued. Each
+                  dictionary is expected to contain at least an "id" and
+                  optionally a "priority" key.
+        """
         async with self.lock:
+            # Get or create the list for the queue.
             q = self.queues.setdefault(queue_name, [])
+            # Extend the queue list with the new jobs.
             q.extend(jobs)
+            # Update the state for each new job to WAITING.
             for job in jobs:
-                self.job_states[(queue_name, job['id'])] = State.WAITING
+                self.job_states[(queue_name, job["id"])] = State.WAITING
+            # Sort the queue based on job priority after adding all jobs.
             q.sort(key=lambda job: job.get("priority", 5))
 
-    async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
+    async def purge(
+        self, queue_name: str, state: str, older_than: float | None = None
+    ) -> None:
+        """
+        Removes jobs from memory based on their state and optional age criteria.
+
+        Iterates through all job states and removes jobs matching the specified
+        queue name and state from the state, result, and progress dictionaries.
+        Note: Age filtering (`older_than`) is not fully implemented as this
+        backend does not store timestamps for all states.
+
+        Args:
+            queue_name: The name of the queue from which to purge jobs.
+            state: The state of the jobs to be removed (e.g., "completed", "failed").
+            older_than: An optional timestamp. This parameter is not fully
+                        utilized in this in-memory implementation for all states.
+        """
         to_delete: list[_JobKey] = []
+        # Iterate through a copy of the job_states items to allow deletion during iteration.
         for (qname, jid), st in list(self.job_states.items()):
+            # Check if the job matches the specified queue name and state.
             if qname == queue_name and st == state:
+                # Add the job key to the list of keys to delete.
                 to_delete.append((qname, jid))
+
+        # Iterate through the list of job keys to delete.
         for key in to_delete:
+            # Remove the job's state, result, and progress from the respective dictionaries.
             self.job_states.pop(key, None)
             self.job_results.pop(key, None)
             self.job_progress.pop(key, None)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
+        """
+        Emits a backend-specific lifecycle event using the global event emitter.
+
+        Args:
+            event: The name of the event to emit.
+            data: A dictionary containing data associated with the event.
+        """
+        # Emit the event using the core event emitter.
         await event_emitter.emit(event, data)
 
     async def create_lock(self, key: str, ttl: int) -> anyio.Lock:
+        """
+        Creates and returns an anyio Lock instance for synchronization within
+        this single process.
+
+        Note: This does not provide a distributed lock across multiple processes.
+
+        Args:
+            key: A string key for the lock (not used by anyio.Lock itself).
+            ttl: The time-to-live for the lock in seconds (not used by anyio.Lock).
+
+        Returns:
+            An anyio.Lock instance.
+        """
+        # Return a standard anyio.Lock instance.
         return anyio.Lock()
 
+    async def atomic_add_flow(
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
+    ) -> list[str]:
+        """
+        Atomically enqueues multiple jobs and registers their dependencies
+        within this in-memory backend instance.
+
+        This operation is atomic with respect to other operations on this
+        backend instance due to the use of the internal lock.
+
+        Args:
+            queue_name: The target queue for all jobs in the flow.
+            job_dicts: A list of job payloads (dictionaries) to enqueue.
+            dependency_links: A list of tuples, where each tuple is
+                              (parent_job_id, child_job_id), defining the
+                              dependencies within the flow.
+
+        Returns:
+            A list of job IDs that were successfully enqueued, in the order
+            they were provided in `job_dicts`.
+        """
+        raise NotImplementedError("atomic_add_flow not supported for InMemoryBackend")
+
     def _fetch_job_data(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+        """
+        Helper method to find a job's data dictionary in the in-memory queues.
+
+        Note: This method iterates through the queue list and is not efficient
+        for large queues. It's primarily used internally for dependency resolution.
+
+        Args:
+            queue_name: The name of the queue to search.
+            job_id: The ID of the job to find.
+
+        Returns:
+            The job data dictionary if found, otherwise None.
+        """
+        # Iterate through jobs in the waiting queue.
         for job in self.queues.get(queue_name, []):
-            if job.get('id') == job_id:
-                return job
+            # Check if the job ID matches.
+            if job.get("id") == job_id:
+                return job  # Return the job data if found.
+        # Return None if the job was not found in the waiting queue.
         return None
 
     async def list_queues(self) -> list[str]:
+        """
+        Lists all known queue names in this in-memory backend instance.
+
+        Returns:
+            A list of strings, where each string is the name of a queue that
+            has had jobs enqueued into it.
+        """
         async with self.lock:
+            # Return a list of all keys (queue names) in the queues dictionary.
             return list(self.queues.keys())
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
+        """
+        Retrieves statistics for a specific queue in this in-memory backend.
+
+        Provides the number of jobs currently in the waiting, delayed, and
+        failed (DLQ) states for the given queue.
+
+        Args:
+            queue_name: The name of the queue to get statistics for.
+
+        Returns:
+            A dictionary containing the counts for "waiting", "delayed", and
+            "failed" jobs.
+        """
         async with self.lock:
+            # Get the length of the waiting queue list.
             waiting = len(self.queues.get(queue_name, []))
+            # Get the length of the delayed jobs list.
             delayed = len(self.delayed.get(queue_name, []))
+            # Get the length of the DLQ list.
             failed = len(self.dlqs.get(queue_name, []))
+            # Return the statistics as a dictionary.
             return {
                 "waiting": waiting,
                 "delayed": delayed,
@@ -165,39 +547,100 @@ class InMemoryBackend(BaseBackend):
             }
 
     async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Lists all jobs currently held in memory for a specific queue,
+        regardless of their state (waiting, delayed, or in DLQ).
+
+        Args:
+            queue_name: The name of the queue to list jobs for.
+
+        Returns:
+            A list of dictionaries, each representing a job payload.
+        """
         async with self.lock:
             jobs = []
+            # Add jobs from the waiting queue.
             for job in self.queues.get(queue_name, []):
                 jobs.append(job)
+            # Add job payloads from the delayed list.
             for _, job in self.delayed.get(queue_name, []):
                 jobs.append(job)
+            # Add jobs from the DLQ.
             for job in self.dlqs.get(queue_name, []):
                 jobs.append(job)
+            # Return the combined list of jobs.
             return jobs
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Attempts to retry a job currently in the Dead Letter Queue (DLQ).
+
+        Removes the job from the DLQ and re-enqueues it into the main queue
+        with its state updated to WAITING.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to retry.
+
+        Returns:
+            True if the job was found in the DLQ and successfully re-enqueued,
+            False otherwise.
+        """
         async with self.lock:
             dlq = self.dlqs.get(queue_name, [])
+            # Iterate through the DLQ list.
             for job in dlq:
+                # Check if the job ID matches.
                 if job["id"] == job_id:
+                    # Remove the job from the DLQ.
                     dlq.remove(job)
+                    # Add the job back to the main queue.
                     self.queues.setdefault(queue_name, []).append(job)
+                    # Update the job's state to WAITING.
                     self.job_states[(queue_name, job_id)] = State.WAITING
-                    return True
-            return False
+                    return True  # Indicate successful retry.
+            return False  # Indicate job was not found in DLQ.
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Removes a job from any of the in-memory queues (waiting, delayed, or DLQ).
+
+        Also removes the job's state, result, and progress information.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove.
+
+        Returns:
+            True if the job was found and removed, False otherwise.
+        """
         async with self.lock:
-            for lst in (self.queues.get(queue_name, []),
-                        [job for _, job in self.delayed.get(queue_name, [])],
-                        self.dlqs.get(queue_name, [])):
+            removed = False  # Flag to track if the job was removed.
+            # Iterate through the lists representing waiting, delayed, and DLQ jobs.
+            # Note: Creating a list copy of the delayed jobs' payloads for iteration.
+            for lst in (
+                self.queues.get(queue_name, []),
+                [job for _, job in self.delayed.get(queue_name, [])],
+                self.dlqs.get(queue_name, []),
+            ):
+                # Iterate through a copy of the current list to allow modification.
                 for job in list(lst):
+                    # Check if the job ID matches.
                     if job["id"] == job_id:
                         try:
+                            # Attempt to remove the job from the original list.
                             lst.remove(job)
+                            removed = True  # Set flag to True if removal was successful.
                         except ValueError:
+                            # Handle case where job might have been removed by another operation.
                             pass
-                        self.job_states.pop((queue_name, job_id), None)
-                        self.job_results.pop((queue_name, job_id), None)
-                        return True
-            return False
+
+            # If the job was found and removed from any list.
+            if removed:
+                job_key: _JobKey = (queue_name, job_id)
+                # Remove the job's state, result, and progress information.
+                self.job_states.pop(job_key, None)
+                self.job_results.pop(job_key, None)
+                self.job_progress.pop(job_key, None)
+                return True  # Indicate successful removal.
+            return False  # Indicate job was not found.

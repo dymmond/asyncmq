@@ -24,6 +24,27 @@ redis.call('ZREM', KEYS[1], items[1])
 return items[1]
 """
 
+FLOW_SCRIPT: str = r"""
+-- ARGV: num_jobs, <job1_json>,...,<jobN_json>, num_deps, <parent1>,<child1>,...,<parentM>,<childM>
+local num_jobs = tonumber(ARGV[1])
+local idx = 2
+local result = {}
+for i=1,num_jobs do
+  local job_json = ARGV[idx]
+  idx = idx + 1
+  redis.call('ZADD', KEYS[1], 0, job_json)
+  local job = cjson.decode(job_json)
+  table.insert(result, job.id)
+end
+local num_deps = tonumber(ARGV[idx]); idx = idx + 1
+for i=1,num_deps do
+  local parent = ARGV[idx]; local child = ARGV[idx+1]
+  idx = idx + 2
+  redis.call('HSET', KEYS[2] .. ':' .. parent, child, 1)
+end
+return result
+"""
+
 
 class RedisBackend(BaseBackend):
     """
@@ -55,6 +76,7 @@ class RedisBackend(BaseBackend):
         self.job_store: RedisJobStore = RedisJobStore(redis_url)
         # Register the Lua POP_SCRIPT for atomic dequeue operations.
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
+        self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
 
     def _waiting_key(self, name: str) -> str:
         """Generates the Redis key for the Sorted Set holding jobs waiting in a queue."""
@@ -671,21 +693,43 @@ class RedisBackend(BaseBackend):
 
     async def list_queues(self) -> list[str]:
         """
-        Lists all known queue names.
+        Asynchronously lists all known queue names managed by this backend.
+
+        This is done by fetching all keys matching the waiting queue pattern
+        (`queue:*:waiting`) and extracting the queue name from the key.
+
+        Returns:
+            A list of strings, where each string is the name of a queue.
         """
-        # Get all keys matching 'queue:*:waiting'
-        keys = await self.redis.keys('queue:*:waiting')
-        # Extract queue names from keys
-        queues = [key.split(":")[1] for key in keys]
-        return queues
+        # Get all keys matching the pattern for waiting queues.
+        # Note: Using KEYS can be blocking in Redis for large key spaces.
+        keys: list[str] = await self.redis.keys("queue:*:waiting")
+        # Extract the queue name from each key by splitting on ':' and taking
+        # the second part (index 1). Example: 'queue:my_queue:waiting' -> 'my_queue'.
+        queue_names: list[str] = [key.split(":")[1] for key in keys]
+        return queue_names
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
-        Return stats about a queue: waiting, delayed, failed jobs.
+        Asynchronously returns statistics about the number of jobs in different
+        states for a specific queue.
+
+        Provides counts for jobs currently waiting, delayed, and in the dead
+        letter queue (DLQ).
+
+        Args:
+            queue_name: The name of the queue to get statistics for.
+
+        Returns:
+            A dictionary containing the counts with keys "waiting", "delayed",
+            and "failed".
         """
-        waiting = await self.redis.zcard(self._waiting_key(queue_name))
-        delayed = await self.redis.zcard(self._delayed_key(queue_name))
-        failed = await self.redis.zcard(self._dlq_key(queue_name))
+        # Get the count of members in the waiting queue Sorted Set.
+        waiting: int = await self.redis.zcard(self._waiting_key(queue_name))
+        # Get the count of members in the delayed queue Sorted Set.
+        delayed: int = await self.redis.zcard(self._delayed_key(queue_name))
+        # Get the count of members in the DLQ Sorted Set.
+        failed: int = await self.redis.zcard(self._dlq_key(queue_name))
         return {
             "waiting": waiting,
             "delayed": delayed,
@@ -694,40 +738,172 @@ class RedisBackend(BaseBackend):
 
     async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
-        List all jobs (waiting + delayed + DLQ) in a queue.
+        Asynchronously lists all jobs (payloads) across the waiting, delayed,
+        and Dead Letter Queue (DLQ) for a specific queue.
+
+        Retrieves all members from the respective Redis Sorted Sets, decodes
+        the JSON payloads, and returns them as a list of dictionaries.
+
+        Args:
+            queue_name: The name of the queue to list jobs from.
+
+        Returns:
+            A list of dictionaries, where each dictionary is a job payload.
         """
-        jobs = []
-        raw_waiting = await self.redis.zrange(self._waiting_key(queue_name), 0, -1)
-        raw_delayed = await self.redis.zrange(self._delayed_key(queue_name), 0, -1)
-        raw_dlq = await self.redis.zrange(self._dlq_key(queue_name), 0, -1)
+        jobs: list[dict[str, Any]] = []
+        # Get all members from the waiting queue Sorted Set.
+        raw_waiting: list[str] = await self.redis.zrange(
+            self._waiting_key(queue_name), 0, -1
+        )
+        # Get all members from the delayed queue Sorted Set.
+        raw_delayed: list[str] = await self.redis.zrange(
+            self._delayed_key(queue_name), 0, -1
+        )
+        # Get all members from the DLQ Sorted Set.
+        raw_dlq: list[str] = await self.redis.zrange(
+            self._dlq_key(queue_name), 0, -1
+        )
+        # Combine the results from all three sets and deserialize the JSON.
         for raw in raw_waiting + raw_delayed + raw_dlq:
             jobs.append(json.loads(raw))
         return jobs
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
-        Retry a failed job (move it back from DLQ to waiting).
+        Asynchronously retries a failed job by moving it from the Dead Letter
+        Queue (DLQ) back to the waiting queue for processing.
+
+        It iterates through the DLQ to find the job by its ID, removes it from
+        the DLQ, and then enqueues it into the main waiting queue using the
+        standard enqueue logic (which handles priority and timestamps).
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the failed job to retry.
+
+        Returns:
+            True if the job was found in the DLQ and successfully moved back
+            to the waiting queue, False otherwise.
         """
-        key = self._dlq_key(queue_name)
-        raw_jobs = await self.redis.zrange(key, 0, -1)
+        key: str = self._dlq_key(queue_name)
+        # Retrieve all members from the DLQ to find the specific job.
+        raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
+        # Iterate through the raw job payloads.
         for raw in raw_jobs:
-            job = json.loads(raw)
+            job: dict[str, Any] = json.loads(raw)
+            # Check if the job ID matches.
             if job.get("id") == job_id:
+                # Atomically remove the job from the DLQ.
                 await self.redis.zrem(key, raw)
+                # Enqueue the job back into the waiting queue.
                 await self.enqueue(queue_name, job)
                 return True
+        # Return False if the job with the given ID was not found in the DLQ.
         return False
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
         """
-        Remove a job from any queue (waiting, delayed, DLQ).
+        Asynchronously removes a specific job from any of the main job queues
+        (waiting, delayed, or DLQ) by its ID.
+
+        It checks each of the relevant Redis Sorted Sets (waiting, delayed, DLQ),
+        iterates through their members, finds the job by its ID within the
+        payload, and removes it from the set where it is found.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove.
+
+        Returns:
+            True if the job was found and removed from any queue, False otherwise.
         """
-        removed = False
-        for redis_key in [self._waiting_key(queue_name), self._delayed_key(queue_name), self._dlq_key(queue_name)]:
-            raw_jobs = await self.redis.zrange(redis_key, 0, -1)
+        removed: bool = False
+        # Define the list of Redis keys to check for the job.
+        keys_to_check: list[str] = [
+            self._waiting_key(queue_name),
+            self._delayed_key(queue_name),
+            self._dlq_key(queue_name),
+        ]
+        # Iterate through each key (queue type).
+        for redis_key in keys_to_check:
+            # Retrieve all members from the current set.
+            raw_jobs: list[str] = await self.redis.zrange(redis_key, 0, -1)
+            # Iterate through the raw job payloads in the set.
             for raw in raw_jobs:
-                job = json.loads(raw)
+                job: dict[str, Any] = json.loads(raw)
+                # Check if the job ID matches.
                 if job.get("id") == job_id:
+                    # Atomically remove the job from the set.
                     await self.redis.zrem(redis_key, raw)
                     removed = True
+                    # No need to continue checking other queues or this queue.
+                    break
+            # If the job was removed from this queue, we can stop checking others.
+            if removed:
+                break
+        # Return whether the job was found and removed.
         return removed
+
+    async def atomic_add_flow(
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
+    ) -> list[str]:
+        """
+        Atomically enqueues multiple jobs to the waiting queue and registers
+        their parent-child dependencies using the pre-registered `FLOW_SCRIPT`
+        Lua script.
+
+        This script performs the following actions atomically:
+        1. Adds each job payload from `job_dicts` to the waiting queue Sorted
+           Set (`queue:{queue_name}:waiting`) with a score of 0 (highest priority).
+           Note this differs from the `enqueue` and `bulk_enqueue` methods which
+           use a priority-based score.
+        2. Decodes each job payload JSON to extract the job ID.
+        3. For each dependency pair (parent_id, child_id) from `dependency_links`,
+           it sets a field in a Redis Hash keyed by the parent ID
+           (`queue:{queue_name}:deps:parent_id`) with the child_id as the field
+           and '1' as the value. This tracks which children are waiting on a
+           parent using HSET. Note this differs from the `add_dependencies` method
+           which uses SADD to track children waiting on a parent.
+
+        Important Considerations:
+        - This script *does not* save the full job payload in the job store
+          (e.g., `jobs:{queue_name}:{job_id}`).
+        - This script *does not* set up the child's pending dependency set
+          (`deps:{queue_name}:{child_id}:pending`) which is used by `resolve_dependency`.
+        - Due to the atomic nature of the script, jobs are enqueued *before*
+          their pending dependencies are registered (if `add_dependencies` is called
+          separately). The system relies on `resolve_dependency` to handle the
+          actual state transitions.
+
+        Args:
+            queue_name: The name of the queue.
+            job_dicts: A list of job payloads (dictionaries) to be enqueued. Must
+                       contain an "id" key for each job.
+            dependency_links: A list of (parent_id, child_id) tuples representing
+                              the dependencies.
+
+        Returns:
+            A list of the IDs (strings) of the jobs that were successfully
+            enqueued by the script.
+        """
+        waiting_key = f"queue:{queue_name}:waiting"
+        deps_prefix = f"queue:{queue_name}:deps"
+
+        # Build ARGV
+        args = [str(len(job_dicts))]
+        for jd in job_dicts:
+            args.append(json.dumps(jd))
+        args.append(str(len(dependency_links)))
+
+        for parent, child in dependency_links:
+            args.extend([parent, child])
+
+        raw = await self.flow_script(
+            keys=[waiting_key, deps_prefix],
+            args=args
+        )
+        # raw is a Lua table of job IDs
+        return raw

@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from asyncmq.cli.utils import get_centered_logo
+from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import settings
 
 console = Console()
@@ -70,6 +70,8 @@ def inspect_job(job_id: str, queue: str) -> None:
         queue: The name of the queue where the job is expected to be found.
     """
     backend = settings.backend # Get the configured backend instance.
+
+    get_print_banner(JOBS_LOGO, title="AsyncMQ Job Details")
     # Load the job data from the backend's job store using anyio.run.
     job = anyio.run(backend.job_store.load, queue, job_id)
 
@@ -97,6 +99,8 @@ def retry_job(job_id: str, queue: str) -> None:
         queue: The name of the queue where the job is expected to be found.
     """
     backend = settings.backend # Get the configured backend instance.
+
+    get_print_banner(JOBS_LOGO, title="AsyncMQ Job Retry")
     # Load the job data from the backend's job store using anyio.run.
     job = anyio.run(backend.job_store.load, queue, job_id)
 
@@ -126,6 +130,8 @@ def remove_job(job_id: str, queue: str) -> None:
         queue: The name of the queue where the job is expected to be found.
     """
     backend = settings.backend # Get the configured backend instance.
+
+    get_print_banner(JOBS_LOGO, title="AsyncMQ Job Remove")
     # Delete the job from the backend's job store using anyio.run.
     anyio.run(backend.job_store.delete, queue, job_id)
     # Print a confirmation message.

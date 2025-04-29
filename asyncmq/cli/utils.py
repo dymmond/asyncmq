@@ -1,3 +1,4 @@
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -7,21 +8,50 @@ console = Console()
 
 # ASCII art logo for AsyncMQ. This will be displayed anywhere.
 ASYNCMQ_LOGO = r"""
- _______  _______           _        _______  _______  _______
-(  ___  )(  ____ \|\     /|( (    /|(  ____ \(       )(  ___  )
-| (   ) || (    \/( \   / )|  \  ( || (    \/| () () || (   ) |
-| (___) || (_____  \ (_) / |   \ | || |      | || || || |   | |
-|  ___  |(_____  )  \   /  | (\ \) || |      | |(_)| || |   | |
-| (   ) |      ) |   ) (   | | \   || |      | |   | || | /\| |
-| )   ( |/\____) |   | |   | )  \  || (____/\| )   ( || (_\ \ |
-|/     \|\_______)   \_/   |/    )_)(_______/|/     \|(____\/_)
-
+ █████  ███████ ██    ██ ███    ██  ██████ ███    ███  ██████
+██   ██ ██       ██  ██  ████   ██ ██      ████  ████ ██    ██
+███████ ███████   ████   ██ ██  ██ ██      ██ ████ ██ ██    ██
+██   ██      ██    ██    ██  ██ ██ ██      ██  ██  ██ ██ ▄▄ ██
+██   ██ ███████    ██    ██   ████  ██████ ██      ██  ██████
+                                                          ▀▀
 """.rstrip()
 
+QUEUES_LOGO = r"""
+ ██████  ██    ██ ███████ ██    ██ ███████ ███████
+██    ██ ██    ██ ██      ██    ██ ██      ██
+██    ██ ██    ██ █████   ██    ██ █████   ███████
+██ ▄▄ ██ ██    ██ ██      ██    ██ ██           ██
+ ██████   ██████  ███████  ██████  ███████ ███████
+    ▀▀
+""".rstrip()
 
-def get_centered_logo() -> str:
+JOBS_LOGO = r"""
+     ██  ██████  ██████  ███████
+     ██ ██    ██ ██   ██ ██
+     ██ ██    ██ ██████  ███████
+██   ██ ██    ██ ██   ██      ██
+ █████   ██████  ██████  ███████
+""".rstrip()
+
+INFO_LOGO = r"""
+██ ███    ██ ███████  ██████
+██ ████   ██ ██      ██    ██
+██ ██ ██  ██ █████   ██    ██
+██ ██  ██ ██ ██      ██    ██
+██ ██   ████ ██       ██████
+""".rstrip()
+
+WORKERS_LOGO = r"""
+██     ██  ██████  ██████  ██   ██ ███████ ██████  ███████
+██     ██ ██    ██ ██   ██ ██  ██  ██      ██   ██ ██
+██  █  ██ ██    ██ ██████  █████   █████   ██████  ███████
+██ ███ ██ ██    ██ ██   ██ ██  ██  ██      ██   ██      ██
+ ███ ███   ██████  ██   ██ ██   ██ ███████ ██   ██ ███████
+""".rstrip()
+
+def get_centered_logo(display_text: str = ASYNCMQ_LOGO) -> str:
     """
-    Centers the ASYNCMQ_LOGO based on the current terminal width.
+    Centers the display_text based on the current terminal width.
 
     Reads the predefined ASCII art logo, determines the current width of the
     console terminal, and then centers each line of the logo within that width.
@@ -36,7 +66,7 @@ def get_centered_logo() -> str:
     # Center each line of the logo manually.
     centered_logo_lines = []
     # Iterate through each line of the raw logo.
-    for line in ASYNCMQ_LOGO.splitlines():
+    for line in display_text.splitlines():
         # Center the current line using the terminal width as padding.
         centered_line = line.center(terminal_width)
         centered_logo_lines.append(centered_line)
@@ -85,3 +115,13 @@ def print_worker_banner(
 
     # Print the constructed Text within a styled Rich Panel.
     console.print(Panel(text, title="[b cyan]AsyncMQ Worker", border_style="cyan"))
+
+
+def get_print_banner(display_text: str, title: str, border_style: str = "cyan", style: str = "bold cyan", centered: bool = False) -> Any:
+    text = Text()
+    if centered:
+        text.append(get_centered_logo(display_text), style=style)
+    else:
+        text.append(display_text, style=style)
+    text.append("\n")
+    console.print(Panel(text, title=title, border_style=border_style))

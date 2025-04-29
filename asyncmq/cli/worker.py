@@ -5,7 +5,10 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asyncmq import __version__  # noqa
-from asyncmq.cli.utils import get_centered_logo, print_worker_banner
+from asyncmq.cli.utils import (
+    get_centered_logo,
+    print_worker_banner,
+)
 from asyncmq.conf import settings
 from asyncmq.runners import start_worker
 
