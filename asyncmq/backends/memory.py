@@ -125,9 +125,7 @@ class InMemoryBackend(BaseBackend):
         # No action needed; state update is handled elsewhere.
         pass
 
-    async def enqueue_delayed(
-        self, queue_name: str, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Asynchronously schedules a job to be available for processing at a
         specific future time.
@@ -174,9 +172,7 @@ class InMemoryBackend(BaseBackend):
                 if run_at <= now:
                     due_jobs.append(payload)  # Add due jobs to the 'due_jobs' list.
                 else:
-                    still_delayed.append(
-                        (run_at, payload)
-                    )  # Add remaining jobs to 'still_delayed'.
+                    still_delayed.append((run_at, payload))  # Add remaining jobs to 'still_delayed'.
             # Update the in-memory delayed list with only the remaining jobs.
             self.delayed[queue_name] = still_delayed
             return due_jobs  # Return the list of jobs that were due.
@@ -192,9 +188,7 @@ class InMemoryBackend(BaseBackend):
         # This method is not fully implemented in the provided code.
         pass
 
-    async def update_job_state(
-        self, queue_name: str, job_id: str, state: str
-    ) -> None:
+    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
         Asynchronously updates the processing state of a job in memory.
 
@@ -249,9 +243,7 @@ class InMemoryBackend(BaseBackend):
         # Return the result for the job key if it exists.
         return self.job_results.get((queue_name, job_id))
 
-    async def add_dependencies(
-        self, queue_name: str, job_dict: dict[str, Any]
-    ) -> None:
+    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
         Asynchronously registers a job's dependencies in memory.
 
@@ -279,9 +271,7 @@ class InMemoryBackend(BaseBackend):
         for parent_id in parent_deps:
             parent_children_key: _JobKey = (queue_name, parent_id)
             # Add the child job ID to the set of children waiting on this parent.
-            self.deps_children.setdefault(parent_children_key, set()).add(
-                child_job_id
-            )
+            self.deps_children.setdefault(parent_children_key, set()).add(child_job_id)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -310,9 +300,7 @@ class InMemoryBackend(BaseBackend):
                 # Check if the child job now has no pending dependencies.
                 if not self.deps_pending[child_pend_key]:
                     # If all dependencies are met, fetch the job data.
-                    raw: dict[str, Any] | None = self._fetch_job_data(
-                        queue_name, child_id
-                    )
+                    raw: dict[str, Any] | None = self._fetch_job_data(queue_name, child_id)
                     # If the job data was found.
                     if raw:
                         # Enqueue the child job.
@@ -357,9 +345,7 @@ class InMemoryBackend(BaseBackend):
         # Check if the queue name is in the set of paused queues.
         return queue_name in self.paused
 
-    async def save_job_progress(
-        self, queue_name: str, job_id: str, progress: float
-    ) -> None:
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
         Asynchronously saves the progress percentage for a specific job in memory.
 
@@ -371,9 +357,7 @@ class InMemoryBackend(BaseBackend):
         # Store the progress for the job key.
         self.job_progress[(queue_name, job_id)] = progress
 
-    async def bulk_enqueue(
-        self, queue_name: str, jobs: list[dict[str, Any]]
-    ) -> None:
+    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """
         Asynchronously enqueues multiple job payloads onto the specified queue
         in a single batch operation.
@@ -398,9 +382,7 @@ class InMemoryBackend(BaseBackend):
             # Sort the queue based on job priority after adding all jobs.
             q.sort(key=lambda job: job.get("priority", 5))
 
-    async def purge(
-        self, queue_name: str, state: str, older_than: float | None = None
-    ) -> None:
+    async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
         Removes jobs from memory based on their state and optional age criteria.
 

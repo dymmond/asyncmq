@@ -17,6 +17,7 @@ pytestmark = pytest.mark.anyio
 async def memory_backend():
     return InMemoryBackend()
 
+
 @pytest.fixture
 async def redis_backend():
     backend = RedisBackend(redis_url="redis://localhost:6379")
@@ -25,6 +26,7 @@ async def redis_backend():
     yield backend
     # Cleanup
     await backend.redis.flushdb()
+
 
 @pytest.fixture
 async def postgres_backend():
@@ -37,12 +39,10 @@ async def postgres_backend():
     await install_or_drop_postgres_backend(drop=True)
     await backend.close()
 
+
 @pytest.fixture
 async def mongodb_backend():
-    backend = MongoDBBackend(
-        mongo_url="mongodb://root:mongoadmin@localhost:27017",
-        database="test_asyncmq"
-    )
+    backend = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
     # Ensure clean DB
     backend.store.client.drop_database("test_asyncmq")
     yield backend
@@ -70,6 +70,7 @@ async def test_redis_atomic_add_flow(redis_backend):
     deps = [d.decode() if isinstance(d, bytes) else d for d in deps]
     assert "id2" in deps
 
+
 async def test_postgres_atomic_add_flow(postgres_backend):
     backend = postgres_backend
     fp = FlowProducer(backend=backend)
@@ -85,6 +86,7 @@ async def test_postgres_atomic_add_flow(postgres_backend):
     assert data1["status"] == State.WAITING
     assert data2["status"] == State.WAITING
     assert data2.get("depends_on") == ["id1"]
+
 
 async def test_mongodb_atomic_add_flow(mongodb_backend):
     backend = mongodb_backend

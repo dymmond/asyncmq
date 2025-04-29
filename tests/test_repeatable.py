@@ -5,6 +5,7 @@ from asyncmq.queues import Queue
 
 pytestmark = pytest.mark.anyio
 
+
 async def test_add_repeatable_every_only():
     queue = Queue(name="test-every")
 

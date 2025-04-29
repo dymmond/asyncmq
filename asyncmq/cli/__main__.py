@@ -11,6 +11,7 @@ from asyncmq.cli.worker import worker_app
 
 console = Console()
 
+
 def _print_main_help():
     text = Text()
     text.append(get_centered_logo(), style="bold cyan")
@@ -41,14 +42,17 @@ def app(ctx):
         _print_main_help()
         click.echo(ctx.get_help())
 
+
 # Register subcommands
 app.add_command(queue_app, name="queue")
 app.add_command(job_app, name="job")
 app.add_command(worker_app, name="worker")
 app.add_command(info_app, name="info")
 
+
 def main():
     app()
+
 
 if __name__ == "__main__":
     main()

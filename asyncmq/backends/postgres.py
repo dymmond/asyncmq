@@ -43,10 +43,7 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure a DSN is provided either directly or via settings.
         if not dsn and not settings.asyncmq_postgres_backend_url:
-            raise ValueError(
-                "Either 'dsn' or 'settings.asyncmq_postgres_backend_url' must be "
-                "provided."
-            )
+            raise ValueError("Either 'dsn' or 'settings.asyncmq_postgres_backend_url' must be " "provided.")
         # Store the resolved DSN.
         self.dsn: str = dsn or settings.asyncmq_postgres_backend_url
         # Initialize the asyncpg connection pool to None; it will be created on connect.
@@ -141,7 +138,9 @@ class PostgresBackend(BaseBackend):
                     )
                     RETURNING data
                     """,
-                    queue_name, State.WAITING, State.ACTIVE
+                    queue_name,
+                    State.WAITING,
+                    State.ACTIVE,
                 )
                 # If a row was returned (a job was dequeued).
                 if row:
@@ -262,9 +261,7 @@ class PostgresBackend(BaseBackend):
         # Delete the job from the job store.
         await self.store.delete(queue_name, job_id)
 
-    async def update_job_state(
-        self, queue_name: str, job_id: str, state: str
-    ) -> None:
+    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
         Asynchronously updates the status string of a specific job in the
         job store.
@@ -355,9 +352,7 @@ class PostgresBackend(BaseBackend):
         # Return the result field if the job is found, otherwise None.
         return job.get("result") if job else None
 
-    async def add_dependencies(
-        self, queue_name: str, job_dict: dict[str, Any]
-    ) -> None:
+    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
         Asynchronously adds a list of parent job IDs to a job's dependencies.
 
@@ -410,7 +405,7 @@ class PostgresBackend(BaseBackend):
                 SELECT id, data FROM {settings.jobs_table_name}
                 WHERE queue_name = $1 AND data->'depends_on' IS NOT NULL
                 """,
-                queue_name
+                queue_name,
             )
             # Iterate through each job returned.
             for row in rows:
@@ -435,10 +430,10 @@ class PostgresBackend(BaseBackend):
 
     # Atomic flow addition - Note: This implementation does not use a Lua script.
     async def atomic_add_flow(
-            self,
-            queue_name: str,
-            job_dicts: list[dict[str, Any]],
-            dependency_links: list[tuple[str, str]],
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
     ) -> list[str]:
         """
         Atomically enqueues multiple jobs to the waiting queue and registers
@@ -472,9 +467,7 @@ class PostgresBackend(BaseBackend):
                 # Register dependencies by updating child job data.
                 for parent, child in dependency_links:
                     # Load the child job data from the store.
-                    job: dict[str, Any] | None = await self.store.load(
-                        queue_name, child
-                    )
+                    job: dict[str, Any] | None = await self.store.load(queue_name, child)
                     # If the child job exists.
                     if job is not None:
                         # Get the existing dependencies or initialize an empty list.
@@ -499,7 +492,7 @@ class PostgresBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to pause.
         """
-        pass # Not implemented
+        pass  # Not implemented
 
     async def resume_queue(self, queue_name: str) -> None:
         """
@@ -512,7 +505,7 @@ class PostgresBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to resume.
         """
-        pass # Not implemented
+        pass  # Not implemented
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
@@ -528,7 +521,7 @@ class PostgresBackend(BaseBackend):
         Returns:
             Always False as pausing is not implemented.
         """
-        return False # Not implemented
+        return False  # Not implemented
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
@@ -556,9 +549,7 @@ class PostgresBackend(BaseBackend):
             # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
-    async def purge(
-        self, queue_name: str, state: str, older_than: float | None = None
-    ) -> None:
+    async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
         Removes jobs from a queue based on their state and optional age criteria.
 
@@ -591,7 +582,9 @@ class PostgresBackend(BaseBackend):
                     WHERE queue_name = $1 AND status = $2
                       AND EXTRACT(EPOCH FROM created_at) < $3
                     """,
-                    queue_name, state, threshold_time
+                    queue_name,
+                    state,
+                    threshold_time,
                 )
             else:
                 # Execute the DELETE query with only queue name and status filter.
@@ -600,7 +593,8 @@ class PostgresBackend(BaseBackend):
                     DELETE FROM {settings.jobs_table_name}
                     WHERE queue_name = $1 AND status = $2
                     """,
-                    queue_name, state
+                    queue_name,
+                    state,
                 )
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
@@ -676,9 +670,7 @@ class PostgresBackend(BaseBackend):
         # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
             # Fetch all distinct queue names from the jobs table.
-            rows: list[Record] = await conn.fetch(
-                f"SELECT DISTINCT queue_name FROM {settings.jobs_table_name}"
-            )
+            rows: list[Record] = await conn.fetch(f"SELECT DISTINCT queue_name FROM {settings.jobs_table_name}")
             # Extract and return the queue names.
             return [row["queue_name"] for row in rows]
 
@@ -813,6 +805,7 @@ class PostgresLock:
     `pg_advisory_unlock` for releasing the lock. Locks are identified by
     a hashed key and are session-scoped.
     """
+
     def __init__(self, pool: Pool, key: str, ttl: int) -> None:
         """
         Initializes the PostgresLock.
@@ -830,7 +823,7 @@ class PostgresLock:
         """
         self.pool: Pool = pool
         self.key: str = key
-        self.ttl: int = ttl # Note: TTL is not directly enforced by pg_advisory_lock
+        self.ttl: int = ttl  # Note: TTL is not directly enforced by pg_advisory_lock
 
     async def acquire(self) -> bool:
         """
@@ -845,9 +838,7 @@ class PostgresLock:
         # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
             # Attempt to acquire the advisory lock using the hash of the key.
-            result: bool | None = await conn.fetchval(
-                "SELECT pg_try_advisory_lock(hashtext($1))", self.key
-            )
+            result: bool | None = await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", self.key)
             # pg_try_advisory_lock returns boolean True/False.
             # fetchval might return None if query fails, though unlikely here.
             return result if result is not None else False

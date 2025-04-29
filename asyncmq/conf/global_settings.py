@@ -28,9 +28,10 @@ class Settings:
         version: A string representing the version of AsyncMQ. Defaults to
                  the package's `__version__`.
     """
+
     debug: bool = False
     logging_level: str = "INFO"
-    backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
+    backend: type[BaseBackend] = RedisBackend()  # Keeping original logic default
     version: str = __version__
     is_logging_setup: bool = False
     jobs_table_name: str = "asyncmq_jobs"

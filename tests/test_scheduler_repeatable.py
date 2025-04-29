@@ -10,12 +10,14 @@ from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
 
+
 # Helper to fetch task IDs dynamically
 def get_task_id(func):
     for k, v in TASK_REGISTRY.items():
         if v["func"] == func:
             return k
     raise ValueError(f"Task {func.__name__} not registered.")
+
 
 async def handle_all_jobs(backend, queue):
     while True:
@@ -24,26 +26,21 @@ async def handle_all_jobs(backend, queue):
             await handle_job(queue, raw, backend)
         await asyncio.sleep(0.05)
 
+
 @task(queue="repeatable")
 async def repeat_me():
     repeat_me.counter += 1
     return repeat_me.counter
+
+
 repeat_me.counter = 0
 
 
 async def test_repeatable_scheduler_triggers():
     backend = InMemoryBackend()
-    jobs = [{
-        "task_id": get_task_id(repeat_me),
-        "args": [],
-        "kwargs": {},
-        "every": 1.0,
-        "queue": "repeatable"
-    }]
+    jobs = [{"task_id": get_task_id(repeat_me), "args": [], "kwargs": {}, "every": 1.0, "queue": "repeatable"}]
 
-    scheduler = asyncio.create_task(
-        repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.5)
-    )
+    scheduler = asyncio.create_task(repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.5))
     await asyncio.sleep(3.2)
     scheduler.cancel()
 
@@ -52,27 +49,38 @@ async def test_repeatable_scheduler_triggers():
         count += 1
     assert count >= 3
 
+
 @task(queue="repeatable")
 async def ping():
     ping.counter += 1
     return "pong"
+
+
 ping.counter = 0
+
 
 @task(queue="repeatable")
 async def print_hello():
     print_hello.counter += 1
     return "hello"
+
+
 print_hello.counter = 0
+
 
 @task(queue="repeatable")
 async def inc():
     inc.counter += 2
     return inc.counter
+
+
 inc.counter = 0
+
 
 @task(queue="repeatable")
 async def echo_repeat(val):
     return val
+
 
 @task(queue="repeatable")
 async def noop():
@@ -99,13 +107,7 @@ async def test_repeatable_multiple_tasks():
 
 async def test_repeatable_args_and_kwargs():
     backend = InMemoryBackend()
-    jobs = [{
-        "task_id": get_task_id(echo_repeat),
-        "args": ["data"],
-        "kwargs": {},
-        "every": 1,
-        "queue": "repeatable"
-    }]
+    jobs = [{"task_id": get_task_id(echo_repeat), "args": ["data"], "kwargs": {}, "every": 1, "queue": "repeatable"}]
     scheduler = asyncio.create_task(repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.5))
     await asyncio.sleep(2.5)
     scheduler.cancel()
@@ -115,13 +117,7 @@ async def test_repeatable_args_and_kwargs():
 
 async def test_repeatable_noop():
     backend = InMemoryBackend()
-    jobs = [{
-        "task_id": get_task_id(noop),
-        "args": [],
-        "kwargs": {},
-        "every": 1,
-        "queue": "repeatable"
-    }]
+    jobs = [{"task_id": get_task_id(noop), "args": [], "kwargs": {}, "every": 1, "queue": "repeatable"}]
     scheduler = asyncio.create_task(repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.2))
     await asyncio.sleep(1.5)
     scheduler.cancel()
@@ -131,13 +127,7 @@ async def test_repeatable_noop():
 
 async def test_repeatable_job_status():
     backend = InMemoryBackend()
-    jobs = [{
-        "task_id": get_task_id(ping),
-        "args": [],
-        "kwargs": {},
-        "every": 1,
-        "queue": "repeatable"
-    }]
+    jobs = [{"task_id": get_task_id(ping), "args": [], "kwargs": {}, "every": 1, "queue": "repeatable"}]
     scheduler = asyncio.create_task(repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.3))
     await asyncio.sleep(2)
     scheduler.cancel()
@@ -147,13 +137,7 @@ async def test_repeatable_job_status():
 
 async def test_repeatable_job_interval_variation():
     backend = InMemoryBackend()
-    jobs = [{
-        "task_id": get_task_id(echo_repeat),
-        "args": ["x"],
-        "kwargs": {},
-        "every": 0.7,
-        "queue": "repeatable"
-    }]
+    jobs = [{"task_id": get_task_id(echo_repeat), "args": ["x"], "kwargs": {}, "every": 0.7, "queue": "repeatable"}]
     scheduler = asyncio.create_task(repeatable_scheduler("repeatable", jobs, backend=backend, interval=0.1))
     await asyncio.sleep(1.6)
     scheduler.cancel()

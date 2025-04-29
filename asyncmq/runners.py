@@ -40,13 +40,14 @@ async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBacke
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+
 async def run_worker(
     queue_name: str,
     backend: BaseBackend | None = None,
     concurrency: int = 3,
     rate_limit: int | None = None,
     rate_interval: float = 1.0,
-    repeatables: list[Any] | None = None
+    repeatables: list[Any] | None = None,
 ) -> None:
     """
     Launches and manages a worker process responsible for consuming and
@@ -98,6 +99,7 @@ async def run_worker(
             A dummy rate limiter implementation used to block all calls to
             acquire, effectively pausing job processing.
             """
+
             async def acquire(self) -> None:
                 """
                 Asynchronously attempts to acquire a permit. This implementation
@@ -106,6 +108,7 @@ async def run_worker(
                 """
                 # Create a future that will never complete, blocking the caller.
                 await asyncio.Future()
+
         # Assign the special blocker instance.
         rate_limiter: Any | None = _BlockAll()
     elif rate_limit is None:
@@ -120,7 +123,7 @@ async def run_worker(
     # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
     tasks: list[Any] = [
         process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),
-        delayed_job_scanner(queue_name, backend, interval=0.1)
+        delayed_job_scanner(queue_name, backend, interval=0.1),
     ]
 
     # If repeatable job definitions are provided, add the repeatable scheduler task.
@@ -128,12 +131,9 @@ async def run_worker(
         # Import the scheduler function here to avoid circular dependencies
         # if this module is imported elsewhere first.
         from asyncmq.schedulers import repeatable_scheduler
+
         # Add the repeatable scheduler task to the list of tasks to run.
-        tasks.append(
-            repeatable_scheduler(
-                queue_name, repeatables, backend=backend, interval=0.1
-            )
-        )
+        tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=0.1))
 
     # Use asyncio.gather to run all the created tasks concurrently.
     # This function will wait for all tasks to complete (which, for these

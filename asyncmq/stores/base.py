@@ -72,9 +72,7 @@ class BaseJobStore(ABC):
         ...
 
     @abstractmethod
-    async def jobs_by_status(
-        self, queue_name: str, status: str
-    ) -> list[dict[str, Any]]:
+    async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves data for jobs in a specific queue that are
         currently in a given status.

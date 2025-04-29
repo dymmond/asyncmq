@@ -139,9 +139,7 @@ class RedisJobStore(BaseJobStore):
         # Return the list of loaded job data dictionaries.
         return jobs_data
 
-    async def jobs_by_status(
-        self, queue_name: str, status: str
-    ) -> list[dict[str, Any]]:
+    async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves data for jobs in a specific queue that are
         currently in a given status by loading all jobs and filtering in memory.
@@ -161,8 +159,6 @@ class RedisJobStore(BaseJobStore):
         # Load all jobs for the specified queue.
         all_jobs: list[dict[str, Any]] = await self.all_jobs(queue_name)
         # Filter the list of jobs to include only those matching the specified status.
-        filtered_jobs: list[dict[str, Any]] = [
-            job for job in all_jobs if job and job.get("status") == status
-        ]
+        filtered_jobs: list[dict[str, Any]] = [job for job in all_jobs if job and job.get("status") == status]
         # Return the filtered list of jobs.
         return filtered_jobs

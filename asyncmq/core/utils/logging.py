@@ -12,6 +12,7 @@ class StandardLoggingConfig(LoggingConfig):
     Provides a default dictionary-based configuration for the standard logging
     module with a console handler and basic formatter.
     """
+
     def __init__(self, config: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """
         Initializes the StandardLoggingConfig, merging default and provided configuration.
@@ -76,4 +77,3 @@ class StandardLoggingConfig(LoggingConfig):
         """
         # Get and return a logger instance by name.
         return logging.getLogger("asyncmq")
-

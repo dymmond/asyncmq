@@ -78,9 +78,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def enqueue_delayed(
-        self, queue_name: str, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Asynchronously enqueues a job to be processed at a future timestamp.
 
@@ -130,9 +128,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def update_job_state(
-        self, queue_name: str, job_id: str, state: str
-    ) -> None:
+    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
         Asynchronously updates the processing state of a job.
 
@@ -148,9 +144,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def save_job_result(
-        self, queue_name: str, job_id: str, result: Any
-    ) -> None:
+    async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
         """
         Asynchronously saves the result of a completed job.
 
@@ -194,9 +188,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def add_dependencies(
-        self, queue_name: str, job_dict: dict[str, Any]
-    ) -> None:
+    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
         Asynchronously registers dependencies for a single job.
 
@@ -267,9 +259,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def save_job_progress(
-        self, queue_name: str, job_id: str, progress: float
-    ) -> None:
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
         Asynchronously saves the progress percentage for a running job.
 
@@ -283,9 +273,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def bulk_enqueue(
-        self, queue_name: str, jobs: list[dict[str, Any]]
-    ) -> None:
+    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """
         Asynchronously enqueues multiple jobs onto the specified queue in one batch.
 
@@ -335,7 +323,9 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def create_lock(self, key: str, ttl: int) -> Any: # Changed return type to Any as lock type is backend specific
+    async def create_lock(
+        self, key: str, ttl: int
+    ) -> Any:  # Changed return type to Any as lock type is backend specific
         """
         Asynchronously creates a backend-specific distributed lock.
 
@@ -387,8 +377,6 @@ class BaseBackend(ABC):
         # Then register dependencies sequentially
         for parent, child in dependency_links:
             # Add dependency for the child job on the parent job
-            await self.add_dependencies(
-                queue_name, {"id": child, "depends_on": [parent]}
-            )
+            await self.add_dependencies(queue_name, {"id": child, "depends_on": [parent]})
 
-        return created_ids # Return the list of IDs for the enqueued jobs.
+        return created_ids  # Return the list of IDs for the enqueued jobs.

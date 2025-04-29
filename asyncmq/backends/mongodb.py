@@ -5,7 +5,7 @@ import anyio
 
 # Conditional import for motor, handled with a try/except block
 try:
-    import motor # noqa
+    import motor  # noqa
 except ImportError:
     # If motor is not installed, raise a specific ImportError.
     raise ImportError("Please install motor: `pip install motor`") from None
@@ -27,9 +27,7 @@ class MongoDBBackend(BaseBackend):
     Requires calling the `connect` async method after initialization.
     """
 
-    def __init__(
-        self, mongo_url: str = "mongodb://localhost", database: str = "asyncmq"
-    ) -> None:
+    def __init__(self, mongo_url: str = "mongodb://localhost", database: str = "asyncmq") -> None:
         """
         Initializes the MongoDB backend and its underlying store.
 
@@ -78,9 +76,7 @@ class MongoDBBackend(BaseBackend):
             # Add the payload to the end of the mongodb queue list for this queue.
             self.queues.setdefault(queue_name, []).append(payload)
             # Save the job to the MongoDB store with the WAITING status.
-            await self.store.save(
-                queue_name, payload["id"], {**payload, "status": State.WAITING}
-            )
+            await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -139,9 +135,7 @@ class MongoDBBackend(BaseBackend):
         # Nothing required here; completion/failure state is updated elsewhere.
         pass
 
-    async def enqueue_delayed(
-        self, queue_name: str, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Adds a job to the delayed queue to be processed at a later time.
 
@@ -157,9 +151,7 @@ class MongoDBBackend(BaseBackend):
             # Add the job and its scheduled run time to the mongodb delayed list.
             self.delayed.setdefault(queue_name, []).append((run_at, payload))
             # Save the job to the MongoDB store with the EXPIRED status.
-            await self.store.save(
-                queue_name, payload["id"], {**payload, "status": State.EXPIRED}
-            )
+            await self.store.save(queue_name, payload["id"], {**payload, "status": State.EXPIRED})
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -186,9 +178,7 @@ class MongoDBBackend(BaseBackend):
                 if run_at <= now:
                     due.append(job)  # Add due jobs to the 'due' list.
                 else:
-                    remaining.append(
-                        (run_at, job)
-                    )  # Add remaining jobs to 'remaining'.
+                    remaining.append((run_at, job))  # Add remaining jobs to 'remaining'.
             # Update the mongodb delayed list with only the remaining jobs.
             self.delayed[queue_name] = remaining
             return due  # Return the list of jobs that were due.
@@ -205,14 +195,10 @@ class MongoDBBackend(BaseBackend):
             # Filter the mongodb delayed list, keeping only jobs whose ID does
             # not match the one to be removed.
             self.delayed[queue_name] = [
-                (ts, job)
-                for ts, job in self.delayed.get(queue_name, [])
-                if job.get("id") != job_id
+                (ts, job) for ts, job in self.delayed.get(queue_name, []) if job.get("id") != job_id
             ]
 
-    async def update_job_state(
-        self, queue_name: str, job_id: str, state: str
-    ) -> None:
+    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
         Updates the state of a job in the MongoDB store.
 
@@ -283,9 +269,7 @@ class MongoDBBackend(BaseBackend):
         # Return the 'result' field if the job is found, otherwise None.
         return job.get("result") if job else None
 
-    async def add_dependencies(
-        self, queue_name: str, job_dict: dict[str, Any]
-    ) -> None:
+    async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
         Adds dependency information to a job.
 
@@ -350,9 +334,7 @@ class MongoDBBackend(BaseBackend):
         # Check if the queue name is present in the mongodb set of paused queues.
         return queue_name in self.paused
 
-    async def save_job_progress(
-        self, queue_name: str, job_id: str, progress: float
-    ) -> None:
+    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
         Saves the progress of a running job in the MongoDB store.
 
@@ -371,9 +353,7 @@ class MongoDBBackend(BaseBackend):
             job["progress"] = progress  # Add or update the progress field.
             await self.store.save(queue_name, job_id, job)  # Save the updated job.
 
-    async def bulk_enqueue(
-        self, queue_name: str, jobs: list[dict[str, Any]]
-    ) -> None:
+    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """
         Adds multiple jobs to the specified queue in a bulk operation.
 
@@ -389,13 +369,9 @@ class MongoDBBackend(BaseBackend):
             self.queues.setdefault(queue_name, []).extend(jobs)
             # Iterate through each job and save it to the MongoDB store.
             for job in jobs:
-                await self.store.save(
-                    queue_name, job["id"], {**job, "status": State.WAITING}
-                )
+                await self.store.save(queue_name, job["id"], {**job, "status": State.WAITING})
 
-    async def purge(
-        self, queue_name: str, state: str, older_than: float | None = None
-    ) -> None:
+    async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
         Removes jobs from the store based on their state and age.
 
@@ -488,9 +464,7 @@ class MongoDBBackend(BaseBackend):
                 # Add the payload to the mongodb queue list.
                 self.queues.setdefault(queue_name, []).append(payload)
                 # Save the job to the MongoDB store with the WAITING status.
-                await self.store.save(
-                    queue_name, payload["id"], {**payload, "status": State.WAITING}
-                )
+                await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
                 # Add the job ID to the list of created IDs.
                 created_ids.append(payload["id"])
 

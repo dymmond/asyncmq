@@ -14,7 +14,7 @@ from asyncmq.logging import logger
 async def test_enqueue_and_dequeue(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.enqueue", args=[], kwargs={})
-    job_payload = job.to_dict() # Capture payload to compare later
+    job_payload = job.to_dict()  # Capture payload to compare later
 
     await backend.enqueue("test", job_payload)
     waiting_key = backend._waiting_key("test")
@@ -29,6 +29,7 @@ async def test_enqueue_and_dequeue(redis):
 
     result = await backend.dequeue("test")
     assert result["id"] == job.id
+
 
 @pytest.mark.asyncio
 async def test_job_state_tracking(redis):

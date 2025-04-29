@@ -22,9 +22,7 @@ if TYPE_CHECKING:
 #   an instance or callable that returns an instance.
 _monkay: Monkay[Callable[..., Any], Settings] = Monkay(
     globals(),
-    settings_path=lambda: os.environ.get(
-        ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"
-    ),
+    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"),
     with_instance=True,
 )
 
@@ -38,6 +36,7 @@ class SettingsForward:
     `settings` itself is this forwarding object, not the actual settings instance.
     It provides a dynamic way to access the loaded settings.
     """
+
     def __getattribute__(self, name: str) -> Any:
         """
         Intercepts attribute access and forwards it to the Monkay-loaded settings.

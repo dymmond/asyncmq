@@ -9,13 +9,13 @@ from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 
+
 async def test_enqueue_and_dequeue():
     backend = InMemoryBackend()
     job = Job(task_id="test.task", args=[], kwargs={})
     await backend.enqueue("test", job.to_dict())
     result = await backend.dequeue("test")
     assert result["id"] == job.id
-
 
 
 async def test_job_state_tracking():
@@ -27,7 +27,6 @@ async def test_job_state_tracking():
     assert state == State.ACTIVE
 
 
-
 async def test_save_and_get_job_result():
     backend = InMemoryBackend()
     job = Job(task_id="result.test", args=[], kwargs={})
@@ -35,7 +34,6 @@ async def test_save_and_get_job_result():
     await backend.save_job_result("test", job.id, 1234)
     result = await backend.get_job_result("test", job.id)
     assert result == 1234
-
 
 
 async def test_enqueue_delayed_and_get_due():
@@ -48,7 +46,6 @@ async def test_enqueue_delayed_and_get_due():
     assert any(j["id"] == job.id for j in due)
 
 
-
 async def test_move_to_dlq():
     backend = InMemoryBackend()
     job = Job(task_id="dlq.test", args=[], kwargs={})
@@ -56,7 +53,6 @@ async def test_move_to_dlq():
     # no direct getter, so we check state
     state = await backend.get_job_state("test", job.id)
     assert state == State.FAILED
-
 
 
 async def test_remove_delayed():
