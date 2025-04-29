@@ -39,9 +39,10 @@ classifiers = [
 ]
 dependencies = [
   "anyio>=4.9.0,<6.0.0",
+  "click>=8.1.8,<9.0.0",
+  "rich>=14.0.0,<15.0.0",
   "croniter>=6.0.0,<7.0.0",
   "redis>=5.2.1",
-  "typer>=0.15.2",
   "monkay>=0.4.1"
 ]
 keywords = ["asyncmq", "broker"]

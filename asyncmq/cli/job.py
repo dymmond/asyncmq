@@ -1,70 +1,49 @@
-import json
-
-import typer
+import anyio
+import click
 from rich.console import Console
-from rich.table import Table
 
-from asyncmq.cli.sync import AsyncTyper
-from asyncmq.conf import settings
+from asyncmq.conf import settings  # <-- same as above
 
-job_app = AsyncTyper(name="job", help="Manage jobs")
 console = Console()
 
-
-@job_app.command("list")
-async def list_jobs(queue: str):
-    """
-    List all jobs in a queue.
-    """
-    jobs = await settings.backend.list_jobs(queue)
-    if not jobs:
-        console.print(f"[yellow]No jobs found in queue '{queue}'.[/yellow]")
-        return
-
-    table = Table(title=f"Jobs in Queue: {queue}")
-    table.add_column("Job ID", style="cyan", no_wrap=True)
-    table.add_column("Status", style="magenta")
-    table.add_column("Task", style="green")
-    for job in jobs:
-        job_id = job.get("id", "-")
-        status = job.get("status", "-")
-        task = job.get("task_id", "-")
-        table.add_row(str(job_id), str(status), str(task))
-    console.print(table)
-
+@click.group()
+def job_app():
+    """Job management commands."""
+    ...
 
 @job_app.command("inspect")
-async def inspect_job(job_id: str, queue: str):
-    """
-    Show detailed info about a specific job.
-    """
-    job = await settings.backend.job_store.load(queue, job_id)
-    if not job:
+@click.argument("job_id")
+@click.option("--queue", required=True, help="Queue name the job belongs to.")
+def inspect_job(job_id: str, queue: str):
+    """Inspect job details."""
+    backend = settings.backend
+    job = anyio.run(backend.job_store.load, queue, job_id)
+
+    if job:
+        console.print_json(data=job)
+    else:
         console.print(f"[red]Job '{job_id}' not found in queue '{queue}'.[/red]")
-        raise typer.Exit(1)
-
-    console.print_json(json.dumps(job))
-
 
 @job_app.command("retry")
-async def retry_job(job_id: str, queue: str):
-    """
-    Retry a failed job manually.
-    """
-    success = await settings.backend.retry_job(queue, job_id)
-    if success:
-        console.print(f"[bold green]Job '{job_id}' retried successfully.[/bold green]")
-    else:
-        console.print(f"[red]Failed to retry job '{job_id}'.[/red]")
+@click.argument("job_id")
+@click.option("--queue", required=True, help="Queue name the job belongs to.")
+def retry_job(job_id: str, queue: str):
+    """Retry a failed job."""
+    backend = settings.backend
+    job = anyio.run(backend.job_store.load, queue, job_id)
 
+    if job:
+        console.print(f"[green]Retrying job '{job_id}' in queue '{queue}'...[/green]")
+        # Remove any old state, enqueue again
+        anyio.run(backend.enqueue, queue, job)
+    else:
+        console.print(f"[red]Job '{job_id}' not found.[/red]")
 
 @job_app.command("remove")
-async def remove_job(job_id: str, queue: str):
-    """
-    Remove a job from the system.
-    """
-    success = await settings.backend.remove_job(queue, job_id)
-    if success:
-        console.print(f"[bold green]Job '{job_id}' removed successfully.[/bold green]")
-    else:
-        console.print(f"[red]Failed to remove job '{job_id}'.[/red]")
+@click.argument("job_id")
+@click.option("--queue", required=True, help="Queue name the job belongs to.")
+def remove_job(job_id: str, queue: str):
+    """Remove a job."""
+    backend = settings.backend
+    anyio.run(backend.job_store.delete, queue, job_id)
+    console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")

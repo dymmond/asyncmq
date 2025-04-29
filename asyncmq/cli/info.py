@@ -1,17 +1,16 @@
+import click
 from rich.console import Console
 
-from asyncmq import __version__
-from asyncmq.cli.sync import AsyncTyper
+from asyncmq import __version__  # noqa
 
-info_app = AsyncTyper(name="info", help="Information commands")
 console = Console()
 
-VERSION = __version__
-
+@click.group()
+def info_app():
+    """Information commands."""
+    ...
 
 @info_app.command("version")
-def version():
-    """
-    Show AsyncMQ CLI version.
-    """
-    console.print(f"[bold green]AsyncMQ CLI Version: {VERSION}[/bold green]")
+def version_command():
+    """Show AsyncMQ version."""
+    console.print(f"[cyan]AsyncMQ version {__version__}[/cyan]")

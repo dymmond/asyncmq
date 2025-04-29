@@ -1,27 +1,30 @@
-import typer
+import anyio
+import click
 from rich.console import Console
 
-from asyncmq.cli.sync import AsyncTyper
+from asyncmq import __version__
+from asyncmq.cli.utils import print_worker_banner
+from asyncmq.conf import settings
 from asyncmq.runners import start_worker
 
-worker_app = AsyncTyper(name="worker", help="Manage workers")  # <- use AsyncTyper here
 console = Console()
 
+@click.group()
+def worker_app():
+    """Worker management commands."""
+    ...
 
 @worker_app.command("start")
-async def start_worker_cli(
-    queue: str,
-    concurrency: int = typer.Option(1, help="Number of concurrent workers"),
-):
-    """
-    Start a worker to process jobs from a queue.
-    """
-    console.print(f"[bold green]Starting worker for queue '{queue}' with concurrency {concurrency}...[/bold green]")
+@click.argument("queue")
+@click.option("--concurrency", default=1, help="Number of concurrent workers.")
+def start_worker_cli(queue: str, concurrency: int):
+    """Start a worker for a given queue."""
+    print_worker_banner(queue, concurrency, settings.backend.__class__.__name__, __version__)
 
     try:
-        await start_worker(queue_name=queue, concurrency=concurrency)
+        anyio.run(lambda: start_worker(queue_name=queue, concurrency=concurrency))
     except KeyboardInterrupt:
         console.print("[yellow]Worker shutdown requested (Ctrl+C). Exiting...[/yellow]")
     except Exception as e:
         console.print(f"[red]Worker crashed: {e}[/red]")
-        raise typer.Exit(1) from e
+        raise click.Abort() from e
