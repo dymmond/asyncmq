@@ -207,6 +207,58 @@ class PostgresBackend(BaseBackend):
             self.pool = None
         await self.store.disconnect()
 
+    async def list_queues(self) -> list[str]:
+        async with self.store.pool.acquire() as conn:
+            rows = await conn.fetch("SELECT DISTINCT queue_name FROM jobs")
+            return [row["queue_name"] for row in rows]
+
+    async def queue_stats(self, queue_name: str) -> dict[str, int]:
+        async with self.store.pool.acquire() as conn:
+            waiting = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='waiting'",
+                queue_name,
+            )
+            delayed = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='delayed'",
+                queue_name,
+            )
+            failed = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='failed'",
+                queue_name,
+            )
+            return {
+                "waiting": waiting or 0,
+                "delayed": delayed or 0,
+                "failed": failed or 0,
+            }
+
+    async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+        async with self.store.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT data FROM {settings.jobs_table_name} WHERE queue_name=$1",
+                queue_name,
+            )
+            return [json.loads(row["data"]) for row in rows]
+
+    async def retry_job(self, queue_name: str, job_id: str) -> bool:
+        async with self.store.pool.acquire() as conn:
+            updated = await conn.execute(
+                f"UPDATE {settings.jobs_table_name} SET status='waiting' WHERE id=$1 AND queue_name=$2 AND status='failed'",
+                job_id,
+                queue_name,
+            )
+            return updated.endswith("UPDATE 1")
+
+    async def remove_job(self, queue_name: str, job_id: str) -> bool:
+        async with self.store.pool.acquire() as conn:
+            deleted = await conn.execute(
+                f"DELETE FROM {settings.jobs_table_name} WHERE id=$1 AND queue_name=$2",
+                job_id,
+                queue_name,
+            )
+            return deleted.endswith("DELETE 1")
+
+
 class PostgresLock:
     def __init__(self, pool: asyncpg.Pool, key: str, ttl: int) -> None:
         self.pool = pool

@@ -668,3 +668,66 @@ class RedisBackend(BaseBackend):
         # Create and return a Redis Lock instance with the specified key and timeout.
         lock: redis.lock.Lock = self.redis.lock(key, timeout=ttl)
         return lock
+
+    async def list_queues(self) -> list[str]:
+        """
+        Lists all known queue names.
+        """
+        # Get all keys matching 'queue:*:waiting'
+        keys = await self.redis.keys('queue:*:waiting')
+        # Extract queue names from keys
+        queues = [key.split(":")[1] for key in keys]
+        return queues
+
+    async def queue_stats(self, queue_name: str) -> dict[str, int]:
+        """
+        Return stats about a queue: waiting, delayed, failed jobs.
+        """
+        waiting = await self.redis.zcard(self._waiting_key(queue_name))
+        delayed = await self.redis.zcard(self._delayed_key(queue_name))
+        failed = await self.redis.zcard(self._dlq_key(queue_name))
+        return {
+            "waiting": waiting,
+            "delayed": delayed,
+            "failed": failed,
+        }
+
+    async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        List all jobs (waiting + delayed + DLQ) in a queue.
+        """
+        jobs = []
+        raw_waiting = await self.redis.zrange(self._waiting_key(queue_name), 0, -1)
+        raw_delayed = await self.redis.zrange(self._delayed_key(queue_name), 0, -1)
+        raw_dlq = await self.redis.zrange(self._dlq_key(queue_name), 0, -1)
+        for raw in raw_waiting + raw_delayed + raw_dlq:
+            jobs.append(json.loads(raw))
+        return jobs
+
+    async def retry_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Retry a failed job (move it back from DLQ to waiting).
+        """
+        key = self._dlq_key(queue_name)
+        raw_jobs = await self.redis.zrange(key, 0, -1)
+        for raw in raw_jobs:
+            job = json.loads(raw)
+            if job.get("id") == job_id:
+                await self.redis.zrem(key, raw)
+                await self.enqueue(queue_name, job)
+                return True
+        return False
+
+    async def remove_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Remove a job from any queue (waiting, delayed, DLQ).
+        """
+        removed = False
+        for redis_key in [self._waiting_key(queue_name), self._delayed_key(queue_name), self._dlq_key(queue_name)]:
+            raw_jobs = await self.redis.zrange(redis_key, 0, -1)
+            for raw in raw_jobs:
+                job = json.loads(raw)
+                if job.get("id") == job_id:
+                    await self.redis.zrem(redis_key, raw)
+                    removed = True
+        return removed
