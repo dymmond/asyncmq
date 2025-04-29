@@ -42,6 +42,15 @@ jobs:
         ports:
           - 6379:6379
 
+      mongodb:
+        image: mongo:latest
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: mongoadmin
+          MONGO_INITDB_DATABASE: mongodb
+        ports:
+          - 27017:27017
+
     steps:
       - uses: "actions/checkout@v4"
       - uses: "actions/setup-python@v5"
