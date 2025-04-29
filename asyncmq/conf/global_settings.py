@@ -29,14 +29,14 @@ class Settings:
                  the package's `__version__`.
     """
     debug: bool = False
+    logging_level: str = "INFO"
     backend: type[BaseBackend] = RedisBackend() # Keeping original logic default
     version: str = __version__
     is_logging_setup: bool = False
     jobs_table_name: str = "asyncmq_jobs"
-    """The name of the database table used to store job data by the PostgreSQL backend."""
     asyncmq_postgres_backend_url: str | None = None
-    """The connection URL (DSN) for the PostgreSQL database."""
-    logging_level: str = "INFO"
+    asyncmq_mongodb_backend_url: str | None = None
+    asyncmq_mongodb_database_name: str | None = "asyncmq"
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:

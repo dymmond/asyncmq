@@ -85,6 +85,7 @@ testing = [
     "structlog>=25.3.0",
 ]
 postgres = ["asyncpg>=0.30.0"]
+mongo = ["motor>=3.7.0"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
@@ -111,7 +112,7 @@ build = "mkdocs build"
 serve = "mkdocs serve --dev-addr localhost:8000"
 
 [tool.hatch.envs.hatch-test]
-features = ["testing", "postgres"]
+features = ["testing", "postgres", "mongo"]
 template = "test"
 
 [tool.hatch.envs.hatch-test.env-vars]
