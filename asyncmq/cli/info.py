@@ -12,7 +12,7 @@ console = Console()
 
 @click.group(name="info", invoke_without_command=True)
 @click.pass_context
-def info_app(ctx: click.Context):
+def info_app(ctx: click.Context) -> None:
     """
     Provides information about the AsyncMQ installation and configuration.
 

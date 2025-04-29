@@ -13,7 +13,7 @@ console = Console()
 
 @click.group(name="queue", invoke_without_command=True)
 @click.pass_context
-def queue_app(ctx: click.Context):
+def queue_app(ctx: click.Context) -> None:
     """
     Manages AsyncMQ queues.
 

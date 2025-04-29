@@ -1,3 +1,5 @@
+from typing import Any
+
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -12,7 +14,7 @@ from asyncmq.cli.worker import worker_app
 console = Console()
 
 
-def _print_main_help():
+def _print_main_help() -> None:
     text = Text()
     text.append(get_centered_logo(), style="bold cyan")
     text.append("🚀 AsyncMQ - Powerful Async Job Queue for Python\n\n", style="bold cyan")
@@ -36,7 +38,7 @@ def _print_main_help():
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-def app(ctx):
+def app(ctx: Any) -> None:
     """AsyncMQ CLI"""
     if ctx.invoked_subcommand is None:
         _print_main_help()
@@ -50,7 +52,7 @@ app.add_command(worker_app, name="worker")
 app.add_command(info_app, name="info")
 
 
-def main():
+def main() -> None:
     app()
 
 

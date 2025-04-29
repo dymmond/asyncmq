@@ -17,7 +17,7 @@ console = Console()
 
 @click.group(name="worker", invoke_without_command=True)
 @click.pass_context
-def worker_app(ctx: click.Context):
+def worker_app(ctx: click.Context) -> None:
     """
     Manages AsyncMQ worker processes.
 

@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from asyncmq.backends.base import BaseBackend
 from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import settings
 
@@ -12,7 +13,7 @@ console = Console()
 
 @click.group(name="job", invoke_without_command=True)
 @click.pass_context
-def job_app(ctx: click.Context):
+def job_app(ctx: click.Context) -> None:
     """
     Manages AsyncMQ jobs within queues.
 
@@ -129,7 +130,7 @@ def remove_job(job_id: str, queue: str) -> None:
         job_id: The unique identifier of the job to remove.
         queue: The name of the queue where the job is expected to be found.
     """
-    backend = settings.backend  # Get the configured backend instance.
+    backend: BaseBackend = settings.backend  # Get the configured backend instance.
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Remove")
     # Delete the job from the backend's job store using anyio.run.
