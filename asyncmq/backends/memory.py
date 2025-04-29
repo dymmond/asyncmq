@@ -482,32 +482,7 @@ class InMemoryBackend(BaseBackend):
             A list of job IDs that were successfully enqueued, in the order
             they were provided in `job_dicts`.
         """
-        async with self.lock:
-            created_ids: list[str] = []
-            # Enqueue all jobs sequentially.
-            for jd in job_dicts:
-                # Get or create the list for the queue and append the job.
-                self.queues.setdefault(queue_name, []).append(jd)
-                # Update the job's state to WAITING.
-                self.job_states[(queue_name, jd["id"])] = State.WAITING
-                # Add the job ID to the list of created IDs.
-                created_ids.append(jd["id"])
-
-            # Register dependencies sequentially.
-            for parent, child in dependency_links:
-                child_key: _JobKey = (queue_name, child)
-                # Add the parent ID to the child's pending dependencies set.
-                self.deps_pending.setdefault(child_key, set()).add(parent)
-                parent_key: _JobKey = (queue_name, parent)
-                # Add the child ID to the parent's children set.
-                self.deps_children.setdefault(parent_key, set()).add(child)
-
-            # Note: Sorting the queue by priority after bulk enqueue might be
-            # desired here for consistency with the single enqueue method,
-            # but the original logic did not include it in bulk_enqueue.
-            # Keeping the original logic.
-
-            return created_ids  # Return the list of IDs for the enqueued jobs.
+        raise NotImplementedError("atomic_add_flow not supported for InMemoryBackend")
 
     def _fetch_job_data(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """

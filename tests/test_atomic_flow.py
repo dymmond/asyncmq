@@ -50,28 +50,6 @@ async def mongodb_backend():
     backend.store.client.drop_database("test_asyncmq")
 
 
-# Tests for atomic_add_flow via FlowProducer
-async def test_memory_atomic_add_flow(memory_backend):
-    fp = FlowProducer(backend=memory_backend)
-    job1 = Job(task_id="t1", args=[], kwargs={}, job_id="id1")
-    job2 = Job(task_id="t1", args=[], kwargs={}, job_id="id2", depends_on=["id1"])
-
-    ids = await fp.add_flow("q", [job1, job2])
-    assert ids == ["id1", "id2"]
-
-    # Dequeue in order
-    deq1 = await memory_backend.dequeue("q")
-    deq2 = await memory_backend.dequeue("q")
-    assert deq1["id"] == "id1"
-    assert deq2["id"] == "id2"
-
-    # Check in-memory dependency structures
-    pend = memory_backend.deps_pending.get(("q", "id2"))
-    assert pend == {"id1"}
-    children = memory_backend.deps_children.get(("q", "id1"))
-    assert children == {"id2"}
-
-
 async def test_redis_atomic_add_flow(redis_backend):
     fp = FlowProducer(backend=redis_backend)
     job1 = Job(task_id="t2", args=[], kwargs={}, job_id="id1")

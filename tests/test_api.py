@@ -122,6 +122,7 @@ async def test_flowproducer_add_flow(monkeypatch):
     enq2 = await backend.dequeue('queue7')
     assert enq1['id'] == 'idA'
     assert enq2['id'] == 'idB'
+
     assert called == [('queue7', 'idA'), ('queue7', 'idB')]
 
 
