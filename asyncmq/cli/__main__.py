@@ -25,7 +25,7 @@ def _print_main_help():
     text.append("  asyncmq info version\n\n")
 
     text.append("Available backends:\n", style="bold yellow")
-    text.append("  - InMemory (default)\n")
+    text.append("  - InMemory - Use this for development, in production it is not advised.\n")
     text.append("  - Redis\n")
     text.append("  - PostgreSQL\n")
     text.append("  - MongoDB (coming soon)\n")
