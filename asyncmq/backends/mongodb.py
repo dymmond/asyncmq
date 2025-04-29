@@ -49,6 +49,8 @@ class MongoDBBackend(BaseBackend):
         self.paused: set[str] = set()
         # Lock for synchronizing access to mongodb queues.
         self.lock = anyio.Lock()
+        # Heartbeat timestamps for stalled‐job detection
+        self.heartbeats: dict[tuple[str, str], float] = {}
 
     async def connect(self) -> None:
         """
@@ -488,30 +490,33 @@ class MongoDBBackend(BaseBackend):
             return created_ids  # Return the list of IDs for the enqueued jobs.
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
-        await self.connect()
-        # embed heartbeat into the stored document
-        await self.store.collection.update_one(
-            {"queue": queue_name, "id": job_id},
-            {"$set": {"data.heartbeat": timestamp}}
-        )
+        """
+        Record the timestamp of the last heartbeat for a running job (in‐memory).
+        """
+        async with self.lock:
+            self.heartbeats[(queue_name, job_id)] = timestamp
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
-        await self.connect()
+        """
+        Retrieve all jobs whose last heartbeat is older than `older_than`.
+        Returns a list of dicts: {'queue_name', 'job_data'}.
+        """
         stalled: list[dict[str, Any]] = []
-        # for each queue, find ACTIVE jobs with stale heartbeat
-        async for queue_name in self.queues.keys():
-            docs = await self.store.collection.find(
-                {"queue": queue_name, "data.status": State.ACTIVE, "data.heartbeat": {"$lt": older_than}}
-            ).to_list(None)
-            for doc in docs:
-                stalled.append({"queue_name": queue_name, "job_data": doc["data"]})
+        async with self.lock:
+            for (q, jid), ts in list(self.heartbeats.items()):
+                if ts < older_than:
+                    payload = next(
+                        (p for p in self.queues.get(q, []) if p["id"] == jid),
+                        None,
+                    )
+                    if payload:
+                        stalled.append({"queue_name": q, "job_data": payload})
         return stalled
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
-        # re-enqueue via normal path
-        await self.enqueue(queue_name, job_data)
-        # optionally clear heartbeat field
-        await self.store.collection.update_one(
-            {"queue": queue_name, "id": job_data["id"]},
-            {"$unset": {"data.heartbeat": ""}}
-        )
+        """
+        Re‐enqueue a stalled job back onto its waiting queue.
+        """
+        async with self.lock:
+            self.queues.setdefault(queue_name, []).append(job_data)
+            self.heartbeats.pop((queue_name, job_data["id"]), None)

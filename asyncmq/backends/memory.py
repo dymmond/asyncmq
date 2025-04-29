@@ -630,21 +630,34 @@ class InMemoryBackend(BaseBackend):
             return False  # Indicate job was not found.
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        """
+        Record the timestamp of the last heartbeat for a running job.
+        """
         async with self.lock:
             self.heartbeats[(queue_name, job_id)] = timestamp
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        """
+        Retrieve all jobs whose last heartbeat is older than `older_than`.
+        Returns a list of dicts: {'queue_name': ..., 'job_data': {...}}.
+        """
         stalled: list[dict[str, Any]] = []
         async with self.lock:
             for (q, jid), ts in list(self.heartbeats.items()):
-                if ts < older_than and (q, jid) in self.active_jobs:
-                    stalled.append({"queue_name": q, "job_data": self.active_jobs[(q, jid)]})
+                if ts < older_than:
+                    # Look up the payload in the waiting queue
+                    payload = next(
+                        (p for p in self.queues.get(q, []) if p["id"] == jid),
+                        None,
+                    )
+                    if payload:
+                        stalled.append({"queue_name": q, "job_data": payload})
         return stalled
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        """
+        Re‐enqueue a stalled job back onto its waiting queue.
+        """
         async with self.lock:
-            # push back to waiting list
-            self.queues.setdefault(queue_name, []).insert(0, job_data)
-            # cleanup
+            self.queues.setdefault(queue_name, []).append(job_data)
             self.heartbeats.pop((queue_name, job_data["id"]), None)
-            self.active_jobs.pop((queue_name, job_data["id"]), None)

@@ -797,28 +797,57 @@ class PostgresBackend(BaseBackend):
             return deleted_command_tag.endswith("DELETE 1")
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        """
+        Record the last heartbeat timestamp by embedding it into the JSONB `data` column.
+        """
         await self.connect()
         async with self.pool.acquire() as conn:
             await conn.execute(
                 f"""
                 UPDATE {settings.jobs_table_name}
-                SET data = jsonb_set(data, '{{heartbeat}}', $3::to_jsonb, true)
-                WHERE id = $2 AND queue = $1
-                """, queue_name, job_id, timestamp
+                   SET data = jsonb_set(
+                               data,
+                               '{{heartbeat}}',
+                               to_jsonb($3::double precision),
+                               true
+                             ),
+                       updated_at = now()
+                 WHERE queue_name = $1
+                   AND job_id     = $2
+                """,
+                queue_name,
+                job_id,
+                timestamp,
             )
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        """
+        Retrieve all ACTIVE jobs whose embedded 'heartbeat' is < `older_than`.
+        Returns a list of dicts: {'queue_name', 'job_data'}.
+        """
         await self.connect()
         rows = await self.pool.fetch(
             f"""
-            SELECT queue, data FROM {settings.jobs_table_name}
-            WHERE (data->>'heartbeat')::float < $1 AND status = $2
-            """, older_than, State.ACTIVE
+            SELECT queue_name, data
+              FROM {settings.jobs_table_name}
+             WHERE (data->>'heartbeat')::float < $1
+               AND status = $2
+            """,
+            older_than,
+            State.ACTIVE,
         )
-        return [{"queue_name": row["queue"], "job_data": row["data"]} for row in rows]
+        # data arrives as a JSON string; parse it to a dict so we can mutate it
+        return [
+            {"queue_name": row["queue_name"], "job_data": json.loads(row["data"])}
+            for row in rows
+        ]
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
-        # simply enqueue back onto the waiting queue
+        """
+        Re-enqueue a stalled job back onto its waiting queue.
+        """
+        # Reset status so enqueue() will mark it as WAITING
+        job_data["status"] = State.WAITING
         await self.enqueue(queue_name, job_data)
 
 
