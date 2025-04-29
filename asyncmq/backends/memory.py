@@ -631,33 +631,100 @@ class InMemoryBackend(BaseBackend):
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
-        Record the timestamp of the last heartbeat for a running job.
+        Records or updates the last heartbeat timestamp for a specific job in memory.
+
+        This method acquires an exclusive lock to safely update the in-memory
+        heartbeats dictionary, associating the provided timestamp with the given
+        job identified by its queue name and job ID.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            timestamp: The Unix timestamp (float) representing the time of the heartbeat.
         """
+        # Acquire the lock to ensure safe concurrent modification of self.heartbeats
         async with self.lock:
+            # Store the heartbeat timestamp. The key is a tuple combining
+            # queue name and job ID for uniqueness.
             self.heartbeats[(queue_name, job_id)] = timestamp
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
-        Retrieve all jobs whose last heartbeat is older than `older_than`.
-        Returns a list of dicts: {'queue_name': ..., 'job_data': {...}}.
+        Retrieves a list of jobs currently tracked by heartbeats that have not
+        sent a heartbeat since a specified timestamp.
+
+        This method iterates through all recorded heartbeats, checks if a heartbeat
+        timestamp is older than the `older_than` threshold, and if so, attempts
+        to find the corresponding job's full data payload within the in-memory queues.
+
+        Args:
+            older_than: A Unix timestamp (float). Any job with a heartbeat timestamp
+                        strictly less than this value will be considered stalled.
+
+        Returns:
+            A list of dictionaries. Each dictionary contains 'queue_name' and
+            'job_data' for each stalled job found. 'job_data' is the original
+            dictionary payload of the job from the queues.
         """
-        stalled: list[dict[str, Any]] = []
+        stalled: list[dict[str, Any]] = [] # Initialize an empty list to collect stalled job details
+
+        # Acquire the lock to ensure safe concurrent access to both self.heartbeats
+        # and self.queues during the check and lookup process.
         async with self.lock:
+            # Iterate over a copy of the heartbeats items. This avoids potential issues
+            # if heartbeats were modified by another task during iteration (though
+            # modifications are limited by the lock here, copying is a robust pattern).
             for (q, jid), ts in list(self.heartbeats.items()):
+                # Check if the job's last heartbeat timestamp is older than the threshold
                 if ts < older_than:
-                    # Look up the payload in the waiting queue
+                    # Look up the full job payload in the relevant waiting queue.
+                    # We use .get(q, []) to handle cases where a queue might not exist
+                    # or is empty, providing a default empty list to iterate over.
+                    # The generator expression efficiently finds the payload dictionary
+                    # where the 'id' key matches the job_id.
+                    # We use .get("id") on the payload for safety against missing keys.
                     payload = next(
-                        (p for p in self.queues.get(q, []) if p["id"] == jid),
-                        None,
+                        (p for p in self.queues.get(q, []) if p.get("id") == jid),
+                        None, # If no matching payload is found in the queue, return None
                     )
+                    # If a corresponding job payload was found in the queue, add it
+                    # to the list of stalled jobs with its queue name.
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
-        return stalled
+
+        return stalled # Return the list of identified stalled jobs
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """
-        Re‐enqueue a stalled job back onto its waiting queue.
+        Re-enqueues a stalled job back onto its waiting queue in memory and removes
+        its associated heartbeat entry.
+
+        This method assumes the job is being moved from a "running" or "stalled"
+        conceptual state back to a "waiting" state. It appends the job's data
+        back to the end of the specified queue in the in-memory queues dictionary
+        and removes the job's entry from the in-memory heartbeats dictionary,
+        signifying it's no longer actively being tracked by heartbeat.
+
+        Args:
+            queue_name: The name of the queue the job should be added back into.
+            job_data: The dictionary containing the job's data payload. This
+                      dictionary must contain an 'id' key to identify the job
+                      for heartbeat removal.
         """
+        # Acquire the lock to ensure safe concurrent modification of both self.queues
+        # and self.heartbeats.
         async with self.lock:
+            # Append the job data back to the list associated with the queue_name.
+            # setdefault(queue_name, []) ensures that if the queue_name does not
+            # already exist as a key in self.queues, it is created with an empty
+            # list as its value before appending the job_data.
             self.queues.setdefault(queue_name, []).append(job_data)
+
+            # Remove the heartbeat entry for this specific job from the heartbeats
+            # dictionary. This stops tracking its heartbeat as it's now re-enqueued.
+            # Use .pop((queue_name, job_data["id"]), None) with a default of None
+            # to prevent a KeyError if the heartbeat entry was somehow already removed
+            # (e.g., by another process or cleanup task, or if 'id' is missing).
+            # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
+            # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)

@@ -798,10 +798,22 @@ class PostgresBackend(BaseBackend):
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
-        Record the last heartbeat timestamp by embedding it into the JSONB `data` column.
+        Records the last heartbeat timestamp for a specific job.
+
+        This method updates the `data` JSONB column of the job's row in the database
+        by setting or updating the 'heartbeat' key with the provided timestamp.
+        It also updates the `updated_at` column to the current time.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            timestamp: The Unix timestamp representing the time of the heartbeat.
         """
-        await self.connect()
+        await self.connect() # Ensure connection is established
+
+        # Acquire a connection from the pool
         async with self.pool.acquire() as conn:
+            # Execute the SQL UPDATE statement
             await conn.execute(
                 f"""
                 UPDATE {settings.jobs_table_name}
@@ -822,21 +834,37 @@ class PostgresBackend(BaseBackend):
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
-        Retrieve all ACTIVE jobs whose embedded 'heartbeat' is < `older_than`.
-        Returns a list of dicts: {'queue_name', 'job_data'}.
+        Retrieves jobs currently marked as ACTIVE that have not had a heartbeat
+        recorded since a specified timestamp.
+
+        This method queries the database for jobs where the 'heartbeat' key
+        within the `data` JSONB column is less than the `older_than` timestamp
+        and the job's `status` is 'active'.
+
+        Args:
+            older_than: A Unix timestamp. Jobs with a heartbeat timestamp
+                        strictly less than this value will be considered stalled.
+
+        Returns:
+            A list of dictionaries. Each dictionary contains 'queue_name' and
+            'job_data'. 'job_data' is the parsed JSON content of the `data` column.
         """
-        await self.connect()
+        await self.connect() # Ensure connection is established
+
+        # Fetch rows from the database pool
         rows = await self.pool.fetch(
             f"""
             SELECT queue_name, data
               FROM {settings.jobs_table_name}
-             WHERE (data->>'heartbeat')::float < $1
-               AND status = $2
+             WHERE (data->>'heartbeat')::float < $1 -- Filter by heartbeat timestamp
+               AND status = $2                      -- Filter by job status being ACTIVE
             """,
             older_than,
             State.ACTIVE,
         )
-        # data arrives as a JSON string; parse it to a dict so we can mutate it
+
+        # Process the retrieved rows. The 'data' column is returned as a JSON string.
+        # It needs to be parsed into a Python dictionary.
         return [
             {"queue_name": row["queue_name"], "job_data": json.loads(row["data"])}
             for row in rows
@@ -844,10 +872,22 @@ class PostgresBackend(BaseBackend):
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """
-        Re-enqueue a stalled job back onto its waiting queue.
+        Re-enqueues a job that was previously identified as stalled.
+
+        This method prepares the job data for re-enqueueing by resetting its status
+        to WAITING and then calls the internal `enqueue` method to place it back
+        into the processing queue.
+
+        Args:
+            queue_name: The name of the queue the job should be re-enqueued into.
+            job_data: The dictionary containing the job's data, including its current
+                      state and payload. This dictionary is modified in-place.
         """
-        # Reset status so enqueue() will mark it as WAITING
+        # Reset the job status to WAITING so the enqueue method correctly processes it
         job_data["status"] = State.WAITING
+
+        # Call the internal enqueue method to place the job back in the queue
+        # Note: The `enqueue` method is assumed to exist elsewhere in this class.
         await self.enqueue(queue_name, job_data)
 
 
