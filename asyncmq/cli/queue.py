@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from asyncmq.cli.utils import get_centered_logo
+from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import settings
 
 console = Console()
@@ -66,18 +66,18 @@ def list_queues() -> None:
     on the specific backend implementation.
     """
     backend = settings.backend # Get the configured backend instance.
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     console.print("[bold green]Fetching queues...[/bold green]")
 
     # Check if the backend exposes its queues (e.g., MemoryBackend).
-    if hasattr(backend, "queues"):
+    if hasattr(backend, "list_queues"):
         # Get the keys (queue names) from the backend's queues dictionary.
-        queues = list(backend.queues.keys())
+        queues = anyio.run(backend.list_queues)
         if queues:
             # If queues are found, print each one with a bullet point.
             for queue in queues:
                 console.print(f"• {queue}")
         else:
-            # If the queues dictionary is empty, indicate no queues were found.
             console.print("[yellow]No queues found.[/yellow]")
     else:
         # If the backend does not support listing queues via a 'queues' attribute.
@@ -99,6 +99,8 @@ def pause_queue(queue: str) -> None:
     backend = settings.backend # Get the configured backend instance.
     # Call the backend's pause_queue method using anyio.run for async operation.
     anyio.run(backend.pause_queue, queue)
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message.
     console.print(f"[bold red]Paused queue '{queue}'.[/bold red]")
 
@@ -118,6 +120,8 @@ def resume_queue(queue: str) -> None:
     backend = settings.backend # Get the configured backend instance.
     # Call the backend's resume_queue method using anyio.run for async operation.
     anyio.run(backend.resume_queue, queue)
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message.
     console.print(f"[bold green]Resumed queue '{queue}'.[/bold green]")
 
@@ -136,6 +140,8 @@ def info_queue(queue: str) -> None:
         queue: The name of the queue to get information about.
     """
     backend = settings.backend # Get the configured backend instance.
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating data fetching is in progress.
     console.print(f"[cyan]Fetching info about queue '{queue}'...[/cyan]\n")
 

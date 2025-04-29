@@ -4,7 +4,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asyncmq import __version__  # noqa
-from asyncmq.cli.utils import get_centered_logo
+from asyncmq.cli.utils import INFO_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import settings
 
 console = Console()
@@ -67,6 +67,7 @@ def version_command() -> None:
     """
     # Print the AsyncMQ version string. The __version__ variable is imported
     # directly from the asyncmq package.
+    get_print_banner(INFO_LOGO, "AsyncMQ Version")
     console.print(f"[cyan]AsyncMQ version: {__version__}[/cyan]")
 
 
@@ -84,6 +85,8 @@ def backend() -> None:
     backend_class = backend_instance.__class__.__name__
     # Get the module path where the backend class is defined.
     backend_module = backend_instance.__class__.__module__
+
+    get_print_banner(INFO_LOGO, "AsyncMQ Backend")
     # Print the formatted string showing the current backend module and class.
     console.print(
         f"[green]Current backend:[/green] [cyan]{backend_module}.{backend_class}[/cyan]"
