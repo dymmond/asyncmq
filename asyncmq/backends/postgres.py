@@ -5,7 +5,10 @@ except ImportError:
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+# Import specific types for hints
+from asyncpg import Pool, Record
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
@@ -15,37 +18,117 @@ from asyncmq.stores.postgres import PostgresJobStore
 
 
 class PostgresBackend(BaseBackend):
+    """
+    A PostgreSQL-based implementation of the asyncmq backend interface.
+
+    This backend uses a PostgreSQL database to store and manage job queues,
+    job states, delayed jobs, DLQs, repeatable tasks, and dependencies. It
+    relies on an `asyncpg` connection pool for asynchronous database access
+    and delegates job data persistence to a `PostgresJobStore`.
+    """
+
     def __init__(self, dsn: str | None = None) -> None:
+        """
+        Initializes the PostgresBackend by configuring the database connection
+        details and initializing the job store.
+
+        Verifies that a Database Source Name (DSN) is provided either directly
+        or via settings, and initializes the `PostgresJobStore` with the DSN.
+        The `asyncpg` connection pool is created asynchronously later during
+        the `connect` call.
+
+        Args:
+            dsn: The connection DSN for the PostgreSQL database. If None,
+                 `settings.asyncmq_postgres_backend_url` is used.
+        """
+        # Ensure a DSN is provided either directly or via settings.
         if not dsn and not settings.asyncmq_postgres_backend_url:
             raise ValueError(
                 "Either 'dsn' or 'settings.asyncmq_postgres_backend_url' must be "
                 "provided."
             )
-        self.dsn = dsn or settings.asyncmq_postgres_backend_url
-        self.pool: Optional[asyncpg.Pool] = None
-        self.store = PostgresJobStore(dsn=dsn)
+        # Store the resolved DSN.
+        self.dsn: str = dsn or settings.asyncmq_postgres_backend_url
+        # Initialize the asyncpg connection pool to None; it will be created on connect.
+        self.pool: Pool | None = None
+        # Initialize the PostgresJobStore with the DSN.
+        self.store: PostgresJobStore = PostgresJobStore(dsn=dsn)
 
     async def connect(self) -> None:
+        """
+        Asynchronously establishes a connection to the PostgreSQL database by
+        creating an `asyncpg` connection pool and connecting the job store.
+
+        This method is idempotent; subsequent calls will not recreate the pool.
+        """
+        # Create the connection pool if it doesn't already exist.
         if self.pool is None:
             logger.info(f"Connecting to Postgres...: {self.dsn}")
             self.pool = await asyncpg.create_pool(dsn=self.dsn)
+            # Also ensure the associated job store is connected.
             await self.store.connect()
 
-    async def enqueue(self, queue_name: str, payload: Dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Asynchronously enqueues a job payload onto the specified queue for
+        immediate processing.
+
+        The job's status is updated to `State.WAITING`, and the full job
+        payload is saved in the job store.
+
+        Args:
+            queue_name: The name of the queue to enqueue the job onto.
+            payload: The job data as a dictionary. Must contain an "id" key.
+        """
+        # Ensure connection is established before interacting with the DB.
         await self.connect()
+        # Update job status to WAITING.
         payload["status"] = State.WAITING
+        # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
 
-    async def bulk_enqueue(self, queue_name: str, jobs: List[Dict[str, Any]]) -> None:
+    async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
+        """
+        Asynchronously enqueues multiple job payloads onto the specified queue.
+
+        Iterates through the list of job payloads and calls `enqueue` for each.
+        Note that this is not a single atomic database transaction.
+
+        Args:
+            queue_name: The name of the queue to enqueue jobs onto.
+            jobs: A list of job payloads (dictionaries) to be enqueued. Each
+                  dictionary is expected to contain at least an "id" key.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Iterate and enqueue each job individually.
         for payload in jobs:
             await self.enqueue(queue_name, payload)
 
-    async def dequeue(self, queue_name: str) -> Optional[Dict[str, Any]]:
+    async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
+        """
+        Asynchronously attempts to dequeue the next job from the specified queue.
+
+        Uses a `SELECT FOR UPDATE SKIP LOCKED` query within a transaction to
+        atomically select the next waiting job, update its status to `State.ACTIVE`,
+        and return its payload. This prevents multiple workers from picking the
+        same job. Jobs are selected based on creation time (`created_at ASC`).
+
+        Args:
+            queue_name: The name of the queue to dequeue a job from.
+
+        Returns:
+            The job data as a dictionary if a job was successfully dequeued,
+            otherwise None.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                row = await conn.fetchrow(
+                # Select the oldest WAITING job for the given queue, lock it,
+                # update its status to ACTIVE, and return its data.
+                row: Record | None = await conn.fetchrow(
                     f"""
                     UPDATE {settings.jobs_table_name}
                     SET status = $3, updated_at = now()
@@ -60,29 +143,93 @@ class PostgresBackend(BaseBackend):
                     """,
                     queue_name, State.WAITING, State.ACTIVE
                 )
+                # If a row was returned (a job was dequeued).
                 if row:
+                    # Deserialize and return the job payload.
                     return json.loads(row["data"])
+                # Return None if no waiting job was found.
                 return None
 
     async def ack(self, queue_name: str, job_id: str) -> None:
+        """
+        Asynchronously acknowledges the successful processing of a job.
+
+        This typically involves removing the job from the backend storage.
+        In this implementation, it delegates the deletion to the job store.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job being acknowledged.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Delete the job from the job store.
         await self.store.delete(queue_name, job_id)
 
-    async def move_to_dlq(self, queue_name: str, payload: Dict[str, Any]) -> None:
+    async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Asynchronously moves a job payload to the Dead Letter Queue (DLQ)
+        associated with the specified queue.
+
+        The job's status is updated to `State.FAILED`, and the full job
+        payload is saved/updated in the job store.
+
+        Args:
+            queue_name: The name of the queue the job originated from.
+            payload: The job data as a dictionary. Must contain an "id" key.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Update job status to FAILED.
         payload["status"] = State.FAILED
+        # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
 
-    async def enqueue_delayed(self, queue_name: str, payload: Dict[str, Any], run_at: float) -> None:
+    async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        """
+        Asynchronously schedules a job to be available for processing at a
+        specific future time by storing it with a delay timestamp.
+
+        The job's status is updated to `State.DELAYED`, the `delay_until` field
+        is set to the target timestamp, and the full payload is saved in the
+        job store.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            payload: The job data as a dictionary. Must contain an "id" key.
+            run_at: The absolute Unix timestamp (float) when the job should
+                    become available for processing.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Update job status and set the delay_until timestamp.
         payload["status"] = State.DELAYED
         payload["delay_until"] = run_at
+        # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
-        now = time.time()
+        """
+        Asynchronously retrieves a list of delayed job payloads from the
+        specified queue that are now due for processing.
+
+        Queries the database for jobs in the specified queue where the
+        `delay_until` timestamp (stored in the `data` JSONB field) is less
+        than or equal to the current time.
+
+        Args:
+            queue_name: The name of the queue to check for due delayed jobs.
+
+        Returns:
+            A list of dictionaries, where each dictionary is a job payload
+            that is ready to be moved to the main queue.
+        """
+        # Get the current timestamp.
+        now: float = time.time()
+        # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
+            # Select job data for delayed jobs that are due.
+            rows: list[Record] = await conn.fetch(
                 f"""
                 SELECT data
                 FROM {settings.jobs_table_name}
@@ -93,128 +240,361 @@ class PostgresBackend(BaseBackend):
                 queue_name,
                 now,
             )
+            # Deserialize and return the job payloads.
             return [json.loads(row["data"]) for row in rows]
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+        """
+        Asynchronously removes a specific job from the backend's delayed storage
+        by its ID.
+
+        This delegates the deletion to the job store. Note that this method does
+        not check if the job is actually in the delayed state before attempting
+        removal.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove from delayed
+                    storage.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Delete the job from the job store.
         await self.store.delete(queue_name, job_id)
 
-    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+    async def update_job_state(
+        self, queue_name: str, job_id: str, state: str
+    ) -> None:
+        """
+        Asynchronously updates the status string of a specific job in the
+        job store.
+
+        The job data is loaded, its 'status' field is updated with the new
+        state string, and the modified data is saved back to the job store.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            state: The new state string for the job (e.g., "active", "completed").
+        """
+        # Ensure connection is established.
         await self.connect()
-        job = await self.store.load(queue_name, job_id)
+        # Load the job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # If the job data was successfully loaded.
         if job:
+            # Update the status field.
             job["status"] = state
+            # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
+        """
+        Asynchronously saves the result of a job's execution in the job store.
+
+        The job data is loaded, the 'result' field is added or updated with
+        the execution result, and the modified data is saved back to the
+        job store.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            result: The result returned by the job's task function. This should
+                    be a value that the configured `PostgresJobStore` can
+                    successfully serialize (e.g., JSON serializable).
+        """
+        # Ensure connection is established.
         await self.connect()
-        job = await self.store.load(queue_name, job_id)
+        # Load the job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # If the job data was successfully loaded.
         if job:
+            # Add or update the result field.
             job["result"] = result
+            # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
-    async def get_job_state(self, queue_name: str, job_id: str) -> Optional[str]:
-        await self.connect()
-        job = await self.store.load(queue_name, job_id)
-        if job:
-            return job.get("status")
-        return None
+    async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
+        """
+        Asynchronously retrieves the current status string of a specific job
+        from the job store.
 
-    async def get_job_result(self, queue_name: str, job_id: str) -> Optional[Any]:
-        await self.connect()
-        job = await self.store.load(queue_name, job_id)
-        if job:
-            return job.get("result")
-        return None
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
 
-    async def add_dependencies(self, queue_name: str, job_dict: Dict[str, Any]) -> None:
+        Returns:
+            The job's status string if the job is found and has a status,
+            otherwise None.
+        """
+        # Ensure connection is established.
         await self.connect()
-        job_id = job_dict["id"]
-        dependencies = job_dict.get("depends_on", [])
-        job = await self.store.load(queue_name, job_id)
+        # Load the job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # Return the status field if the job is found, otherwise None.
+        return job.get("status") if job else None
+
+    async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
+        """
+        Asynchronously retrieves the execution result of a specific job from
+        the job store.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+
+        Returns:
+            The result of the job's task function if the job is found and has
+            a 'result' field, otherwise None. The type of the result depends
+            on the job's return value and how it was saved by `save_job_result`.
+        """
+        # Ensure connection is established.
+        await self.connect()
+        # Load the job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # Return the result field if the job is found, otherwise None.
+        return job.get("result") if job else None
+
+    async def add_dependencies(
+        self, queue_name: str, job_dict: dict[str, Any]
+    ) -> None:
+        """
+        Asynchronously adds a list of parent job IDs to a job's dependencies.
+
+        Loads the job data from the store, adds the parent IDs from the
+        `depends_on` key of the input dictionary to the job's stored dependencies,
+        and saves the updated job data.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_dict: The job data dictionary containing at least an "id" key
+                      and an optional "depends_on" key (list of parent job IDs).
+        """
+        # Ensure connection is established.
+        await self.connect()
+        job_id: str = job_dict["id"]
+        # Get the list of parent IDs from the input dictionary.
+        dependencies: list[str] = job_dict.get("depends_on", [])
+        # Load the existing job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # If the job was found.
         if job:
+            # Add the new dependencies to the job's data. Overwrites existing list.
             job["depends_on"] = dependencies
+            # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
+        """
+        Asynchronously signals that a parent job has completed and checks if
+        any dependent child jobs are now ready to be enqueued.
+
+        It queries for all jobs in the queue that have dependencies. It then
+        iterates through these jobs, checks if they depend on the `parent_id`,
+        removes `parent_id` from their dependencies, updates the job state to
+        `State.WAITING` if all dependencies are met, and saves the updated job.
+
+        Args:
+            queue_name: The name of the queue the parent job belonged to.
+            parent_id: The unique identifier of the job that just completed
+                       and potentially resolves dependencies for other jobs.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
+            # Fetch all jobs in the queue that have a non-null 'depends_on' field
+            # in their JSONB data.
+            rows: list[Record] = await conn.fetch(
                 f"""
-                SELECT id, data FROM {settings.jobs_table_name} WHERE queue_name = $1 AND data->'depends_on' IS NOT NULL
+                SELECT id, data FROM {settings.jobs_table_name}
+                WHERE queue_name = $1 AND data->'depends_on' IS NOT NULL
                 """,
                 queue_name
             )
+            # Iterate through each job returned.
             for row in rows:
-                data = json.loads(row["data"])
-                depends_on = data.get("depends_on", [])
+                # Deserialize the job data from JSONB.
+                data: dict[str, Any] = json.loads(row["data"])
+                # Get the list of dependencies, defaulting to empty if not found.
+                depends_on: list[str] = data.get("depends_on", [])
+                # Check if the current parent_id is in this job's dependencies.
                 if parent_id in depends_on:
+                    # Remove the completed parent_id from the dependencies list.
                     depends_on.remove(parent_id)
+                    # If the dependencies list is now empty.
                     if not depends_on:
+                        # Remove the 'depends_on' key and set the status to WAITING.
                         data.pop("depends_on")
                         data["status"] = State.WAITING
                     else:
+                        # Otherwise, update the dependencies list in the job data.
                         data["depends_on"] = depends_on
+                    # Save the updated job data back to the job store.
                     await self.store.save(queue_name, data["id"], data)
 
-    # Atomic flow addition
+    # Atomic flow addition - Note: This implementation does not use a Lua script.
     async def atomic_add_flow(
             self,
             queue_name: str,
             job_dicts: list[dict[str, Any]],
             dependency_links: list[tuple[str, str]],
-    ) -> List[str]:
+    ) -> list[str]:
         """
-        Atomically enqueue multiple jobs and their dependencies within a transaction.
+        Atomically enqueues multiple jobs to the waiting queue and registers
+        their parent-child dependencies within a single database transaction.
+
+        All jobs provided in `job_dicts` are saved with `State.WAITING`. Then,
+        for each dependency link, the child job's data is loaded, the parent
+        ID is added to its `depends_on` list if not already present, and the
+        child job data is saved. All these operations are wrapped in an
+        `asyncpg` transaction.
+
+        Args:
+            queue_name: The name of the queue.
+            job_dicts: A list of job payloads (dictionaries) to be enqueued. Must
+                       contain an "id" key for each job.
+            dependency_links: A list of (parent_id, child_id) tuples representing
+                              the dependencies.
+        Returns:
+            A list of the IDs (strings) of the jobs that were processed (enqueued).
         """
+        # Ensure connection is established.
         await self.connect()
+        # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Enqueue all jobs
+                # Enqueue all jobs by saving them with WAITING status.
                 for payload in job_dicts:
                     payload["status"] = State.WAITING
+                    # Use the job store's save method within the transaction.
                     await self.store.save(queue_name, payload["id"], payload)
-                # Register dependencies
+                # Register dependencies by updating child job data.
                 for parent, child in dependency_links:
-                    job = await self.store.load(queue_name, child)
+                    # Load the child job data from the store.
+                    job: dict[str, Any] | None = await self.store.load(
+                        queue_name, child
+                    )
+                    # If the child job exists.
                     if job is not None:
-                        deps = job.get("depends_on", [])
+                        # Get the existing dependencies or initialize an empty list.
+                        deps: list[str] = job.get("depends_on", [])
+                        # Add the parent ID to the dependencies list if not already present.
                         if parent not in deps:
                             deps.append(parent)
                             job["depends_on"] = deps
+                            # Save the updated child job data back to the store.
                             await self.store.save(queue_name, child, job)
-        # Return the ordered list of IDs
+        # Return the list of IDs of the jobs that were initially provided.
         return [payload["id"] for payload in job_dicts]
 
     async def pause_queue(self, queue_name: str) -> None:
-        pass
+        """
+        Marks the specified queue as paused.
+
+        Note: This operation is not currently implemented for the Postgres
+        backend and does nothing. Queue pausing logic must be handled externally
+        or implemented here using a database flag.
+
+        Args:
+            queue_name: The name of the queue to pause.
+        """
+        pass # Not implemented
 
     async def resume_queue(self, queue_name: str) -> None:
-        pass
+        """
+        Resumes the specified queue.
+
+        Note: This operation is not currently implemented for the Postgres
+        backend and does nothing. Queue resuming logic must be handled externally
+        or implemented here using a database flag.
+
+        Args:
+            queue_name: The name of the queue to resume.
+        """
+        pass # Not implemented
 
     async def is_queue_paused(self, queue_name: str) -> bool:
-        return False
+        """
+        Checks if the specified queue is currently marked as paused.
+
+        Note: This operation is not currently implemented for the Postgres
+        backend and always returns False. Queue pausing logic must be handled
+        externally or implemented here using a database flag.
+
+        Args:
+            queue_name: The name of the queue to check.
+
+        Returns:
+            Always False as pausing is not implemented.
+        """
+        return False # Not implemented
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
+        """
+        Asynchronously saves the progress percentage for a specific job in the
+        job store.
+
+        The job data is loaded from the job store, the 'progress' field is
+        added or updated with the new progress value, and the modified data
+        is saved back. This allows external monitoring of job progress.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            progress: The progress value, typically a float between 0.0 and 1.0
+                      or an integer representing a percentage (0-100).
+        """
+        # Ensure connection is established.
         await self.connect()
-        job = await self.store.load(queue_name, job_id)
+        # Load the job data from the job store.
+        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
+        # If the job data was successfully loaded.
         if job:
+            # Add or update the progress field.
             job["progress"] = progress
+            # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
-    async def purge(self, queue_name: str, state: str, older_than: Optional[float] = None) -> None:
+    async def purge(
+        self, queue_name: str, state: str, older_than: float | None = None
+    ) -> None:
+        """
+        Removes jobs from a queue based on their state and optional age criteria.
+
+        Deletes jobs from the database where the queue name and status match
+        the criteria. If `older_than` is provided, it also filters for jobs
+        whose `created_at` timestamp is older than the specified duration
+        (current time minus `older_than`).
+
+        Args:
+            queue_name: The name of the queue from which to purge jobs.
+            state: The state string of the jobs to be removed (e.g., "completed",
+                   "failed", "waiting").
+            older_than: An optional duration in seconds. Only jobs in the
+                        specified `state` created *older* than this duration
+                        will be removed. If None, all jobs in the specified state
+                        will be removed.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
+            # Check if an age threshold is provided.
             if older_than:
-                threshold_time = time.time() - older_than
+                # Calculate the timestamp threshold.
+                threshold_time: float = time.time() - older_than
+                # Execute the DELETE query with queue name, status, and age filter.
                 await conn.execute(
                     f"""
                     DELETE FROM {settings.jobs_table_name}
-                    WHERE queue_name = $1 AND status = $2 AND EXTRACT(EPOCH FROM created_at) < $3
+                    WHERE queue_name = $1 AND status = $2
+                      AND EXTRACT(EPOCH FROM created_at) < $3
                     """,
                     queue_name, state, threshold_time
                 )
             else:
+                # Execute the DELETE query with only queue name and status filter.
                 await conn.execute(
                     f"""
                     DELETE FROM {settings.jobs_table_name}
@@ -223,38 +603,120 @@ class PostgresBackend(BaseBackend):
                     queue_name, state
                 )
 
-    async def emit_event(self, event: str, data: Dict[str, Any]) -> None:
+    async def emit_event(self, event: str, data: dict[str, Any]) -> None:
+        """
+        Emits an event.
+
+        Note: This operation is not currently implemented for the Postgres
+        backend using database features like LISTEN/NOTIFY and does nothing.
+        Event handling must be managed externally.
+
+        Args:
+            event: The name of the event to emit.
+            data: The data associated with the event.
+        """
         pass  # Could use LISTEN/NOTIFY in the future
 
     async def create_lock(self, key: str, ttl: int) -> Any:
+        """
+        Creates and returns a database-based distributed lock instance.
+
+        Uses PostgreSQL advisory locks (`pg_try_advisory_lock`,
+        `pg_advisory_unlock`) for distributed locking. The lock is identified
+        by a hashed key and has an implicit session-based scope (it's released
+        when the session ends, not strictly by TTL in the same way as Redis
+        locks).
+
+        Args:
+            key: A unique string identifier for the lock. This key will be
+                 hashed for use with PostgreSQL advisory locks.
+            ttl: The time-to-live for the lock in seconds. Note that PostgreSQL
+                 advisory locks are session-scoped, not time-scoped via TTL.
+                 The `ttl` parameter is accepted for compatibility but does not
+                 strictly enforce an expiration time within PostgreSQL itself;
+                 it's released when the connection holding it ends.
+
+        Returns:
+            A `PostgresLock` instance representing the distributed lock.
+            This instance must be acquired (`await lock.acquire()`) and released
+            (`await lock.release()`) by the caller. The return type hint is
+            `Any` as per the original code.
+        """
+        # Ensure connection is established.
         await self.connect()
+        # Return a new PostgresLock instance.
         return PostgresLock(self.pool, key, ttl)
 
     async def close(self) -> None:
+        """
+        Asynchronously closes the database connection pool and disconnects
+        the associated job store.
+
+        This should be called when the backend is no longer needed.
+        """
+        # Close the connection pool if it exists.
         if self.pool:
             await self.pool.close()
             self.pool = None
+        # Disconnect the job store.
         await self.store.disconnect()
 
     async def list_queues(self) -> list[str]:
+        """
+        Asynchronously lists all known queue names managed by this backend.
+
+        This is done by querying the distinct `queue_name` values from the
+        jobs table.
+
+        Returns:
+            A list of strings, where each string is the name of a queue.
+        """
+        # Acquire a connection from the job store's pool.
+        # Note: This accesses the pool via the job store, which differs from
+        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT DISTINCT queue_name FROM jobs")
+            # Fetch all distinct queue names from the jobs table.
+            rows: list[Record] = await conn.fetch(
+                f"SELECT DISTINCT queue_name FROM {settings.jobs_table_name}"
+            )
+            # Extract and return the queue names.
             return [row["queue_name"] for row in rows]
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
+        """
+        Asynchronously returns statistics about the number of jobs in different
+        states for a specific queue.
+
+        Provides counts for jobs currently waiting, delayed, and in the dead
+        letter queue (DLQ) by querying the database.
+
+        Args:
+            queue_name: The name of the queue to get statistics for.
+
+        Returns:
+            A dictionary containing the counts with keys "waiting", "delayed",
+            and "failed". Counts are defaulted to 0 if no jobs are found in a state.
+        """
+        # Acquire a connection from the job store's pool.
+        # Note: This accesses the pool via the job store, which differs from
+        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            waiting = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='waiting'",
+            # Fetch the count of waiting jobs.
+            waiting: int | None = await conn.fetchval(
+                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
                 queue_name,
             )
-            delayed = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='delayed'",
+            # Fetch the count of delayed jobs.
+            delayed: int | None = await conn.fetchval(
+                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='delayed'",
                 queue_name,
             )
-            failed = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobs WHERE queue_name=$1 AND status='failed'",
+            # Fetch the count of failed jobs.
+            failed: int | None = await conn.fetchval(
+                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='failed'",
                 queue_name,
             )
+            # Return the counts, defaulting None to 0.
             return {
                 "waiting": waiting or 0,
                 "delayed": delayed or 0,
@@ -262,42 +724,147 @@ class PostgresBackend(BaseBackend):
             }
 
     async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Asynchronously lists all jobs (payloads) in any state within a specific
+        queue by querying the database.
+
+        Retrieves the `data` column (JSONB payload) for all jobs belonging
+        to the specified queue and deserializes them.
+
+        Args:
+            queue_name: The name of the queue to list jobs from.
+
+        Returns:
+            A list of dictionaries, where each dictionary is a job payload.
+        """
+        # Acquire a connection from the job store's pool.
+        # Note: This accesses the pool via the job store, which differs from
+        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            rows = await conn.fetch(
+            # Fetch the JSONB data for all jobs in the queue.
+            rows: list[Record] = await conn.fetch(
                 f"SELECT data FROM {settings.jobs_table_name} WHERE queue_name=$1",
                 queue_name,
             )
+            # Deserialize and return the job payloads.
             return [json.loads(row["data"]) for row in rows]
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Asynchronously retries a failed job by updating its status from 'failed'
+        to 'waiting' in the database.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the failed job to retry.
+
+        Returns:
+            True if a job with the given ID and queue name was found in the
+            'failed' state and successfully updated to 'waiting', False otherwise.
+        """
+        # Acquire a connection from the job store's pool.
+        # Note: This accesses the pool via the job store, which differs from
+        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            updated = await conn.execute(
+            # Execute an UPDATE statement to change the status of the specific
+            # failed job to 'waiting'.
+            updated_command_tag: str = await conn.execute(
                 f"UPDATE {settings.jobs_table_name} SET status='waiting' WHERE id=$1 AND queue_name=$2 AND status='failed'",
                 job_id,
                 queue_name,
             )
-            return updated.endswith("UPDATE 1")
+            # The execute command returns a command tag string like "UPDATE 1"
+            # if one row was updated. Check if exactly one row was updated.
+            return updated_command_tag.endswith("UPDATE 1")
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Asynchronously removes a specific job from the database by its ID and
+        queue name, regardless of its current state.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove.
+
+        Returns:
+            True if a job with the given ID and queue name was found and
+            successfully deleted, False otherwise.
+        """
+        # Acquire a connection from the job store's pool.
+        # Note: This accesses the pool via the job store, which differs from
+        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            deleted = await conn.execute(
+            # Execute a DELETE statement to remove the specific job.
+            deleted_command_tag: str = await conn.execute(
                 f"DELETE FROM {settings.jobs_table_name} WHERE id=$1 AND queue_name=$2",
                 job_id,
                 queue_name,
             )
-            return deleted.endswith("DELETE 1")
+            # The execute command returns a command tag string like "DELETE 1"
+            # if one row was deleted. Check if exactly one row was deleted.
+            return deleted_command_tag.endswith("DELETE 1")
+
 
 class PostgresLock:
-    def __init__(self, pool: asyncpg.Pool, key: str, ttl: int) -> None:
-        self.pool = pool
-        self.key = key
-        self.ttl = ttl
+    """
+    A distributed lock implementation using PostgreSQL advisory locks.
+
+    Uses `pg_try_advisory_lock` for non-blocking acquisition and
+    `pg_advisory_unlock` for releasing the lock. Locks are identified by
+    a hashed key and are session-scoped.
+    """
+    def __init__(self, pool: Pool, key: str, ttl: int) -> None:
+        """
+        Initializes the PostgresLock.
+
+        Args:
+            pool: The `asyncpg` connection pool to use for acquiring and
+                  releasing the lock.
+            key: A unique string identifier for the lock. This key will be
+                 hashed for use with PostgreSQL advisory locks.
+            ttl: The time-to-live for the lock in seconds. Note that PostgreSQL
+                 advisory locks are session-scoped, not time-scoped via TTL.
+                 The `ttl` parameter is accepted for compatibility but does not
+                 strictly enforce an expiration time within PostgreSQL itself;
+                 it's released when the connection holding it ends.
+        """
+        self.pool: Pool = pool
+        self.key: str = key
+        self.ttl: int = ttl # Note: TTL is not directly enforced by pg_advisory_lock
 
     async def acquire(self) -> bool:
+        """
+        Asynchronously attempts to acquire the PostgreSQL advisory lock.
+
+        Uses `pg_try_advisory_lock` which attempts to acquire the lock without
+        blocking.
+
+        Returns:
+            True if the lock was successfully acquired, False otherwise.
+        """
+        # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
-            result = await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", self.key)
-            return result
+            # Attempt to acquire the advisory lock using the hash of the key.
+            result: bool | None = await conn.fetchval(
+                "SELECT pg_try_advisory_lock(hashtext($1))", self.key
+            )
+            # pg_try_advisory_lock returns boolean True/False.
+            # fetchval might return None if query fails, though unlikely here.
+            return result if result is not None else False
 
     async def release(self) -> None:
+        """
+        Asynchronously releases the PostgreSQL advisory lock.
+
+        Uses `pg_advisory_unlock` to release the lock held by the current
+        session for the given key.
+
+        Args:
+            None.
+        """
+        # Acquire a connection from the pool.
         async with self.pool.acquire() as conn:
+            # Release the advisory lock using the hash of the key.
+            # The return value of pg_advisory_unlock indicates success/failure,
+            # but the original code doesn't check it, so we just execute.
             await conn.execute("SELECT pg_advisory_unlock(hashtext($1))", self.key)

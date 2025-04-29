@@ -3,9 +3,11 @@ from typing import Any
 
 import anyio
 
+# Conditional import for motor, handled with a try/except block
 try:
     import motor # noqa
 except ImportError:
+    # If motor is not installed, raise a specific ImportError.
     raise ImportError("Please install motor: `pip install motor`") from None
 
 # Import necessary components from asyncmq.
@@ -20,8 +22,8 @@ class MongoDBBackend(BaseBackend):
     MongoDB backend for AsyncMQ.
 
     Manages job queues, delayed jobs, and job states using a MongoDBStore
-    for persistent storage and in-memory structures for active and delayed
-    jobs. Uses anyio locks for thread-safe access to in-memory queues.
+    for persistent storage and mongodb structures for active and delayed
+    jobs. Uses anyio locks for thread-safe access to mongodb queues.
     Requires calling the `connect` async method after initialization.
     """
 
@@ -32,7 +34,7 @@ class MongoDBBackend(BaseBackend):
         Initializes the MongoDB backend and its underlying store.
 
         Creates an instance of the MongoDBStore for persistent storage and
-        initializes in-memory datastructures for queues, delayed jobs, and
+        initializes mongodb datastructures for queues, delayed jobs, and
         paused queues, along with an anyio lock for synchronization.
 
         Args:
@@ -41,13 +43,13 @@ class MongoDBBackend(BaseBackend):
         """
         # Initialize the MongoDB store for persistent job data.
         self.store = MongoDBStore(mongo_url, database)
-        # In-memory queue: maps queue names to lists of waiting jobs.
+        # mongodb queue: maps queue names to lists of waiting jobs.
         self.queues: dict[str, list[dict[str, Any]]] = {}
-        # In-memory delayed queue: maps queue names to lists of (run_at, job) tuples.
+        # mongodb delayed queue: maps queue names to lists of (run_at, job) tuples.
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
         # Set of queue names that are currently paused.
         self.paused: set[str] = set()
-        # Lock for synchronizing access to in-memory queues.
+        # Lock for synchronizing access to mongodb queues.
         self.lock = anyio.Lock()
 
     async def connect(self) -> None:
@@ -65,7 +67,7 @@ class MongoDBBackend(BaseBackend):
         """
         Adds a job to the specified queue.
 
-        Adds the job payload to the in-memory queue and saves the job to the
+        Adds the job payload to the mongodb queue and saves the job to the
         MongoDB store with its status set to WAITING.
 
         Args:
@@ -73,7 +75,7 @@ class MongoDBBackend(BaseBackend):
             payload: A dictionary containing the job data, including an 'id'.
         """
         async with self.lock:
-            # Add the payload to the end of the in-memory queue list for this queue.
+            # Add the payload to the end of the mongodb queue list for this queue.
             self.queues.setdefault(queue_name, []).append(payload)
             # Save the job to the MongoDB store with the WAITING status.
             await self.store.save(
@@ -84,7 +86,7 @@ class MongoDBBackend(BaseBackend):
         """
         Retrieves the next available job from the specified queue.
 
-        Pops the first job from the in-memory queue (if available), updates its
+        Pops the first job from the mongodb queue (if available), updates its
         status to ACTIVE in the MongoDB store, and returns the job.
 
         Args:
@@ -94,7 +96,7 @@ class MongoDBBackend(BaseBackend):
             The job dictionary if a job was available, otherwise None.
         """
         async with self.lock:
-            # Get the in-memory queue list for the specified queue name, defaulting to empty.
+            # Get the mongodb queue list for the specified queue name, defaulting to empty.
             queue = self.queues.get(queue_name, [])
             if queue:
                 # Remove and return the first job from the list.
@@ -143,7 +145,7 @@ class MongoDBBackend(BaseBackend):
         """
         Adds a job to the delayed queue to be processed at a later time.
 
-        Adds the job payload and its scheduled run time to the in-memory delayed
+        Adds the job payload and its scheduled run time to the mongodb delayed
         queue and saves the job to the MongoDB store with its status set to EXPIRED.
 
         Args:
@@ -152,7 +154,7 @@ class MongoDBBackend(BaseBackend):
             run_at: A timestamp (float) indicating when the job should be run.
         """
         async with self.lock:
-            # Add the job and its scheduled run time to the in-memory delayed list.
+            # Add the job and its scheduled run time to the mongodb delayed list.
             self.delayed.setdefault(queue_name, []).append((run_at, payload))
             # Save the job to the MongoDB store with the EXPIRED status.
             await self.store.save(
@@ -163,7 +165,7 @@ class MongoDBBackend(BaseBackend):
         """
         Retrieves delayed jobs from the specified queue that are due to run now.
 
-        Checks the in-memory delayed queue for jobs whose scheduled run time
+        Checks the mongodb delayed queue for jobs whose scheduled run time
         is less than or equal to the current time. Removes due jobs from the
         delayed queue and returns them.
 
@@ -176,29 +178,31 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Get the current time.
             now = time.time()
-            due = [] # List to store jobs that are due.
-            remaining = [] # List to store jobs that are not yet due.
+            due = []  # List to store jobs that are due.
+            remaining = []  # List to store jobs that are not yet due.
             # Iterate through delayed jobs for the specified queue.
             for run_at, job in self.delayed.get(queue_name, []):
                 # Check if the job's run time is now or in the past.
                 if run_at <= now:
-                    due.append(job) # Add due jobs to the 'due' list.
+                    due.append(job)  # Add due jobs to the 'due' list.
                 else:
-                    remaining.append((run_at, job)) # Add remaining jobs to 'remaining'.
-            # Update the in-memory delayed list with only the remaining jobs.
+                    remaining.append(
+                        (run_at, job)
+                    )  # Add remaining jobs to 'remaining'.
+            # Update the mongodb delayed list with only the remaining jobs.
             self.delayed[queue_name] = remaining
-            return due # Return the list of jobs that were due.
+            return due  # Return the list of jobs that were due.
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
         """
-        Removes a job from the in-memory delayed queue by its ID.
+        Removes a job from the mongodb delayed queue by its ID.
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The ID of the job to remove.
         """
         async with self.lock:
-            # Filter the in-memory delayed list, keeping only jobs whose ID does
+            # Filter the mongodb delayed list, keeping only jobs whose ID does
             # not match the one to be removed.
             self.delayed[queue_name] = [
                 (ts, job)
@@ -224,12 +228,10 @@ class MongoDBBackend(BaseBackend):
         job = await self.store.load(queue_name, job_id)
         # If the job is found, update its status and save it.
         if job:
-            job["status"] = state # Update the job's status.
-            await self.store.save(queue_name, job_id, job) # Save the updated job.
+            job["status"] = state  # Update the job's status.
+            await self.store.save(queue_name, job_id, job)  # Save the updated job.
 
-    async def save_job_result(
-        self, queue_name: str, job_id: str, result: Any
-    ) -> None:
+    async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
         """
         Saves the result of a completed job in the MongoDB store.
 
@@ -245,8 +247,8 @@ class MongoDBBackend(BaseBackend):
         job = await self.store.load(queue_name, job_id)
         # If the job is found, add/update the result and save it.
         if job:
-            job["result"] = result # Add or update the result field.
-            await self.store.save(queue_name, job_id, job) # Save the updated job.
+            job["result"] = result  # Add or update the result field.
+            await self.store.save(queue_name, job_id, job)  # Save the updated job.
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
@@ -319,7 +321,7 @@ class MongoDBBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to pause.
         """
-        # Add the queue name to the in-memory set of paused queues.
+        # Add the queue name to the mongodb set of paused queues.
         self.paused.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
@@ -332,7 +334,7 @@ class MongoDBBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to resume.
         """
-        # Remove the queue name from the in-memory set of paused queues.
+        # Remove the queue name from the mongodb set of paused queues.
         self.paused.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
@@ -345,7 +347,7 @@ class MongoDBBackend(BaseBackend):
         Returns:
             True if the queue is paused, False otherwise.
         """
-        # Check if the queue name is present in the in-memory set of paused queues.
+        # Check if the queue name is present in the mongodb set of paused queues.
         return queue_name in self.paused
 
     async def save_job_progress(
@@ -366,8 +368,8 @@ class MongoDBBackend(BaseBackend):
         job = await self.store.load(queue_name, job_id)
         # If the job is found, add/update the progress and save it.
         if job:
-            job["progress"] = progress # Add or update the progress field.
-            await self.store.save(queue_name, job_id, job) # Save the updated job.
+            job["progress"] = progress  # Add or update the progress field.
+            await self.store.save(queue_name, job_id, job)  # Save the updated job.
 
     async def bulk_enqueue(
         self, queue_name: str, jobs: list[dict[str, Any]]
@@ -375,7 +377,7 @@ class MongoDBBackend(BaseBackend):
         """
         Adds multiple jobs to the specified queue in a bulk operation.
 
-        Adds the job payloads to the in-memory queue and saves each job to the
+        Adds the job payloads to the mongodb queue and saves each job to the
         MongoDB store with its status set to WAITING.
 
         Args:
@@ -383,7 +385,7 @@ class MongoDBBackend(BaseBackend):
             jobs: A list of job dictionaries to enqueue.
         """
         async with self.lock:
-            # Extend the in-memory queue list with the list of jobs.
+            # Extend the mongodb queue list with the list of jobs.
             self.queues.setdefault(queue_name, []).extend(jobs)
             # Iterate through each job and save it to the MongoDB store.
             for job in jobs:
@@ -409,7 +411,7 @@ class MongoDBBackend(BaseBackend):
         """
         # Get jobs from the store matching the specified state.
         jobs = await self.store.jobs_by_status(queue_name, state)
-        now = time.time() # Get the current time for age comparison if needed.
+        now = time.time()  # Get the current time for age comparison if needed.
         # Iterate through the retrieved jobs.
         for job in jobs:
             # Get the completion timestamp, defaulting to 'now' if not available
@@ -453,30 +455,60 @@ class MongoDBBackend(BaseBackend):
         return anyio.Lock()
 
     async def atomic_add_flow(
-            self,
-            queue_name: str,
-            job_dicts: list[dict[str, Any]],
-            dependency_links: list[tuple[str, str]],
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
     ) -> list[str]:
         """
-        Atomically enqueue multiple jobs and register dependencies in-memory and store.
+        Atomically enqueue multiple jobs and register dependencies mongodb and
+        store.
+
+        Enqueues jobs into the mongodb queue and saves them to the MongoDB
+        store. Registers dependencies by loading the child job from the store,
+        updating its 'depends_on' list, and saving it back. This method is
+        atomic with respect to other operations on this backend instance due
+        to the use of the internal lock.
+
+        Args:
+            queue_name: The target queue for all jobs in the flow.
+            job_dicts: A list of job payloads (dictionaries) to enqueue.
+            dependency_links: A list of tuples, where each tuple is
+                              (parent_job_id, child_job_id), defining the
+                              dependencies within the flow.
+
+        Returns:
+            A list of job IDs that were successfully enqueued, in the order
+            they were provided in `job_dicts`.
         """
         async with self.lock:
             created_ids: list[str] = []
-            # Enqueue payloads
+            # Enqueue payloads into the mongodb queue and save to the store.
             for payload in job_dicts:
+                # Add the payload to the mongodb queue list.
                 self.queues.setdefault(queue_name, []).append(payload)
+                # Save the job to the MongoDB store with the WAITING status.
                 await self.store.save(
                     queue_name, payload["id"], {**payload, "status": State.WAITING}
                 )
+                # Add the job ID to the list of created IDs.
                 created_ids.append(payload["id"])
-            # Register dependencies
+
+            # Register dependencies by updating the 'depends_on' field in the store.
             for parent, child in dependency_links:
+                # Load the child job from the store.
                 job = await self.store.load(queue_name, child)
+                # If the child job is found.
                 if job:
+                    # Get the existing dependencies list, defaulting to empty.
                     deps = job.get("depends_on", [])
+                    # If the parent is not already in the dependencies list.
                     if parent not in deps:
+                        # Add the parent to the dependencies list.
                         deps.append(parent)
+                        # Update the 'depends_on' field in the job data.
                         job["depends_on"] = deps
+                        # Save the updated job data back to the store.
                         await self.store.save(queue_name, child, job)
-            return created_ids
+
+            return created_ids  # Return the list of IDs for the enqueued jobs.
