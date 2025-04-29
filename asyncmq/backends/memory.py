@@ -46,6 +46,8 @@ class InMemoryBackend(BaseBackend):
         self.paused: set[str] = set()
         # An anyio Lock to synchronize access to the in-memory data structures.
         self.lock: anyio.Lock = anyio.Lock()
+        self.heartbeats: dict[tuple[str, str], float] = {}
+        self.active_jobs: dict[tuple[str, str], dict] = {}
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -122,8 +124,8 @@ class InMemoryBackend(BaseBackend):
             queue_name: The name of the queue the job belonged to.
             job_id: The ID of the acknowledged job.
         """
-        # No action needed; state update is handled elsewhere.
-        pass
+        self.heartbeats.pop((queue_name, job_id), None)
+        self.active_jobs.pop((queue_name, job_id), None)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -626,3 +628,23 @@ class InMemoryBackend(BaseBackend):
                 self.job_progress.pop(job_key, None)
                 return True  # Indicate successful removal.
             return False  # Indicate job was not found.
+
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        async with self.lock:
+            self.heartbeats[(queue_name, job_id)] = timestamp
+
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        stalled: list[dict[str, Any]] = []
+        async with self.lock:
+            for (q, jid), ts in list(self.heartbeats.items()):
+                if ts < older_than and (q, jid) in self.active_jobs:
+                    stalled.append({"queue_name": q, "job_data": self.active_jobs[(q, jid)]})
+        return stalled
+
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        async with self.lock:
+            # push back to waiting list
+            self.queues.setdefault(queue_name, []).insert(0, job_data)
+            # cleanup
+            self.heartbeats.pop((queue_name, job_data["id"]), None)
+            self.active_jobs.pop((queue_name, job_data["id"]), None)

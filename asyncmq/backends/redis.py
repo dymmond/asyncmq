@@ -880,3 +880,103 @@ class RedisBackend(BaseBackend):
         raw = await self.flow_script(keys=[waiting_key, deps_prefix], args=args)
         # raw is a Lua table of job IDs
         return raw
+
+    async def save_heartbeat(
+        self, queue_name: str, job_id: str, timestamp: float
+    ) -> None:
+        """
+        Asynchronously records the timestamp of the last heartbeat for a
+        running job in a Redis Hash.
+
+        This allows tracking the liveness of worker processes. The timestamp
+        is stored as the value associated with the job ID key within a Hash
+        specific to the queue (`queue:{queue_name}:heartbeats`).
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the running job.
+            timestamp: The Unix timestamp (float) of the heartbeat.
+        """
+        # Generate the Redis key for the heartbeats Hash for this queue.
+        key: str = f"queue:{queue_name}:heartbeats"
+        # Store the timestamp (converted to string by Redis) associated with
+        # the job_id in the heartbeats Hash.
+        await self.redis.hset(key, job_id, timestamp)
+
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves information about jobs whose last recorded
+        heartbeat is older than a specified timestamp.
+
+        It scans all Redis keys matching the heartbeat pattern (`queue:*:heartbeats`),
+        iterates through the heartbeats in each queue's Hash, and if a heartbeat's
+        timestamp is older than `older_than`, it loads the full job data from
+        the job store and includes it in the result list.
+
+        Args:
+            older_than: An absolute Unix timestamp (float). Jobs with heartbeats
+                        older than this timestamp are considered stalled.
+
+        Returns:
+            A list of dictionaries, where each dictionary contains the
+            'queue_name' (string) and the full 'job_data' (dictionary) for
+            each stalled job found.
+        """
+        stalled: list[dict[str, Any]] = []
+        # Scan for all Redis keys that are heartbeat Hashes across all queues.
+        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            # Split the key to extract the queue name. Expected format: 'queue:queue_name:heartbeats'.
+            parts: list[str] = full_key.split(":")
+            # Ensure the key format is as expected.
+            if len(parts) != 3:
+                continue
+            # Extract the queue name from the key parts.
+            _, queue_name, _ = parts
+            # Retrieve all job IDs and their last heartbeat timestamps from the Hash.
+            heartbeats: dict[str, str] = await self.redis.hgetall(full_key)
+            # Iterate through each job ID and its timestamp in the heartbeats Hash.
+            for job_id, ts_str in heartbeats.items():
+                # Convert the timestamp string to a float.
+                ts: float = float(ts_str)
+                # Check if the heartbeat timestamp is older than the threshold.
+                if ts < older_than:
+                    # If stalled, load the full job payload from the job store.
+                    job_data: dict[str, Any] | None = await self.job_store.load(
+                        queue_name, job_id
+                    )
+                    # If the job data was successfully loaded.
+                    if job_data is not None:
+                        # Add the queue name and job data to the list of stalled jobs.
+                        stalled.append({"queue_name": queue_name, "job_data": job_data})
+        # Return the list of stalled jobs found.
+        return stalled
+
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        """
+        Asynchronously re-enqueues a stalled job back onto its original queue
+        for re-processing and removes its heartbeat record.
+
+        It adds the job payload back to the waiting queue's Sorted Set and
+        deletes the job's entry from the heartbeat Hash for that queue. These
+        operations are performed within a Redis Pipeline for atomicity.
+
+        Args:
+            queue_name: The name of the queue the stalled job belongs to.
+            job_data: The full job payload dictionary of the stalled job.
+                      Must contain an "id" key.
+        """
+        # Get the Redis key for the waiting queue.
+        waiting_key: str = self._waiting_key(queue_name)
+        # Serialize the job data payload to a JSON string.
+        payload: str = json.dumps(job_data)
+        # Get the job's priority for the Sorted Set score, defaulting to 0.
+        # Note: The original code uses priority 0 here for re-enqueued stalled jobs.
+        score: float = job_data.get("priority", 0)
+        # Create a Redis pipeline for batching commands.
+        pipe: redis.client.Pipeline = self.redis.pipeline()
+        # Add the job payload to the waiting queue Sorted Set with the determined score.
+        await pipe.zadd(waiting_key, {payload: score})
+        # Clean up the heartbeat record for this job ID from the heartbeats Hash.
+        await pipe.hdel(f"queue:{queue_name}:heartbeats", job_data["id"])
+        # Execute all commands in the pipeline atomically.
+        await pipe.execute()

@@ -380,3 +380,25 @@ class BaseBackend(ABC):
             await self.add_dependencies(queue_name, {"id": child, "depends_on": [parent]})
 
         return created_ids  # Return the list of IDs for the enqueued jobs.
+
+    @abstractmethod
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        """
+        Record the timestamp of the last heartbeat for a running job.
+        """
+        ...
+
+    @abstractmethod
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        """
+        Retrieve all jobs whose last heartbeat is older than `older_than`.
+        Returns a list of dicts like {'queue': queue_name, 'job_data': raw_job}.
+        """
+        ...
+
+    @abstractmethod
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        """
+        Re-enqueue a stalled job back onto its queue for re-processing.
+        """
+        ...

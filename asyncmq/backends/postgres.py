@@ -796,6 +796,31 @@ class PostgresBackend(BaseBackend):
             # if one row was deleted. Check if exactly one row was deleted.
             return deleted_command_tag.endswith("DELETE 1")
 
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                UPDATE {settings.jobs_table_name}
+                SET data = jsonb_set(data, '{{heartbeat}}', $3::to_jsonb, true)
+                WHERE id = $2 AND queue = $1
+                """, queue_name, job_id, timestamp
+            )
+
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        await self.connect()
+        rows = await self.pool.fetch(
+            f"""
+            SELECT queue, data FROM {settings.jobs_table_name}
+            WHERE (data->>'heartbeat')::float < $1 AND status = $2
+            """, older_than, State.ACTIVE
+        )
+        return [{"queue_name": row["queue"], "job_data": row["data"]} for row in rows]
+
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        # simply enqueue back onto the waiting queue
+        await self.enqueue(queue_name, job_data)
+
 
 class PostgresLock:
     """

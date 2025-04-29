@@ -486,3 +486,32 @@ class MongoDBBackend(BaseBackend):
                         await self.store.save(queue_name, child, job)
 
             return created_ids  # Return the list of IDs for the enqueued jobs.
+
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+        await self.connect()
+        # embed heartbeat into the stored document
+        await self.store.collection.update_one(
+            {"queue": queue_name, "id": job_id},
+            {"$set": {"data.heartbeat": timestamp}}
+        )
+
+    async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+        await self.connect()
+        stalled: list[dict[str, Any]] = []
+        # for each queue, find ACTIVE jobs with stale heartbeat
+        async for queue_name in self.queues.keys():
+            docs = await self.store.collection.find(
+                {"queue": queue_name, "data.status": State.ACTIVE, "data.heartbeat": {"$lt": older_than}}
+            ).to_list(None)
+            for doc in docs:
+                stalled.append({"queue_name": queue_name, "job_data": doc["data"]})
+        return stalled
+
+    async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+        # re-enqueue via normal path
+        await self.enqueue(queue_name, job_data)
+        # optionally clear heartbeat field
+        await self.store.collection.update_one(
+            {"queue": queue_name, "id": job_data["id"]},
+            {"$unset": {"data.heartbeat": ""}}
+        )
