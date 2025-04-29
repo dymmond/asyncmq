@@ -19,6 +19,8 @@ def worker_app():
 @click.option("--concurrency", default=1, help="Number of concurrent workers.")
 def start_worker_cli(queue: str, concurrency: int):
     """Start a worker for a given queue."""
+    if not queue:
+        raise click.UsageError("Queue name cannot be empty")
     print_worker_banner(queue, concurrency, settings.backend.__class__.__name__, __version__)
 
     try:

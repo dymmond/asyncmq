@@ -10,7 +10,7 @@ console = Console()
 @click.group()
 def queue_app():
     """Queue management commands."""
-    pass
+    ...
 
 @queue_app.command("list")
 def list_queues():

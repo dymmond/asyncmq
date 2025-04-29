@@ -4,8 +4,7 @@ from rich.text import Text
 
 console = Console()
 
-def print_worker_banner(queue: str, concurrency: int, backend_name: str, version: str) -> None:
-    logo = r"""
+ASYNCMQ_LOGO = r"""
  _______  _______           _        _______  _______  _______
 (  ___  )(  ____ \|\     /|( (    /|(  ____ \(       )(  ___  )
 | (   ) || (    \/( \   / )|  \  ( || (    \/| () () || (   ) |
@@ -16,16 +15,22 @@ def print_worker_banner(queue: str, concurrency: int, backend_name: str, version
 |/     \|\_______)   \_/   |/    )_)(_______/|/     \|(____\/_)
 
 """.rstrip()
-    # Get terminal width
+
+def get_centered_logo() -> str:
     terminal_width = console.size.width
 
     # Center each line manually
     centered_logo_lines = []
-    for line in logo.splitlines():
+    for line in ASYNCMQ_LOGO.splitlines():
         centered_line = line.center(terminal_width)
         centered_logo_lines.append(centered_line)
 
     centered_logo = "\n".join(centered_logo_lines)
+    return centered_logo
+
+
+def print_worker_banner(queue: str, concurrency: int, backend_name: str, version: str) -> None:
+    centered_logo = get_centered_logo()
 
     text = Text()
     text.append(centered_logo, style="bold cyan")
