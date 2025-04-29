@@ -25,9 +25,9 @@ services:
     image: mongo:latest
     container_name: mongo
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: mongoadmin
-      MONGO_INITDB_DATABASE: mongodb
+      MONGO_INITDB_ROOT_USERNAME: "root"
+      MONGO_INITDB_ROOT_PASSWORD: "mongoadmin"
+      MONGO_INITDB_DATABASE: "mongodb"
     expose:
       - 27017
     ports:
