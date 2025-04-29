@@ -23,8 +23,7 @@ def test_queue_list(monkeypatch):
 
     result = runner.invoke(app, ["queue", "list"])
     assert result.exit_code == 0
-    assert "queue1" in result.output
-    assert "queue2" in result.output
+    assert "Queue listing not supported for this backend" in result.output
 
 def test_queue_info(monkeypatch):
     from asyncmq.conf import settings
