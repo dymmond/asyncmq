@@ -15,7 +15,7 @@ class FakeBackend:
 def test_queue_help():
     result = runner.invoke(app, ["queue", "--help"])
     assert result.exit_code == 0
-    assert "Queue management commands" in result.output
+    assert "Manages AsyncMQ queues." in result.output
 
 def test_queue_list(monkeypatch):
     from asyncmq.conf import settings

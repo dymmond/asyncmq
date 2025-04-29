@@ -23,7 +23,7 @@ class FakeBackend:
 def test_job_help():
     result = runner.invoke(app, ["job", "--help"])
     assert result.exit_code == 0
-    assert "Job management commands" in result.output
+    assert "Manages AsyncMQ jobs within queue" in result.output
 
 def test_job_inspect(monkeypatch):
     from asyncmq.conf import settings
