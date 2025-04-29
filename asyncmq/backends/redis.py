@@ -24,6 +24,27 @@ redis.call('ZREM', KEYS[1], items[1])
 return items[1]
 """
 
+FLOW_SCRIPT: str = r"""
+-- ARGV: num_jobs, <job1_json>,...,<jobN_json>, num_deps, <parent1>,<child1>,...,<parentM>,<childM>
+local num_jobs = tonumber(ARGV[1])
+local idx = 2
+local result = {}
+for i=1,num_jobs do
+  local job_json = ARGV[idx]
+  idx = idx + 1
+  redis.call('ZADD', KEYS[1], 0, job_json)
+  local job = cjson.decode(job_json)
+  table.insert(result, job.id)
+end
+local num_deps = tonumber(ARGV[idx]); idx = idx + 1
+for i=1,num_deps do
+  local parent = ARGV[idx]; local child = ARGV[idx+1]
+  idx = idx + 2
+  redis.call('HSET', KEYS[2] .. ':' .. parent, child, 1)
+end
+return result
+"""
+
 
 class RedisBackend(BaseBackend):
     """
@@ -55,6 +76,7 @@ class RedisBackend(BaseBackend):
         self.job_store: RedisJobStore = RedisJobStore(redis_url)
         # Register the Lua POP_SCRIPT for atomic dequeue operations.
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
+        self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
 
     def _waiting_key(self, name: str) -> str:
         """Generates the Redis key for the Sorted Set holding jobs waiting in a queue."""
@@ -731,3 +753,30 @@ class RedisBackend(BaseBackend):
                     await self.redis.zrem(redis_key, raw)
                     removed = True
         return removed
+
+    async def atomic_add_flow(
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
+    ) -> list[str]:
+        """
+        Atomically enqueue multiple jobs and register dependencies via Lua.
+        """
+        waiting_key = f"queue:{queue_name}:waiting"
+        deps_prefix = f"queue:{queue_name}:deps"
+
+        # Build ARGV
+        args = [str(len(job_dicts))]
+        for jd in job_dicts:
+            args.append(json.dumps(jd))
+        args.append(str(len(dependency_links)))
+        for parent, child in dependency_links:
+            args.extend([parent, child])
+
+        raw = await self.flow_script(
+            keys=[waiting_key, deps_prefix],
+            args=args,
+        )
+        # raw is a Lua table of job IDs
+        return raw

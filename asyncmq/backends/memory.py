@@ -143,6 +143,32 @@ class InMemoryBackend(BaseBackend):
     async def create_lock(self, key: str, ttl: int) -> anyio.Lock:
         return anyio.Lock()
 
+    async def atomic_add_flow(self, queue_name: str, job_dicts: list[dict[str, Any]],
+                              dependency_links: list[tuple[str, str]]) -> list[str]:
+        """
+        Atomically enqueue multiple jobs and register dependencies.
+        """
+        async with self.lock:
+            created_ids: list[str] = []
+            # Enqueue all jobs
+            for jd in job_dicts:
+                self.queues.setdefault(queue_name, []).append(jd)
+                self.job_states[(queue_name, jd["id"])] = State.WAITING
+                created_ids.append(jd["id"])
+            # Register dependencies
+            for parent, child in dependency_links:
+                child_key: _JobKey = (queue_name, child)
+                self.deps_pending.setdefault(child_key, set()).add(parent)
+                parent_key: _JobKey = (queue_name, parent)
+                self.deps_children.setdefault(parent_key, set()).add(child)
+            return created_ids
+
+    def _fetch_job_data(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+        for job in self.queues.get(queue_name, []):
+            if job.get('id') == job_id:
+                return job
+        return None
+
     def _fetch_job_data(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         for job in self.queues.get(queue_name, []):
             if job.get('id') == job_id:

@@ -451,3 +451,32 @@ class MongoDBBackend(BaseBackend):
         """
         # Return a standard anyio.Lock instance.
         return anyio.Lock()
+
+    async def atomic_add_flow(
+            self,
+            queue_name: str,
+            job_dicts: list[dict[str, Any]],
+            dependency_links: list[tuple[str, str]],
+    ) -> list[str]:
+        """
+        Atomically enqueue multiple jobs and register dependencies in-memory and store.
+        """
+        async with self.lock:
+            created_ids: list[str] = []
+            # Enqueue payloads
+            for payload in job_dicts:
+                self.queues.setdefault(queue_name, []).append(payload)
+                await self.store.save(
+                    queue_name, payload["id"], {**payload, "status": State.WAITING}
+                )
+                created_ids.append(payload["id"])
+            # Register dependencies
+            for parent, child in dependency_links:
+                job = await self.store.load(queue_name, child)
+                if job:
+                    deps = job.get("depends_on", [])
+                    if parent not in deps:
+                        deps.append(parent)
+                        job["depends_on"] = deps
+                        await self.store.save(queue_name, child, job)
+            return created_ids

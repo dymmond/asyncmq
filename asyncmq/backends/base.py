@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class BaseBackend(ABC):
@@ -12,48 +12,38 @@ class BaseBackend(ABC):
     dependency tracking, queue pause/resume functionality, bulk operations,
     cleanup, event emission, and distributed locking.
     """
+
     @abstractmethod
-    async def enqueue(self, queue_name: str, payload: Dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
 
+        The backend is responsible for storing the job and making it available
+        for dequeueing by workers.
+
         Args:
-            queue_name: The name of the queue to enqueue the job onto.
-            payload: The job data as a dictionary.
+            queue_name: The name of the queue to add the job to.
+            payload: A dictionary containing the job data, including a unique
+                     identifier (usually 'id').
         """
         ...
 
     @abstractmethod
-    async def dequeue(self, queue_name: str) -> Optional[Dict[str, Any]]:
+    async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
         Asynchronously attempts to dequeue a job from the specified queue.
 
-        This method should block or wait until a job is available or a timeout
-        occurs (though the timeout is often handled by the consumer logic
-        polling this method).
+        This method should retrieve a single job that is ready for processing
+        and mark it as active or in-progress within the backend. It should
+        return None if no jobs are available in the queue.
 
         Args:
-            queue_name: The name of the queue to dequeue a job from.
+            queue_name: The name of the queue to dequeue from.
 
         Returns:
-            The job data as a dictionary if a job was successfully dequeued,
-            otherwise None.
-        """
-        ...
-
-    @abstractmethod
-    async def move_to_dlq(self, queue_name: str, payload: Dict[str, Any]) -> None:
-        """
-        Asynchronously moves a job payload to the Dead Letter Queue (DLQ)
-        associated with the specified queue.
-
-        This is typically used for jobs that have permanently failed (exhausted
-        retries) or expired.
-
-        Args:
-            queue_name: The name of the queue the job originated from.
-            payload: The job data as a dictionary to be moved to the DLQ.
+            A dictionary representing the job payload if a job was successfully
+            dequeued, otherwise None.
         """
         ...
 
@@ -62,158 +52,188 @@ class BaseBackend(ABC):
         """
         Asynchronously acknowledges the successful processing of a job.
 
-        This signals the backend to remove the job from the active processing
-        state and potentially clean it up or move it to a completed state.
+        The backend should remove the job from its active state or mark it as
+        completed based on this acknowledgment. This is typically called after
+        a worker has finished processing a job without errors.
 
         Args:
-            queue_name: The name of the queue the job belongs to.
+            queue_name: The name of the queue the job belonged to.
             job_id: The unique identifier of the job being acknowledged.
         """
         ...
 
     @abstractmethod
-    async def enqueue_delayed(self, queue_name: str, payload: Dict[str, Any], run_at: float) -> None:
+    async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
-        Asynchronously schedules a job to be available for processing at a
-        specific future time.
+        Asynchronously moves a failed or expired job to the Dead Letter Queue (DLQ).
 
-        The job should not be delivered to workers until `run_at` is reached.
+        This method is called when a job cannot be processed successfully after
+        multiple retries or if it has expired. The backend should store the job
+        in a designated DLQ or mark it with a status indicating failure.
 
         Args:
-            queue_name: The name of the queue the job belongs to.
-            payload: The job data as a dictionary.
-            run_at: The absolute timestamp (e.g., from time.time()) when the
-                    job should become available for processing.
+            queue_name: The name of the queue the job originally belonged to.
+            payload: A dictionary containing the job data, including its 'id'.
         """
         ...
 
     @abstractmethod
-    async def get_due_delayed(self, queue_name: str) -> List[Dict[str, Any]]:
+    async def enqueue_delayed(
+        self, queue_name: str, payload: dict[str, Any], run_at: float
+    ) -> None:
         """
-        Asynchronously retrieves a list of delayed job payloads from the
-        specified queue that are now due for processing (i.e., their
-        `run_at` timestamp is in the past).
+        Asynchronously enqueues a job to be processed at a future timestamp.
+
+        The backend is responsible for storing the job and making it available
+        for processing only when the specified `run_at` time has been reached
+        or passed.
+
+        Args:
+            queue_name: The name of the queue the job will eventually be added to.
+            payload: A dictionary containing the job data, including an 'id'.
+            run_at: A timestamp (float, typically seconds since the epoch)
+                    indicating when the job should become eligible for processing.
+        """
+        ...
+
+    @abstractmethod
+    async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves delayed jobs from the specified queue that are
+        due to run now or in the past.
+
+        The backend should return a list of jobs whose `run_at` timestamp is
+        less than or equal to the current time and remove them from the delayed
+        storage.
 
         Args:
             queue_name: The name of the queue to check for due delayed jobs.
 
         Returns:
-            A list of dictionaries, where each dictionary is a job payload
-            that is ready to be moved to the main queue.
+            A list of dictionaries, each representing a job payload that is
+            now eligible for processing.
         """
         ...
 
     @abstractmethod
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
         """
-        Asynchronously removes a job from the backend's delayed storage.
+        Asynchronously removes a specific job from the delayed storage.
 
-        This is typically called after a delayed job has been retrieved by
-        the scanner and moved to the main queue.
+        This is typically used to cancel a delayed job before its scheduled
+        run time.
 
         Args:
             queue_name: The name of the queue the job belongs to.
-            job_id: The unique identifier of the job to remove from delayed storage.
+            job_id: The unique identifier of the delayed job to remove.
         """
         ...
 
     @abstractmethod
-    async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+    async def update_job_state(
+        self, queue_name: str, job_id: str, state: str
+    ) -> None:
         """
-        Asynchronously updates the status of a specific job in the backend storage.
+        Asynchronously updates the processing state of a job.
 
-        This is used to reflect the job's current lifecycle state (e.g., State.ACTIVE,
-        State.COMPLETED, State.FAILED, State.EXPIRED).
+        This method is used to change the status of a job within the backend's
+        storage (e.g., from 'ACTIVE' to 'COMPLETED' or 'FAILED').
 
         Args:
             queue_name: The name of the queue the job belongs to.
-            job_id: The unique identifier of the job.
-            state: The new state string for the job (e.g., State.ACTIVE, State.COMPLETED).
+            job_id: The unique identifier of the job to update.
+            state: A string representing the new state of the job
+                   (e.g., from `asyncmq.core.enums.State`).
         """
         ...
 
     @abstractmethod
-    async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
+    async def save_job_result(
+        self, queue_name: str, job_id: str, result: Any
+    ) -> None:
         """
-        Asynchronously saves the result of a job's execution in the backend storage.
+        Asynchronously saves the result of a completed job.
 
-        This is called after a job has completed successfully.
+        Stores the output or result data associated with a specific job ID in
+        the backend's persistent storage.
 
         Args:
-            queue_name: The name of the queue the job belongs to.
-            job_id: The unique identifier of the job.
-            result: The result returned by the job's task function.
+            queue_name: The name of the queue the job belonged to.
+            job_id: The unique identifier of the job whose result is to be saved.
+            result: The result data of the job (can be any serializable type).
         """
         ...
 
     @abstractmethod
-    async def get_job_state(self, queue_name: str, job_id: str) -> Optional[str]:
+    async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
-        Asynchronously retrieves the current status string of a specific job.
+        Asynchronously retrieves the current processing state of a job.
 
         Args:
             queue_name: The name of the queue the job belongs to.
-            job_id: The unique identifier of the job.
+            job_id: The unique identifier of the job whose state is requested.
 
         Returns:
-            The job's status string if found, otherwise None.
+            A string representing the job's state if found, otherwise None.
         """
         ...
 
     @abstractmethod
-    async def get_job_result(self, queue_name: str, job_id: str) -> Optional[Any]:
+    async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
         """
-        Asynchronously retrieves the execution result of a specific job.
+        Asynchronously retrieves the result data of a job.
 
         Args:
-            queue_name: The name of the queue the job belongs to.
-            job_id: The unique identifier of the job.
+            queue_name: The name of the queue the job belonged to.
+            job_id: The unique identifier of the job whose result is requested.
 
         Returns:
-            The result of the job's task function if the job completed
-            successfully and the result was saved, otherwise None.
+            The job's result data if the job is found and has a result,
+            otherwise None.
         """
         ...
 
     @abstractmethod
-    async def add_dependencies(self, queue_name: str, job_dict: Dict[str, Any]) -> None:
+    async def add_dependencies(
+        self, queue_name: str, job_dict: dict[str, Any]
+    ) -> None:
         """
-        Asynchronously registers a job's dependencies and the relationship
-        between dependent jobs and this job.
+        Asynchronously registers dependencies for a single job.
 
-        This is called when a job with a `depends_on` list is created. The
-        backend must track these dependencies to ensure dependent jobs are
-        not executed until their requirements are met.
+        This method is used to link a job to one or more parent jobs that must
+        complete successfully before this job can be processed.
 
         Args:
             queue_name: The name of the queue the job belongs to.
-            job_dict: The job data dictionary, containing the 'depends_on' list.
+            job_dict: The dictionary representing the job, expected to contain
+                      a 'depends_on' field which is a list of parent job IDs.
         """
         ...
 
     @abstractmethod
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
-        Asynchronously signals the backend that a parent job has completed,
-        triggering the resolution of dependencies.
+        Asynchronously signals that a parent job has completed and resolves
+        dependencies for any child jobs waiting on it.
 
-        The backend should check for any jobs that depended on `parent_id`
-        and determine if all dependencies for those jobs are now satisfied.
-        Satisfied jobs should be moved to a ready state or enqueued.
+        The backend should identify jobs in the specified queue that depend
+        on `parent_id` and update their dependency status. If all dependencies
+        for a child job are met, it should be made eligible for processing.
 
         Args:
-            queue_name: The name of the queue the parent job belonged to.
-            parent_id: The unique identifier of the job that just completed.
+            queue_name: The name of the queue containing the dependent jobs.
+            parent_id: The unique identifier of the parent job that has completed.
         """
         ...
 
     @abstractmethod
     async def pause_queue(self, queue_name: str) -> None:
         """
-        Asynchronously signals the backend to pause job consumption for the
-        specified queue.
+        Asynchronously pauses processing on a specific queue.
 
-        Workers polling this queue should stop dequeueing new jobs.
+        Workers should stop dequeueing new jobs from this queue until it is
+        resumed. Jobs currently being processed should ideally be allowed to
+        finish.
 
         Args:
             queue_name: The name of the queue to pause.
@@ -223,8 +243,10 @@ class BaseBackend(ABC):
     @abstractmethod
     async def resume_queue(self, queue_name: str) -> None:
         """
-        Asynchronously signals the backend to resume job consumption for the
-        specified queue if it was paused.
+        Asynchronously resumes processing on a specific queue.
+
+        Allows workers to begin dequeueing jobs from a queue that was previously
+        paused.
 
         Args:
             queue_name: The name of the queue to resume.
@@ -234,7 +256,7 @@ class BaseBackend(ABC):
     @abstractmethod
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
-        Asynchronously checks if the specified queue is currently paused.
+        Asynchronously checks if a specific queue is currently paused.
 
         Args:
             queue_name: The name of the queue to check.
@@ -245,74 +267,128 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
+    async def save_job_progress(
+        self, queue_name: str, job_id: str, progress: float
+    ) -> None:
         """
-        Asynchronously saves the progress percentage for a specific job.
+        Asynchronously saves the progress percentage for a running job.
 
-        This is used by tasks that report their progress.
+        Allows workers to report their current progress for a long-running job.
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job.
-            progress: The progress value, typically a float between 0.0 and 1.0.
+            progress: A float between 0.0 and 1.0 representing the job's progress.
         """
         ...
 
     @abstractmethod
-    async def bulk_enqueue(self, queue_name: str, jobs: List[Dict[str, Any]]) -> None:
+    async def bulk_enqueue(
+        self, queue_name: str, jobs: list[dict[str, Any]]
+    ) -> None:
         """
-        Asynchronously enqueues multiple job payloads onto the specified queue
-        in a single batch operation.
+        Asynchronously enqueues multiple jobs onto the specified queue in one batch.
+
+        This method is intended for efficiency when adding many jobs at once.
 
         Args:
-            queue_name: The name of the queue to enqueue jobs onto.
-            jobs: A list of job payloads (dictionaries) to be enqueued.
+            queue_name: The name of the queue to add the jobs to.
+            jobs: A list of job dictionaries to enqueue.
         """
         ...
 
     @abstractmethod
-    async def purge(self, queue_name: str, state: str, older_than: Optional[float] = None) -> None:
+    async def purge(
+        self,
+        queue_name: str,
+        state: str,
+        older_than: float | None = None,
+    ) -> None:
         """
-        Asynchronously removes jobs from a queue based on their state and
-        optional age criteria.
+        Asynchronously removes jobs from the backend based on their state and age.
+
+        This is used for cleanup, removing jobs that are in a specific state
+        (e.g., 'COMPLETED', 'FAILED') and optionally older than a given timestamp.
 
         Args:
-            queue_name: The name of the queue from which to purge jobs.
-            state: The state of the jobs to be removed (e.g., State.COMPLETED, State.FAILED).
-            older_than: An optional timestamp. Only jobs in the specified state
-                        whose relevant timestamp is older than this will be purged.
-                        If None, all jobs in the state might be purged.
+            queue_name: The name of the queue to purge jobs from.
+            state: The state of the jobs to target for purging.
+            older_than: An optional timestamp (float). If provided, only jobs
+                        whose completion/failure time is before this timestamp
+                        will be purged. If None, all jobs in the specified state
+                        are purged.
         """
         ...
 
     @abstractmethod
-    async def emit_event(self, event: str, data: Dict[str, Any]) -> None:
+    async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
-        Asynchronously broadcasts an event to distributed listeners via the backend.
+        Asynchronously emits a backend-specific lifecycle event.
 
-        This is used for system-wide events or monitoring.
+        This allows backends to signal events (e.g., 'job_started', 'job_completed')
+        which can be used for monitoring, logging, or UI updates.
 
         Args:
-            event: The name of the event to emit.
-            data: The data associated with the event.
+            event: A string representing the name of the event.
+            data: A dictionary containing data associated with the event.
         """
         ...
 
     @abstractmethod
-    async def create_lock(self, key: str, ttl: int) -> Any:
+    async def create_lock(self, key: str, ttl: int) -> Any: # Changed return type to Any as lock type is backend specific
         """
-        Asynchronously creates or retrieves a distributed lock object for a
-        given key with a specified time-to-live.
+        Asynchronously creates a backend-specific distributed lock.
 
-        The returned object should provide `acquire()` and `release()` methods
-        that implement the distributed locking logic. The specific type of the
-        returned lock object is backend-dependent.
+        This method provides a mechanism for ensuring that only one worker or
+        process can acquire a lock for a given key across a distributed system.
 
         Args:
             key: A unique string identifier for the lock.
-            ttl: The time-to-live for the lock in seconds.
+            ttl: The time-to-live (in seconds) for the lock. The lock should
+                 automatically expire after this duration if not released.
 
         Returns:
-            A backend-specific object representing the distributed lock.
+            An object representing the distributed lock. The exact type depends
+            on the backend implementation (e.g., a RedLock instance for Redis).
         """
         ...
+
+    async def atomic_add_flow(
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
+    ) -> list[str]:
+        """
+        Atomically enqueues multiple jobs and registers their dependencies.
+
+        This method provides a default implementation that sequentially enqueues
+        jobs and then adds dependencies. Backends that support true atomic
+        operations for flow creation should override this method for better
+        consistency.
+
+        Args:
+            queue_name: The target queue for all jobs in the flow.
+            job_dicts: A list of job payloads (dictionaries) to enqueue.
+            dependency_links: A list of tuples, where each tuple is
+                              (parent_job_id, child_job_id), defining the
+                              dependencies within the flow.
+
+        Returns:
+            A list of job IDs that were successfully enqueued, in the order
+            they were provided in `job_dicts`.
+        """
+        # Default fallback implementation: enqueue jobs sequentially
+        created_ids: list[str] = []
+        for jd in job_dicts:
+            created_ids.append(jd["id"])
+            await self.enqueue(queue_name, jd)
+
+        # Then register dependencies sequentially
+        for parent, child in dependency_links:
+            # Add dependency for the child job on the parent job
+            await self.add_dependencies(
+                queue_name, {"id": child, "depends_on": [parent]}
+            )
+
+        return created_ids # Return the list of IDs for the enqueued jobs.

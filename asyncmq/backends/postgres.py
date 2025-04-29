@@ -157,6 +157,35 @@ class PostgresBackend(BaseBackend):
                         data["depends_on"] = depends_on
                     await self.store.save(queue_name, data["id"], data)
 
+    # Atomic flow addition
+    async def atomic_add_flow(
+            self,
+            queue_name: str,
+            job_dicts: list[dict[str, Any]],
+            dependency_links: list[tuple[str, str]],
+    ) -> List[str]:
+        """
+        Atomically enqueue multiple jobs and their dependencies within a transaction.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                # Enqueue all jobs
+                for payload in job_dicts:
+                    payload["status"] = State.WAITING
+                    await self.store.save(queue_name, payload["id"], payload)
+                # Register dependencies
+                for parent, child in dependency_links:
+                    job = await self.store.load(queue_name, child)
+                    if job is not None:
+                        deps = job.get("depends_on", [])
+                        if parent not in deps:
+                            deps.append(parent)
+                            job["depends_on"] = deps
+                            await self.store.save(queue_name, child, job)
+        # Return the ordered list of IDs
+        return [payload["id"] for payload in job_dicts]
+
     async def pause_queue(self, queue_name: str) -> None:
         pass
 
@@ -257,7 +286,6 @@ class PostgresBackend(BaseBackend):
                 queue_name,
             )
             return deleted.endswith("DELETE 1")
-
 
 class PostgresLock:
     def __init__(self, pool: asyncpg.Pool, key: str, ttl: int) -> None:
