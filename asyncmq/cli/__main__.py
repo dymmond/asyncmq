@@ -27,8 +27,8 @@ def _print_main_help():
     text.append("Available backends:\n", style="bold yellow")
     text.append("  - InMemory - Use this for development, in production it is not advised.\n")
     text.append("  - Redis\n")
-    text.append("  - PostgreSQL\n")
-    text.append("  - MongoDB (coming soon)\n")
+    text.append("  - Postgres\n")
+    text.append("  - MongoDB\n")
 
     console.print(Panel(text, title="AsyncMQ CLI", border_style="cyan"))
 
