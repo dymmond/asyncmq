@@ -1,18 +1,33 @@
 import anyio
 import click
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 from asyncmq import __version__
-from asyncmq.cli.utils import print_worker_banner
+from asyncmq.cli.utils import get_centered_logo, print_worker_banner
 from asyncmq.conf import settings
 from asyncmq.runners import start_worker
 
 console = Console()
 
-@click.group()
-def worker_app():
+@click.group(name="worker", invoke_without_command=True)
+@click.pass_context
+def worker_app(ctx):
     """Worker management commands."""
-    ...
+    if ctx.invoked_subcommand is None:
+        _print_worker_help()
+        click.echo(ctx.get_help())
+
+def _print_worker_help():
+    text = Text()
+    text.append(get_centered_logo(), style="bold cyan")
+    text.append("⚙️  Worker Commands\n\n", style="bold cyan")
+    text.append("Manage AsyncMQ workers to process jobs.\n\n", style="white")
+    text.append("Examples:\n", style="bold yellow")
+    text.append("  asyncmq worker start myqueue --concurrency 2\n")
+    text.append("  asyncmq worker start myqueue --concurrency 5\n")
+    console.print(Panel(text, title="Worker CLI", border_style="cyan"))
 
 @worker_app.command("start")
 @click.argument("queue")

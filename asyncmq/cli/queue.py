@@ -1,16 +1,33 @@
 import anyio
 import click
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
+from asyncmq.cli.utils import get_centered_logo
 from asyncmq.conf import settings
 
 console = Console()
 
-@click.group()
-def queue_app():
+@click.group(name="queue", invoke_without_command=True)
+@click.pass_context
+def queue_app(ctx):
     """Queue management commands."""
-    ...
+    if ctx.invoked_subcommand is None:
+        _print_queue_help()
+        click.echo(ctx.get_help())
+
+def _print_queue_help():
+    text = Text()
+    text.append(get_centered_logo(), style="bold cyan")
+    text.append("📦 Queue Commands\n\n", style="bold cyan")
+    text.append("Manage AsyncMQ queues: pause, resume, list jobs.\n\n", style="white")
+    text.append("Examples:\n", style="bold yellow")
+    text.append("  asyncmq queue list\n")
+    text.append("  asyncmq queue pause myqueue\n")
+    text.append("  asyncmq queue resume myqueue\n")
+    console.print(Panel(text, title="Queue CLI", border_style="cyan"))
 
 @queue_app.command("list")
 def list_queues():

@@ -1,15 +1,45 @@
 import click
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 from asyncmq.cli.info import info_app
 from asyncmq.cli.job import job_app
 from asyncmq.cli.queue import queue_app
+from asyncmq.cli.utils import get_centered_logo
 from asyncmq.cli.worker import worker_app
 
+console = Console()
 
-@click.group()
-def app():
-    """AsyncMQ command-line interface."""
-    pass
+def _print_main_help():
+    text = Text()
+    text.append(get_centered_logo(), style="bold cyan")
+    text.append("🚀 AsyncMQ - Powerful Async Job Queue for Python\n\n", style="bold cyan")
+
+    text.append("Manage and inspect your AsyncMQ queues, workers, and jobs.\n\n", style="white")
+    text.append("Examples:\n", style="bold yellow")
+    text.append("  asyncmq queue list\n")
+    text.append("  asyncmq worker start myqueue --concurrency 4\n")
+    text.append("  asyncmq job inspect jobid123 --queue myqueue\n")
+    text.append("  asyncmq queue pause myqueue\n")
+    text.append("  asyncmq info version\n\n")
+
+    text.append("Available backends:\n", style="bold yellow")
+    text.append("  - InMemory (default)\n")
+    text.append("  - Redis\n")
+    text.append("  - PostgreSQL\n")
+    text.append("  - MongoDB (coming soon)\n")
+
+    console.print(Panel(text, title="AsyncMQ CLI", border_style="cyan"))
+
+
+@click.group(invoke_without_command=True)
+@click.pass_context
+def app(ctx):
+    """AsyncMQ CLI"""
+    if ctx.invoked_subcommand is None:
+        _print_main_help()
+        click.echo(ctx.get_help())
 
 # Register subcommands
 app.add_command(queue_app, name="queue")

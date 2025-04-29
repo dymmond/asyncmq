@@ -1,15 +1,32 @@
 import anyio
 import click
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
+from asyncmq.cli.utils import get_centered_logo
 from asyncmq.conf import settings  # <-- same as above
 
 console = Console()
 
-@click.group()
-def job_app():
+@click.group(name="job", invoke_without_command=True)
+@click.pass_context
+def job_app(ctx):
     """Job management commands."""
-    ...
+    if ctx.invoked_subcommand is None:
+        _print_job_help()
+        click.echo(ctx.get_help())
+
+def _print_job_help():
+    text = Text()
+    text.append(get_centered_logo(), style="bold cyan")
+    text.append("🛠️  Job Commands\n\n", style="bold cyan")
+    text.append("Inspect, retry, or delete jobs from queues.\n\n", style="white")
+    text.append("Examples:\n", style="bold yellow")
+    text.append("  asyncmq job inspect jobid123 --queue myqueue\n")
+    text.append("  asyncmq job retry jobid123 --queue myqueue\n")
+    text.append("  asyncmq job remove jobid123 --queue myqueue\n")
+    console.print(Panel(text, title="Job CLI", border_style="cyan"))
 
 @job_app.command("inspect")
 @click.argument("job_id")
