@@ -573,7 +573,14 @@ class MongoDBBackend(BaseBackend):
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
-        Returns counts of waiting, delayed and failed (DLQ) jobs for a queue.
+        Provides the number of jobs currently in the waiting, delayed, and
+        failed (DLQ) states for the given queue.
+
+        Args:
+            queue_name: The name of the queue to get statistics for.
+        Returns:
+            A dictionary containing the counts for "waiting", "delayed", and
+            "failed" jobs.
         """
         # In-memory raw counts
         async with self.lock:
