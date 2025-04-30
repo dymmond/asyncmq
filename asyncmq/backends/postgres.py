@@ -27,7 +27,7 @@ class PostgresBackend(BaseBackend):
     and delegates job data persistence to a `PostgresJobStore`.
     """
 
-    def __init__(self, dsn: str | None = None) -> None:
+    def __init__(self, dsn: str | None = None, pool_options: Any | None = None) -> None:
         """
         Initializes the PostgresBackend by configuring the database connection
         details and initializing the job store.
@@ -50,6 +50,7 @@ class PostgresBackend(BaseBackend):
         self.pool: Pool | None = None
         # Initialize the PostgresJobStore with the DSN.
         self.store: PostgresJobStore = PostgresJobStore(dsn=dsn)
+        self.pool_options = pool_options or settings.asyncmq_postgres_pool_options or {}
 
     async def connect(self) -> None:
         """
@@ -61,7 +62,7 @@ class PostgresBackend(BaseBackend):
         # Create the connection pool if it doesn't already exist.
         if self.pool is None:
             logger.info(f"Connecting to Postgres...: {self.dsn}")
-            self.pool = await asyncpg.create_pool(dsn=self.dsn)
+            self.pool = await asyncpg.create_pool(dsn=self.dsn, **self.pool_options)
             # Also ensure the associated job store is connected.
             await self.store.connect()
 

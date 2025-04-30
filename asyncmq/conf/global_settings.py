@@ -39,6 +39,7 @@ class Settings:
     jobs_table_schema: str = "asyncmq"
     jobs_table_name: str = "asyncmq_jobs"
     asyncmq_postgres_backend_url: str | None = None
+    asyncmq_postgres_pool_options: dict[str, Any] | None = None
 
     # For MongoDB backend
     asyncmq_mongodb_backend_url: str | None = None

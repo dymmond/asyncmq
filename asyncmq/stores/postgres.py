@@ -22,7 +22,7 @@ class PostgresJobStore(BaseJobStore):
     querying jobs by queue or status. It manages an internal connection pool.
     """
 
-    def __init__(self, dsn: str | None = None) -> None:
+    def __init__(self, dsn: str | None = None, pool_options: Any | None = None) -> None:
         """
         Initializes the PostgresJobStore instance.
 
@@ -46,6 +46,7 @@ class PostgresJobStore(BaseJobStore):
         self.dsn = dsn or settings.asyncmq_postgres_backend_url
         # Initialize the connection pool to None; it will be created on first connection.
         self.pool: asyncpg.Pool | None = None
+        self.pool_options = pool_options or settings.asyncmq_postgres_pool_options or {}
 
     async def connect(self) -> None:
         """
@@ -55,7 +56,7 @@ class PostgresJobStore(BaseJobStore):
         # Check if the connection pool has already been created.
         if self.pool is None:
             # If not, create a new connection pool using the stored DSN.
-            self.pool = await asyncpg.create_pool(dsn=self.dsn)
+            self.pool = await asyncpg.create_pool(dsn=self.dsn, **self.pool_options)
 
     async def disconnect(self) -> None:
         """
