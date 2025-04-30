@@ -90,7 +90,7 @@ class PostgresJobStore(BaseJobStore):
             # Execute the INSERT or UPDATE SQL query.
             await conn.execute(
                 f"""
-                INSERT INTO {settings.jobs_table_name} (queue_name, job_id, data, status)
+                INSERT INTO {settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (job_id)
                 DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
@@ -123,7 +123,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch a single row matching the queue name and job ID.
             row = await conn.fetchrow(
                 f"""
-                SELECT data FROM {settings.jobs_table_name} WHERE queue_name = $1 AND job_id = $2
+                SELECT data FROM {settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,
@@ -151,7 +151,7 @@ class PostgresJobStore(BaseJobStore):
             # Execute the DELETE SQL query.
             await conn.execute(
                 f"""
-                DELETE FROM {settings.jobs_table_name} WHERE queue_name = $1 AND job_id = $2
+                DELETE FROM {settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,
@@ -177,7 +177,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch all rows for the given queue name.
             rows = await conn.fetch(
                 f"""
-                SELECT data FROM {settings.jobs_table_name} WHERE queue_name = $1
+                SELECT data FROM {settings.postgres_jobs_table_name} WHERE queue_name = $1
                 """,
                 # Pass the queue name as a parameter.
                 queue_name,
@@ -205,7 +205,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch rows matching the queue name and status.
             rows = await conn.fetch(
                 f"""
-                SELECT data FROM {settings.jobs_table_name} WHERE queue_name = $1 AND status = $2
+                SELECT data FROM {settings.postgres_jobs_table_name} WHERE queue_name = $1 AND status = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,

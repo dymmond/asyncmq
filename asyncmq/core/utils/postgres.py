@@ -16,7 +16,7 @@ async def install_or_drop_postgres_backend(
     in the connected Postgres database.
 
     Connects to the database specified by the DSN, creates a table named
-    according to `settings.jobs_table_name` with columns for job ID, queue name,
+    according to `settings.postgres_jobs_table_name` with columns for job ID, queue name,
     data (JSONB), status, delay timestamp, and creation/update timestamps.
     It also creates indexes on `queue_name`, `status`, and `delay_until` for
     efficient querying. Operations are wrapped in a transaction.
@@ -38,7 +38,7 @@ async def install_or_drop_postgres_backend(
     dsn = connection_string or settings.asyncmq_postgres_backend_url
     if not drop:
         schema = f"""
-        CREATE TABLE IF NOT EXISTS {settings.jobs_table_name} (
+        CREATE TABLE IF NOT EXISTS {settings.postgres_jobs_table_name} (
             id SERIAL PRIMARY KEY,
             queue_name TEXT NOT NULL,
             job_id TEXT NOT NULL UNIQUE,
@@ -48,6 +48,21 @@ async def install_or_drop_postgres_backend(
             created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
         );
+        -- For repeatable jobs
+        CREATE TABLE IF NOT EXISTS {settings.postgres_repeatables_table_name} (
+          queue_name TEXT NOT NULL,
+          job_def    JSONB NOT NULL,
+          next_run   TIMESTAMPTZ NOT NULL,
+          paused     BOOLEAN     NOT NULL DEFAULT FALSE,
+          PRIMARY KEY(queue_name, job_def)
+        );
+
+        -- For cancellations
+        CREATE TABLE IF NOT EXISTS {settings.postgres_cancelled_jobs_table_name} (
+          queue_name TEXT NOT NULL,
+          job_id     TEXT NOT NULL,
+          PRIMARY KEY(queue_name, job_id)
+        );
 
         -- Indexes for efficient lookups
         CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_queue_name ON asyncmq_jobs(queue_name);
@@ -56,7 +71,9 @@ async def install_or_drop_postgres_backend(
         """
     else:
         schema = f"""
-        DROP TABLE IF EXISTS {settings.jobs_table_name};
+        DROP TABLE IF EXISTS {settings.postgres_jobs_table_name};
+        DROP TABLE IF EXISTS {settings.postgres_repeatables_table_name};
+        DROP TABLE IF EXISTS {settings.postgres_cancelled_jobs_table_name};
         DROP INDEX IF EXISTS idx_asyncmq_jobs_queue_name;
         DROP INDEX IF EXISTS idx_asyncmq_jobs_status;
         DROP INDEX IF EXISTS idx_asyncmq_jobs_delay_until;

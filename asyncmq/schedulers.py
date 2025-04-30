@@ -134,3 +134,22 @@ async def repeatable_scheduler(
 
         # Asynchronously sleep before the next check
         await anyio.sleep(time_to_sleep)
+
+
+def compute_next_run(job_def: dict[str, Any]) -> float:
+    """
+    Given a repeatable job definition dict with either:
+      - job_def["cron"]: a cron string
+      - job_def["every"]: an interval in seconds
+    returns the next UNIX timestamp (float).
+    """
+    now = time.time()
+    if "cron" in job_def:
+        # Use croniter to compute the next run after now
+        itr = croniter(job_def["cron"], now)
+        return itr.get_next(float)
+    elif "every" in job_def:
+        # Simply schedule 'every' seconds from now
+        return now + float(job_def["every"])
+    else:
+        raise ValueError("Cannot compute next run: job_def lacks 'cron' or 'every'")

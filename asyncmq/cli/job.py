@@ -7,6 +7,7 @@ from rich.text import Text
 from asyncmq.backends.base import BaseBackend
 from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import settings
+from asyncmq.queues import Queue
 
 console = Console()
 
@@ -137,3 +138,35 @@ def remove_job(job_id: str, queue: str) -> None:
     anyio.run(backend.job_store.delete, queue, job_id)
     # Print a confirmation message.
     console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")
+
+
+@job_app.command("cancel-job")
+@click.argument("queue")
+@click.argument("job_id")
+def cli_cancel_job(queue: str, job_id: str | int) -> None:
+    """
+    Cancels a specific job by its ID in a given queue.
+
+    This command instructs the backend to cancel the job with the specified
+    ID in the named queue. The backend is responsible for removing the job
+    from relevant queues (waiting, delayed) and marking it as cancelled
+    so that workers will skip or stop processing it if it's currently in-flight.
+    This command calls the backend's `cancel_job` method.
+
+    Args:
+        queue: The name of the queue the job belongs to. This argument is
+               required and is passed from the command line.
+        job_id: The unique identifier of the job to cancel. This argument is
+                required and is passed from the command line. It can be a
+                string or an integer depending on how job IDs are managed.
+    """
+    # Print a banner for the cancel job operation.
+    get_print_banner(JOBS_LOGO, title="AsyncMQ Cancel Job")
+
+    # Create a Queue instance for the specified queue name.
+    q = Queue(queue)
+    # Call the queue's cancel_job method asynchronously using anyio.run,
+    # passing the job ID.
+    anyio.run(q.cancel_job, job_id)
+    # Print a confirmation message with a no-entry emoji and the job ID.
+    console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")

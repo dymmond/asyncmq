@@ -3,10 +3,10 @@ from typing import Any
 
 import anyio
 
-from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.base import BaseBackend, RepeatableInfo
 from asyncmq.conf import settings
-from asyncmq.jobs import Job  # Note: Updated import
-from asyncmq.runners import run_worker  # Note: Updated import
+from asyncmq.jobs import Job
+from asyncmq.runners import run_worker
 
 
 class Queue:
@@ -308,3 +308,50 @@ class Queue:
         """
         # Run the asynchronous 'run' method within an AnyIO event loop.
         anyio.run(self.run)
+
+    async def enqueue(self, payload: dict[str, Any]) -> None:
+        """
+        Enqueue a job for immediate processing.
+        """
+        await self.backend.enqueue(self.name, payload)
+
+    async def enqueue_delayed(
+            self, payload: dict[str, Any], run_at: float
+    ) -> None:
+        """
+        Schedule a job to run at a future UNIX timestamp.
+        """
+        await self.backend.enqueue_delayed(self.name, payload, run_at)
+
+    async def get_due_delayed(self) -> list[dict[str, Any]]:
+        """
+        Pop & return any jobs whose run_at ≤ now.
+        """
+        return await self.backend.get_due_delayed(self.name)
+
+    async def list_delayed(self) -> bool:
+        return await self.backend.list_delayed(self.name)
+
+    async def remove_delayed(self, job_id: str) -> bool:
+        return await self.backend.remove_delayed(self.name, job_id)
+
+    async def list_repeatables(self) -> list[RepeatableInfo]:
+        return await self.backend.list_repeatables(self.name)
+
+    async def pause_repeatable(self, job_def: dict[str, Any]) -> None:
+        await self.backend.pause_repeatable(self.name, job_def)
+
+    async def resume_repeatable(self, job_def: dict[str, Any]) -> float:
+        return await self.backend.resume_repeatable(self.name, job_def)
+
+    async def cancel_job(self, job_id: str) -> None:
+        await self.backend.cancel_job(self.name, job_id)
+
+    async def is_job_cancelled(self, job_id: str) -> bool:
+        return await self.backend.is_job_cancelled(self.name, job_id)
+
+    async def queue_stats(self) -> dict[str, int]:
+        """
+        Get counts of waiting, delayed, failed for this queue.
+        """
+        return await self.backend.queue_stats(self.name)
