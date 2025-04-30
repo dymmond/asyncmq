@@ -39,6 +39,7 @@ class Settings:
     jobs_table_schema: str = "asyncmq"
     jobs_table_name: str = "asyncmq_jobs"
     asyncmq_postgres_backend_url: str | None = None
+    asyncmq_postgres_pool_options: dict[str, Any] | None = None
 
     # For MongoDB backend
     asyncmq_mongodb_backend_url: str | None = None
@@ -50,7 +51,7 @@ class Settings:
 
     # For the sandbox settings usage
     sandbox_enabled: bool = False
-    sandbox_default_timeout: float = 30.0 # seconds
+    sandbox_default_timeout: float = 30.0  # seconds
     sandbox_ctx: str | None = "fork"  # or "spawn", or "forkserver"
 
     # How many jobs to run in parallel per worker process

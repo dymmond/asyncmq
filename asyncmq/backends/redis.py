@@ -696,22 +696,18 @@ class RedisBackend(BaseBackend):
         Asynchronously returns statistics about the number of jobs in different
         states for a specific queue.
 
-        Provides counts for jobs currently waiting, delayed, and in the dead
-        letter queue (DLQ).
-
-        Args:
-            queue_name: The name of the queue to get statistics for.
-
-        Returns:
-            A dictionary containing the counts with keys "waiting", "delayed",
-            and "failed".
+        Counts jobs in waiting, delayed, and the dead letter queue (DLQ).
         """
-        # Get the count of members in the waiting queue Sorted Set.
-        waiting: int = await self.redis.zcard(self._waiting_key(queue_name))
-        # Get the count of members in the delayed queue Sorted Set.
-        delayed: int = await self.redis.zcard(self._delayed_key(queue_name))
-        # Get the count of members in the DLQ Sorted Set.
-        failed: int = await self.redis.zcard(self._dlq_key(queue_name))
+        # Get raw counts from Redis sorted sets
+        raw_waiting = await self.redis.zcard(self._waiting_key(queue_name))
+        delayed = await self.redis.zcard(self._delayed_key(queue_name))
+        failed = await self.redis.zcard(self._dlq_key(queue_name))
+
+        # Exclude failed jobs from waiting
+        waiting = raw_waiting - failed
+        if waiting < 0:
+            waiting = 0
+
         return {
             "waiting": waiting,
             "delayed": delayed,
@@ -881,9 +877,7 @@ class RedisBackend(BaseBackend):
         # raw is a Lua table of job IDs
         return raw
 
-    async def save_heartbeat(
-        self, queue_name: str, job_id: str, timestamp: float
-    ) -> None:
+    async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
         Asynchronously records the timestamp of the last heartbeat for a
         running job in a Redis Hash.
@@ -941,9 +935,7 @@ class RedisBackend(BaseBackend):
                 # Check if the heartbeat timestamp is older than the threshold.
                 if ts < older_than:
                     # If stalled, load the full job payload from the job store.
-                    job_data: dict[str, Any] | None = await self.job_store.load(
-                        queue_name, job_id
-                    )
+                    job_data: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
                     # If the job data was successfully loaded.
                     if job_data is not None:
                         # Add the queue name and job data to the list of stalled jobs.

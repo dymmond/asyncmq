@@ -51,13 +51,7 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
         out_q.put(("error", payload))
 
 
-def run_handler(
-    task_id: str,
-    args: list[Any],
-    kwargs: dict[str, Any],
-    timeout: float,
-    fallback: bool = True
-) -> Any:
+def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: float, fallback: bool = True) -> Any:
     """
     Runs the specified task handler in a sandboxed subprocess with a timeout.
 
@@ -88,7 +82,7 @@ def run_handler(
                       subprocess reports an error during execution.
     """
     # Get the multiprocessing context, defaulting to 'fork' if not specified
-    ctx = mp.get_context(settings.sandbox_ctx or 'fork')
+    ctx = mp.get_context(settings.sandbox_ctx or "fork")
     # Create a queue for communication between the parent and child processes
     out_q = ctx.Queue()
     # Create a new process targeting _worker_entry with necessary arguments
@@ -107,9 +101,7 @@ def run_handler(
             # Wait for the process to actually terminate
             proc.join()
             # Raise a TimeoutError indicating the task exceeded the limit
-            raise TimeoutError(
-                f"Task '{task_id}' exceeded timeout of {timeout} seconds"
-            )
+            raise TimeoutError(f"Task '{task_id}' exceeded timeout of {timeout} seconds")
 
         # Check if the output queue is empty after the process finished
         if out_q.empty():
@@ -126,8 +118,7 @@ def run_handler(
             # If status is not success, it's an error. Raise a RuntimeError
             # including the error type, message, and traceback from the payload.
             raise RuntimeError(
-                f"Task '{task_id}' error {payload['type']}: {payload['message']}\n"
-                f"{payload['traceback']}"
+                f"Task '{task_id}' error {payload['type']}: {payload['message']}\n" f"{payload['traceback']}"
             )
 
     except TimeoutError:
@@ -137,7 +128,7 @@ def run_handler(
         # If a TimeoutError occurred and fallback is enabled
         if fallback:
             # Retrieve the handler function
-            handler = TASK_REGISTRY[task_id]['func']
+            handler = TASK_REGISTRY[task_id]["func"]
             # Run the handler directly in the current process
             if inspect.iscoroutinefunction(handler):
                 # If async, use anyio.run

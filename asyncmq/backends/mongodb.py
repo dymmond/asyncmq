@@ -524,7 +524,7 @@ class MongoDBBackend(BaseBackend):
             'job_data' for the stalled jobs found. 'job_data' is the dictionary
             payload of the job.
         """
-        stalled: list[dict[str, Any]] = [] # Initialize a list to store stalled job details
+        stalled: list[dict[str, Any]] = []  # Initialize a list to store stalled job details
 
         # Acquire the lock to protect shared state (heartbeats and queues accessed here)
         async with self.lock:
@@ -538,7 +538,7 @@ class MongoDBBackend(BaseBackend):
                     # for safety in case 'id' is missing in a job payload.
                     payload = next(
                         (p for p in self.queues.get(q, []) if p.get("id") == jid),
-                        None, # Return None if the job payload is not found in the queue
+                        None,  # Return None if the job payload is not found in the queue
                     )
                     # If the job payload was found, add its details to the stalled list
                     if payload:
@@ -570,3 +570,34 @@ class MongoDBBackend(BaseBackend):
             # Use .pop with a default of None to avoid errors if the heartbeat was
             # already removed (e.g., by concurrent processing or if 'id' is missing).
             self.heartbeats.pop((queue_name, job_data.get("id")), None)
+
+    async def queue_stats(self, queue_name: str) -> dict[str, int]:
+        """
+        Provides the number of jobs currently in the waiting, delayed, and
+        failed (DLQ) states for the given queue.
+
+        Args:
+            queue_name: The name of the queue to get statistics for.
+        Returns:
+            A dictionary containing the counts for "waiting", "delayed", and
+            "failed" jobs.
+        """
+        # In-memory raw counts
+        async with self.lock:
+            raw_waiting = len(self.queues.get(queue_name, []))
+            delayed = len(self.delayed.get(queue_name, []))
+
+        # Persistent store for failed jobs
+        failed_jobs = await self.store.jobs_by_status(queue_name, State.FAILED)
+        failed = len(failed_jobs)
+
+        # Exclude failed from waiting
+        waiting = raw_waiting - failed
+        if waiting < 0:
+            waiting = 0
+
+        return {
+            "waiting": waiting,
+            "delayed": delayed,
+            "failed": failed,
+        }

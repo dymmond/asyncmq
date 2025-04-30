@@ -1,3 +1,5 @@
+from typing import Any
+
 try:
     import asyncpg
 except ImportError:
@@ -6,7 +8,9 @@ except ImportError:
 from asyncmq.conf import settings
 
 
-async def install_or_drop_postgres_backend(connection_string: str | None = None, drop: bool = False) -> None:
+async def install_or_drop_postgres_backend(
+    connection_string: str | None = None, drop: bool = False, **pool_options: Any
+) -> None:
     """
     Utility function to install the required `asyncmq_jobs` table and indexes
     in the connected Postgres database.
@@ -30,6 +34,7 @@ async def install_or_drop_postgres_backend(connection_string: str | None = None,
     if not connection_string and not settings.asyncmq_postgres_backend_url:
         raise ValueError("Either 'connection_string' or 'settings.asyncmq_postgres_backend_url' must be " "provided.")
 
+    pool_options: dict[str, Any] | None = pool_options or settings.asyncmq_postgres_pool_options or {}
     dsn = connection_string or settings.asyncmq_postgres_backend_url
     if not drop:
         schema = f"""
@@ -58,7 +63,7 @@ async def install_or_drop_postgres_backend(connection_string: str | None = None,
         """
 
     # Create an asyncpg connection pool.
-    pool = await asyncpg.create_pool(dsn=dsn)
+    pool = await asyncpg.create_pool(dsn=dsn, **pool_options)
     # Acquire a connection from the pool.
     async with pool.acquire() as conn:
         # Start a transaction.

@@ -61,7 +61,7 @@ async def repeatable_scheduler(
             itr = croniter(cron, time.time())
             cron_trackers[job["task_id"]] = itr
             # Get the timestamp of the very next scheduled run
-            next_runs[job["task_id"]] = itr.get_next(float) # Explicitly ask for float
+            next_runs[job["task_id"]] = itr.get_next(float)  # Explicitly ask for float
 
     # Determine the interval for how often the scheduler loop checks
     # Use the specified interval or a default of 30 seconds
@@ -99,7 +99,7 @@ async def repeatable_scheduler(
                     # Enqueue the job using the backend
                     await backend.enqueue(queue_name, job.to_dict())
                     # Calculate the next scheduled run time for this cron job
-                    next_runs[task_id] = itr.get_next(float) # Explicitly ask for float
+                    next_runs[task_id] = itr.get_next(float)  # Explicitly ask for float
 
             # Handle fixed-interval scheduling
             elif "every" in job_def:
@@ -130,7 +130,7 @@ async def repeatable_scheduler(
             time_until_next_event = earliest_next_run - now
             # Sleep for the minimum of the check_interval and the time until the next event
             # Ensure sleep time is not negative if time has passed
-            time_to_sleep = max(0.1, min(check_interval, time_until_next_event)) # Sleep at least 0.1s
+            time_to_sleep = max(0.1, min(check_interval, time_until_next_event))  # Sleep at least 0.1s
 
         # Asynchronously sleep before the next check
         await anyio.sleep(time_to_sleep)

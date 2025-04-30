@@ -242,6 +242,7 @@ class Worker:
     and providing simple methods to start and gracefully stop the worker's
     asynchronous processing loop.
     """
+
     def __init__(self, queue: "Queue") -> None:
         """
         Initializes the Worker with a specific queue.
@@ -270,9 +271,7 @@ class Worker:
             # Initialize a RateLimiter if rate limiting is enabled in settings,
             # otherwise set it to None.
             rate_limiter = (
-                RateLimiter(settings.rate_limit, settings.rate_interval)
-                if settings.rate_limit is not None
-                else None
+                RateLimiter(settings.rate_limit, settings.rate_interval) if settings.rate_limit is not None else None
             )
             # Start the main job processing loop
             await process_job(self.queue.name, limiter, rate_limiter)
