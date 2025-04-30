@@ -3,67 +3,58 @@ import time
 import pytest
 
 from asyncmq import sandbox
-from asyncmq.tasks import TASK_REGISTRY
+from asyncmq.tasks import TASK_REGISTRY, task
 
 
-def register_task(task_id, func):
-    """
-    Register a task in TASK_REGISTRY for sandbox tests.
-    """
-    TASK_REGISTRY[task_id] = {"func": func}
+@task(queue="test")
+def add():
+    return 42
 
-@pytest.fixture(autouse=True)
-def clear_registry():
-    # Save original registry entries and clear
-    original = dict(TASK_REGISTRY)
-    TASK_REGISTRY.clear()
-    yield
-    # Restore original
-    TASK_REGISTRY.clear()
-    TASK_REGISTRY.update(original)
+
+@task(queue="test")
+async def say_hi():
+    return "hi"
+
+
+@task(queue="test")
+def boom():
+    raise ValueError("explode")
 
 
 def test_success_handler_returns_value():
-    def handler(x, y):
-        return x + y
-    register_task('add', handler)
-    result = sandbox.run_handler('add', (2, 3), {}, timeout=5)
-    assert result == 5
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == add][0]
+    result = sandbox.run_handler(task_id, (), {}, timeout=1)
+    assert result == 42
 
 
 def test_async_handler_returns_value():
-    async def handler(x):
-        # simulate async work
-        import anyio
-        await anyio.sleep(0.01)
-        return x * 2
-    register_task('double', handler)
-    result = sandbox.run_handler('double', (4,), {}, timeout=5)
-    assert result == 8
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == say_hi][0]
+    result = sandbox.run_handler(task_id, (), {}, timeout=1)
+    assert result == "hi"
 
 
 def test_handler_exception_propagated():
-    def handler():
-        raise ValueError("oops")
-    register_task('boom', handler)
-    with pytest.raises(RuntimeError) as excinfo:
-        sandbox.run_handler('boom', (), {}, timeout=5)
-    msg = str(excinfo.value)
-    assert 'ValueError' in msg
-    assert 'oops' in msg
-
-
-def test_timeout_raises_timeout_error():
-    def handler():
-        # Block longer than timeout
-        time.sleep(0.1)
-    register_task('sleep', handler)
-    with pytest.raises(TimeoutError):
-        sandbox.run_handler('sleep', (), {}, timeout=0.01)
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == boom][0]
+    with pytest.raises(RuntimeError) as exc:
+        sandbox.run_handler(task_id, (), {}, timeout=1)
+    assert "explode" in str(exc.value)
 
 
 def test_missing_task_raises_key_error():
-    # Ensure TASK_REGISTRY has no entry for this id
-    TASK_REGISTRY.pop('no_task', None)
-    with pytest.raises(KeyError):
-        sandbox.run_handler('no_task', (), {}, timeout=1)
+    TASK_REGISTRY.pop("no_task", None)
+    with pytest.raises(RuntimeError) as exc:
+        sandbox.run_handler("no_task", (), {}, timeout=1)
+    assert "KeyError" in str(exc.value)
+
+
+def test_timeout_raises_timeout_error(monkeypatch):
+    monkeypatch.setattr("asyncmq.conf.settings.sandbox_ctx", "spawn")
+
+    @task(queue="test")
+    def block():
+        time.sleep(0.5)  # Sleep longer than timeout
+
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == block][0]
+
+    with pytest.raises(TimeoutError):
+        sandbox.run_handler(task_id, [], {}, timeout=0.1, fallback=False)

@@ -162,8 +162,11 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
-        # Delete the job from the job store.
-        await self.store.delete(queue_name, job_id)
+
+        # Only delete if there is no saved result to retrieve.
+        job = await self.store.load(queue_name, job_id)
+        if not job or "result" not in job:
+            await self.store.delete(queue_name, job_id)
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """

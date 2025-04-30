@@ -51,6 +51,7 @@ class Settings:
     # For the sandbox settings usage
     sandbox_enabled: bool = False
     sandbox_default_timeout: float = 30.0 # seconds
+    sandbox_ctx: str | None = "fork"  # or "spawn", or "forkserver"
 
     # How many jobs to run in parallel per worker process
     worker_concurrency: int = 10
