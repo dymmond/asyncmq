@@ -15,7 +15,8 @@ from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
 
 pytestmark = pytest.mark.anyio
 
-@ pytest.fixture(params=[InMemoryBackend, RedisBackend, PostgresBackend, MongoDBBackend])
+
+@pytest.fixture(params=[InMemoryBackend, RedisBackend, PostgresBackend, MongoDBBackend])
 async def backend(request):
     cls = request.param
     if cls is InMemoryBackend:
@@ -38,6 +39,7 @@ async def backend(request):
         # No explicit connect method for MongoDBBackend
         yield b
         b.store.client.drop_database("test_asyncmq")
+
 
 async def test_fetch_and_reenqueue(backend):
     queue = "test"
@@ -85,6 +87,7 @@ async def test_fetch_and_reenqueue(backend):
     elif isinstance(backend, MongoDBBackend):
         assert payload in backend.queues.get(queue, [])
 
+
 async def test_scheduler_recovery(backend, monkeypatch):
     queue = "qs"
     job_id = "js"
@@ -100,8 +103,8 @@ async def test_scheduler_recovery(backend, monkeypatch):
     await backend.save_heartbeat(queue, job_id, ts)
 
     # Shorten intervals
-    monkeypatch.setattr(gs, 'stalled_threshold', 1.0)
-    monkeypatch.setattr(gs, 'stalled_check_interval', 0.1)
+    monkeypatch.setattr(gs, "stalled_threshold", 1.0)
+    monkeypatch.setattr(gs, "stalled_check_interval", 0.1)
 
     async def runner():
         async with anyio.create_task_group() as tg:

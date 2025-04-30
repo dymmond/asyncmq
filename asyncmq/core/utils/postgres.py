@@ -8,7 +8,9 @@ except ImportError:
 from asyncmq.conf import settings
 
 
-async def install_or_drop_postgres_backend(connection_string: str | None = None, drop: bool = False, **pool_options: Any) -> None:
+async def install_or_drop_postgres_backend(
+    connection_string: str | None = None, drop: bool = False, **pool_options: Any
+) -> None:
     """
     Utility function to install the required `asyncmq_jobs` table and indexes
     in the connected Postgres database.

@@ -15,10 +15,12 @@ JOB_STATES: tuple[str, ...] = (
     State.EXPIRED,
 )
 
+
 class JobOptions:
     """
     Configuration for individual jobs: number of attempts, priority, backoff, etc.
     """
+
     def __init__(
         self,
         attempts: int = 1,

@@ -504,31 +504,27 @@ class InMemoryBackend(BaseBackend):
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
-        Retrieves statistics for a specific queue in this in-memory backend.
+        Asynchronously returns statistics about the number of jobs in different
+        states for a specific queue.
 
-        Provides the number of jobs currently in the waiting, delayed, and
-        failed (DLQ) states for the given queue.
-
-        Args:
-            queue_name: The name of the queue to get statistics for.
-
-        Returns:
-            A dictionary containing the counts for "waiting", "delayed", and
-            "failed" jobs.
+        Provides counts for jobs currently waiting, delayed, and in the dead
+        letter queue (DLQ).
         """
         async with self.lock:
-            # Get the length of the waiting queue list.
-            waiting = len(self.queues.get(queue_name, []))
-            # Get the length of the delayed jobs list.
+            raw_waiting = len(self.queues.get(queue_name, []))
             delayed = len(self.delayed.get(queue_name, []))
-            # Get the length of the DLQ list.
             failed = len(self.dlqs.get(queue_name, []))
-            # Return the statistics as a dictionary.
-            return {
-                "waiting": waiting,
-                "delayed": delayed,
-                "failed": failed,
-            }
+
+            # Exclude failed jobs from waiting
+            waiting = raw_waiting - failed
+            if waiting < 0:
+                waiting = 0
+
+        return {
+            "waiting": waiting,
+            "delayed": delayed,
+            "failed": failed,
+        }
 
     async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -666,7 +662,7 @@ class InMemoryBackend(BaseBackend):
             'job_data' for each stalled job found. 'job_data' is the original
             dictionary payload of the job from the queues.
         """
-        stalled: list[dict[str, Any]] = [] # Initialize an empty list to collect stalled job details
+        stalled: list[dict[str, Any]] = []  # Initialize an empty list to collect stalled job details
 
         # Acquire the lock to ensure safe concurrent access to both self.heartbeats
         # and self.queues during the check and lookup process.
@@ -685,14 +681,14 @@ class InMemoryBackend(BaseBackend):
                     # We use .get("id") on the payload for safety against missing keys.
                     payload = next(
                         (p for p in self.queues.get(q, []) if p.get("id") == jid),
-                        None, # If no matching payload is found in the queue, return None
+                        None,  # If no matching payload is found in the queue, return None
                     )
                     # If a corresponding job payload was found in the queue, add it
                     # to the list of stalled jobs with its queue name.
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
 
-        return stalled # Return the list of identified stalled jobs
+        return stalled  # Return the list of identified stalled jobs
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """

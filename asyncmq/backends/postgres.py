@@ -813,7 +813,7 @@ class PostgresBackend(BaseBackend):
             job_id: The unique identifier of the job.
             timestamp: The Unix timestamp representing the time of the heartbeat.
         """
-        await self.connect() # Ensure connection is established
+        await self.connect()  # Ensure connection is established
 
         # Acquire a connection from the pool
         async with self.pool.acquire() as conn:
@@ -853,7 +853,7 @@ class PostgresBackend(BaseBackend):
             A list of dictionaries. Each dictionary contains 'queue_name' and
             'job_data'. 'job_data' is the parsed JSON content of the `data` column.
         """
-        await self.connect() # Ensure connection is established
+        await self.connect()  # Ensure connection is established
 
         # Fetch rows from the database pool
         rows = await self.pool.fetch(
@@ -869,10 +869,7 @@ class PostgresBackend(BaseBackend):
 
         # Process the retrieved rows. The 'data' column is returned as a JSON string.
         # It needs to be parsed into a Python dictionary.
-        return [
-            {"queue_name": row["queue_name"], "job_data": json.loads(row["data"])}
-            for row in rows
-        ]
+        return [{"queue_name": row["queue_name"], "job_data": json.loads(row["data"])} for row in rows]
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """

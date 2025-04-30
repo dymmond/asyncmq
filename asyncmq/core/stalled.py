@@ -10,8 +10,7 @@ if TYPE_CHECKING:
     from asyncmq.backends.base import BaseBackend
 
 
-
-async def record_heartbeat(queue_name: str, job_id: str, backend: BaseBackend | None = None ) -> None:
+async def record_heartbeat(queue_name: str, job_id: str, backend: BaseBackend | None = None) -> None:
     """
     Record the timestamp of the last heartbeat for a running job.
     """
@@ -30,7 +29,9 @@ async def get_stalled_jobs(threshold: float, backend: BaseBackend | None = None)
     return await backend.fetch_stalled_jobs(cutoff)
 
 
-async def stalled_recovery_scheduler(backend: BaseBackend | None = None, check_interval: float | None = None, threshold: float | None = None) -> None:
+async def stalled_recovery_scheduler(
+    backend: BaseBackend | None = None, check_interval: float | None = None, threshold: float | None = None
+) -> None:
     """
     Periodically checks for stalled jobs and re-enqueues them.
     """

@@ -4,6 +4,7 @@ from asyncmq.conf.global_settings import Settings
 
 test_scanner_interval = 0.01
 
+
 @dataclass
 class TestSettings(Settings):
     debug: bool = True
@@ -13,5 +14,5 @@ class TestSettings(Settings):
 
     asyncmq_postgres_pool_options = {
         "min_size": 10,
-        "max_size" : 200,
+        "max_size": 200,
     }
