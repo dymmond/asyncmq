@@ -29,6 +29,7 @@ async def backend(request):
     elif cls is PostgresBackend:
         await install_or_drop_postgres_backend()
         b = cls()
+        await b.close()
         await b.connect()
         yield b
         await install_or_drop_postgres_backend(drop=True)
