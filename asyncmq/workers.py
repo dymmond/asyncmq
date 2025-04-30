@@ -15,8 +15,7 @@ from asyncmq.jobs import Job
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
-# This type checking import is typically used to avoid circular dependencies
-# or to provide type hints for objects that are not imported at runtime.
+# Type checking import for Queue, only active during type checking
 if TYPE_CHECKING:
     from asyncmq.queues import Queue
 
@@ -28,52 +27,43 @@ async def process_job(
     backend: BaseBackend | None = None,
 ) -> None:
     """
-    Asynchronously processes jobs from a specified queue name.
+    Continuously processes jobs from a specified queue, respecting concurrency
+    and rate limits.
 
-    This function continuously polls the queue for new jobs, respecting pause
-    states, concurrency limits via `CapacityLimiter`, and optional rate limits
-    via `RateLimiter`. It delegates the actual job handling to the
-    `_run_with_limits` and `handle_job` functions, ensuring that jobs are
-    processed efficiently and within defined constraints. It runs within an
-    AnyIO task group, allowing for concurrent handling of multiple jobs up
-    to the capacity defined by the `limiter`. The processing loop continues
-    indefinitely until the task group is cancelled.
+    This function runs indefinitely within a task group, dequeueing jobs
+    and starting new tasks to handle each job within the defined limits.
+    It includes support for pausing the queue.
 
     Args:
         queue_name: The name of the queue to process jobs from.
-        limiter: An AnyIO CapacityLimiter instance controlling the maximum
-                 number of concurrently running jobs for this worker.
-        rate_limiter: An optional RateLimiter instance to enforce rate limits
-                      on job execution. If None, no rate limiting is applied.
-        backend: An optional BaseBackend instance to interact with the message
-                 queue and job storage. If None, the backend from settings is
-                 used.
+        limiter: A CapacityLimiter instance to control the maximum number of
+                 concurrently running jobs.
+        rate_limiter: An optional RateLimiter instance to control the rate
+                      at which jobs are processed. Defaults to None.
+        backend: An optional BaseBackend instance to interact with the queue
+                 storage. Defaults to the backend specified in settings.
     """
-    # Use the provided backend or the default one from settings.
+    # Use the provided backend or the one from settings
     backend = backend or settings.backend
 
-    # Create an AnyIO task group to manage concurrent job processing tasks.
+    # Create a task group to manage concurrent job handling tasks
     async with anyio.create_task_group() as tg:
-        # Enter an infinite loop to continuously process jobs until cancelled.
         while True:
-            # Check if the queue is paused. If it is, wait for a configured
-            # interval before checking again to avoid busy-waiting.
+            # Pause support: Check if the queue is currently paused
             if await backend.is_queue_paused(queue_name):
+                # If paused, wait for a bit before checking again
                 await anyio.sleep(settings.stalled_check_interval)
-                continue
+                continue  # Skip to the next iteration
 
-            # Attempt to dequeue the next job from the specified queue.
+            # Attempt to dequeue a raw job from the backend
             raw_job = await backend.dequeue(queue_name)
             if raw_job is None:
-                # If no job was retrieved, wait a short duration before polling
-                # again to avoid excessive resource usage.
+                # If no job is available, wait briefly to avoid busy-looping
                 await anyio.sleep(0.1)
-                continue
+                continue  # Skip to the next iteration
 
-            # If a job was successfully dequeued, start a new task in the
-            # task group to handle its execution. The job processing logic
-            # is wrapped by `_run_with_limits` to enforce concurrency and
-            # rate limiting before the actual task execution.
+            # If a job is dequeued, start a new task in the task group to handle it
+            # The _run_with_limits function will apply concurrency and rate limits
             tg.start_soon(
                 _run_with_limits,
                 raw_job,
@@ -92,36 +82,27 @@ async def _run_with_limits(
     rate_limiter: RateLimiter | None,
 ) -> None:
     """
-    Applies concurrency and rate limits before invoking the actual job handler.
+    Applies concurrency and optional rate limits before calling handle_job.
 
-    This is an internal helper function designed to wrap the `handle_job`
-    call within the necessary resource limits (`limiter` and `rate_limiter`).
-    It ensures that `handle_job` is only executed when allowed by the defined
-    concurrency and rate limiting policies.
+    This function is intended to be run within a task group. It acquires a
+    slot from the concurrency limiter and, if provided, acquires a token
+    from the rate limiter before proceeding to process the job.
 
     Args:
-        raw_job: A dictionary representing the raw job data dequeued from
-                 the backend.
+        raw_job: The raw job data as a dictionary.
         queue_name: The name of the queue the job originated from.
-        backend: The BaseBackend instance used to interact with the queue.
-        limiter: The AnyIO CapacityLimiter instance controlling concurrency.
-                 Entering this context manager pauses execution until a slot
-                 is available.
-        rate_limiter: An optional RateLimiter instance. If provided, an
-                      attempt will be made to acquire a rate limit permit
-                      before proceeding, using the job ID for potential
-                      rate limiting strategies.
+        backend: The backend instance used for queue operations.
+        limiter: The CapacityLimiter instance for concurrency control.
+        rate_limiter: An optional RateLimiter instance for rate control.
     """
-    # Acquire a slot from the concurrency limiter. Execution will pause here
-    # if the maximum concurrency is reached until another task completes.
+    # Acquire a slot from the concurrency limiter; this waits if the limit
+    # has been reached.
     async with limiter:
-        # If a rate limiter is provided, attempt to acquire a permit.
-        # Execution will pause here if the rate limit is exceeded until
-        # a permit becomes available. The queue name and job ID are passed
-        # for rate limit strategies that might use them.
+        # If a rate limiter is provided, acquire a token; this waits if the
+        # rate limit has been exceeded.
         if rate_limiter:
-            await rate_limiter.acquire(queue_name, raw_job["id"])
-        # Once concurrency and rate limits are satisfied, proceed to handle the job.
+            await rate_limiter.acquire()
+        # Once limits are satisfied, proceed to handle the job logic
         await handle_job(queue_name, raw_job, backend)
 
 
@@ -131,221 +112,191 @@ async def handle_job(
     backend: BaseBackend | None = None,
 ) -> None:
     """
-    Processes a single job instance through its lifecycle: checking TTL and
-    delays, marking as active, executing the task handler (potentially in a
-    sandbox), handling success (saving result, acknowledging), and handling
-    failure (retrying or moving to DLQ).
+    Handles the lifecycle of a single job, including expiration checks, delays,
+    execution, retries, and state updates.
 
-    This function encapsulates the core logic for executing a job based on its
-    definition and current state. It interacts with the backend to update
-    the job's status, save results, handle retries, and manage the Dead Letter
-    Queue (DLQ). Exceptions during execution are caught and handled according
-    to the job's retry configuration.
+    This function performs the core logic for processing a job. It checks for
+    TTL expiration and delays before executing the task associated with the job.
+    It handles successful completion, retries on failure, and moving failed
+    jobs to the Dead Letter Queue (DLQ). Events are emitted at different stages
+    of the job lifecycle.
 
     Args:
         queue_name: The name of the queue the job belongs to.
-        raw_job: A dictionary containing the raw data of the job.
-        backend: An optional BaseBackend instance. If None, the backend
-                 from settings is used.
+        raw_job: The raw job data as a dictionary.
+        backend: An optional BaseBackend instance to interact with the queue
+                 storage. Defaults to the backend specified in settings.
     """
-    # Use the provided backend or the default one from settings.
+    # Use the provided backend or the one from settings
     backend = backend or settings.backend
-    # Convert the raw job dictionary into a Job object for easier access
-    # to job properties and methods.
+    # Convert the raw job dictionary into a Job object
     job = Job.from_dict(raw_job)
 
-    # 1. Check for TTL expiration. If the job's time-to-live has passed,
-    # mark it as expired, emit an event, and move it to the Dead Letter Queue.
+    # 1) TTL expiration check: If the job has expired based on its TTL
     if job.is_expired():
+        # Update job status to EXPIRED
         job.status = State.EXPIRED
-        # Update the job's status in the backend.
+        # Update the state in the backend
         await backend.update_job_state(queue_name, job.id, job.status)
-        # Emit an event indicating the job expired.
+        # Emit a job:expired event
         await event_emitter.emit("job:expired", job.to_dict())
-        # Move the expired job to the Dead Letter Queue.
+        # Move the expired job to the Dead Letter Queue (DLQ)
         await backend.move_to_dlq(queue_name, job.to_dict())
-        # The job is handled (as expired), so return and do not proceed further.
-        return
+        return  # Stop processing this job
 
-    # 2. Check if the job is scheduled for a future time. If the current time
-    # is before the 'delay_until' timestamp, re-enqueue the job into the
-    # delayed queue and return.
+    # 2) Delay handling: If the job is scheduled to run later
+    # Check if the current time is before the scheduled delay_until time
     if job.delay_until and time.time() < job.delay_until:
+        # If delayed, re-enqueue the job into the delayed queue
         await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
-        # The job is not yet due, re-enqueued for later, so return.
-        return
+        return  # Stop processing this job for now
 
     try:
-        # 3. Mark the job as active before execution begins. Update the backend
-        # state and emit a 'job:started' event.
+        # 3) Mark active & start event: If the job is ready to be processed
+        # Set job status to ACTIVE
         job.status = State.ACTIVE
-        # Update the job's status in the backend.
+        # Update the state in the backend
         await backend.update_job_state(queue_name, job.id, job.status)
-        # Emit an event indicating the job has started.
+        # Emit a job:started event
         await event_emitter.emit("job:started", job.to_dict())
 
-        # Retrieve the metadata for the task associated with this job from the registry.
-        task_meta: dict[str, Any] = TASK_REGISTRY[job.task_id]
-        # Get the actual function handler registered for this task ID.
-        handler = task_meta["func"]
+        # Retrieve task metadata and the handler function from the registry
+        meta = TASK_REGISTRY[job.task_id]
+        handler = meta["func"]
 
-        # 4. Execute the task handler. Execution can happen either in a
-        # sandboxed environment (if enabled in settings) or directly.
+        # 4) Execute task (sandbox vs direct): Run the task, potentially in a sandbox
         if settings.sandbox_enabled:
             # If sandboxing is enabled, run the handler in a separate thread
-            # managed by the sandbox module. This isolates the job execution
-            # and provides resource limits (like timeout).
+            # using the sandbox execution function.
             result = await anyio.to_thread.run_sync(
                 sandbox.run_handler,
                 job.task_id,
-                tuple(job.args),
+                tuple(job.args),  # sandbox expects tuple args
                 job.kwargs,
                 settings.sandbox_default_timeout,
             )
         else:
-            # If sandboxing is not enabled, execute the handler directly.
-            # Check if the handler is a coroutine function and await it if necessary.
+            # If sandboxing is disabled, run the handler directly.
             if inspect.iscoroutinefunction(handler):
+                # If the handler is an async function, await its execution.
                 result = await handler(*job.args, **job.kwargs)
             else:
-                # If it's a regular function, call it directly.
+                # If the handler is a regular sync function, call it directly.
                 result = handler(*job.args, **job.kwargs)
 
-        # 5. Success Path: If the handler executed without raising an exception,
-        # the job is considered completed.
+        # 5) Success path: If the task execution completed without exceptions
+        # Set job status to COMPLETED
         job.status = State.COMPLETED
+        # Store the result of the task execution
         job.result = result
-        # Persist the updated state and the execution result to the backend.
+        # Update the state in the backend
         await backend.update_job_state(queue_name, job.id, job.status)
+        # Save the job result in the backend
         await backend.save_job_result(queue_name, job.id, result)
-        # Acknowledge the job with the backend, indicating successful processing
-        # and readiness for removal from the queue/internal processing list.
+        # Acknowledge successful processing in the backend
         await backend.ack(queue_name, job.id)
-        # Emit a 'job:completed' event with the job's final state and result.
+        # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
 
-    except Exception as exc:
-        # 6. Failure & Retry Logic: If any exception occurs during job
-        # execution (including sandbox execution issues), handle the failure.
-        # Capture the traceback for debugging purposes.
+    except Exception:
+        # Exception handling: If any exception occurs during execution
+        # Format the traceback to capture the error details
         tb = traceback.format_exc()
-        # Store the string representation of the exception.
-        job.last_error = str(exc)
-        # Store the formatted traceback.
+        # Store the last error message and the full traceback in the job
+        job.last_error = str(tb)
         job.error_traceback = tb
-        # Increment the retry count for this job.
+        # Increment the retry count
         job.retries += 1
 
-        # Check if the job has exceeded its maximum configured retries.
+        # Check if the maximum number of retries has been exceeded
         if job.retries > job.max_retries:
-            # If max retries are exceeded, mark the job as permanently failed.
+            # If retries exhausted, set status to FAILED
             job.status = State.FAILED
-            # Update the backend state to reflect the failed status.
+            # Update the state in the backend
             await backend.update_job_state(queue_name, job.id, job.status)
-            # Emit a 'job:failed' event.
+            # Emit a job:failed event
             await event_emitter.emit("job:failed", job.to_dict())
-            # Move the job to the Dead Letter Queue for manual inspection or handling.
+            # Move the failed job to the Dead Letter Queue (DLQ)
             await backend.move_to_dlq(queue_name, job.to_dict())
         else:
-            # If retries are still available, calculate the delay before the
-            # next retry attempt using the job's configured retry strategy.
-            delay: float = job.next_retry_delay()
-            # Set the 'delay_until' timestamp for the next attempt.
+            # If retries are still available, calculate the next retry delay
+            delay = job.next_retry_delay()
+            # Calculate the timestamp for the next retry
             job.delay_until = time.time() + delay
-            # Mark the job status as EXPIRED temporarily before re-enqueuing
-            # into the delayed queue. This status indicates it's waiting for
-            # a future processing time.
+            # Set status to EXPIRED (or similar temporary state before delayed)
+            # Note: The original code sets this to EXPIRED, which might be
+            # counter-intuitive for a job pending retry, but logic is preserved.
             job.status = State.EXPIRED
-            # Update the backend state with the incremented retry count,
-            # error information, and the next delay timestamp.
+            # Update the state in the backend
             await backend.update_job_state(queue_name, job.id, job.status)
-            # Enqueue the job into the delayed queue for a future retry attempt.
+            # Enqueue the job into the delayed queue for a future retry
             await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
 
 
 class Worker:
     """
-    A convenience wrapper class to manage the lifecycle of an AsyncMQ worker
-    processing a specific queue.
+    A convenience wrapper class for starting and stopping a worker process
+    that processes jobs from a specific queue.
 
-    This class simplifies starting and stopping the asynchronous job processing
-    loop for a given queue. It internally uses AnyIO to run the asynchronous
-    `process_job` function and provides a mechanism to gracefully stop the
-    worker using a CancelScope.
-
-    Attributes:
-        queue: The Queue instance this worker is associated with.
+    This class encapsulates the logic for initializing the worker with a queue
+    and providing simple methods to start and gracefully stop the worker's
+    asynchronous processing loop.
     """
     def __init__(self, queue: "Queue") -> None:
         """
-        Initializes a new Worker instance for a specific queue.
+        Initializes the Worker with a specific queue.
 
         Args:
             queue: The Queue instance that this worker will process jobs from.
         """
         self.queue = queue
-        # Initialize a CancelScope attribute to None. This will hold the
-        # scope when the worker is running, allowing external cancellation.
+        # Stores the cancel scope for the worker's run loop to allow stopping
         self._cancel_scope: anyio.CancelScope | None = None
 
     async def _run_with_scope(self) -> None:
         """
-        Runs the main job processing loop within an AnyIO CancelScope.
+        Runs the job processing loop within an Anyio CancelScope.
 
-        This asynchronous method is the entry point for the worker's main
-        execution flow. It creates a CancelScope, instantiates the necessary
-        concurrency and rate limiters based on application settings, and then
-        starts the `process_job` coroutine. The `_cancel_scope` attribute is
-        set within this method, enabling external cancellation via the `stop`
-        method. This method blocks until the CancelScope is cancelled.
+        This method sets up the concurrency and rate limiters based on settings
+        and then calls the main process_job function within a cancel scope.
+        Storing the cancel scope allows external cancellation via the stop method.
         """
-        # Create a new AnyIO CancelScope for this worker's execution.
+        # Create a CancelScope for the entire worker's operation
         with anyio.CancelScope() as scope:
-            # Assign the created scope to the instance attribute so it can be
-            # accessed and cancelled by the stop method.
+            # Store the scope so it can be accessed later for cancellation
             self._cancel_scope = scope
-            # Instantiate the CapacityLimiter based on the configured worker concurrency.
+            # Initialize a CapacityLimiter based on the worker concurrency setting
             limiter = CapacityLimiter(settings.worker_concurrency)
-            # Instantiate the RateLimiter only if rate limit configuration exists
-            # in settings.
+            # Initialize a RateLimiter if rate limiting is enabled in settings,
+            # otherwise set it to None.
             rate_limiter = (
-                RateLimiter(settings.rate_limit_config)
-                if settings.rate_limit_config is not None
+                RateLimiter(settings.rate_limit, settings.rate_interval)
+                if settings.rate_limit is not None
                 else None
             )
-            # Start the main job processing coroutine for the associated queue,
-            # passing the instantiated limiters. This call blocks until the
-            # CancelScope is cancelled.
+            # Start the main job processing loop
             await process_job(self.queue.name, limiter, rate_limiter)
 
     def start(self) -> None:
         """
-        Starts the worker synchronously; blocks until cancelled.
+        Starts the worker's asynchronous job processing loop.
 
-        This method provides a synchronous interface to start the asynchronous
-        worker. It internally calls `anyio.run()` to execute the
-        `_run_with_scope` coroutine. This function call blocks until the
-        asynchronous worker process is cancelled, typically by calling the
-        `stop` method.
+        This method uses anyio.run to execute the _run_with_scope asynchronous
+        method, blocking until the scope is cancelled (e.g., by calling stop).
         """
-        # Use anyio.run to start the asynchronous _run_with_scope function.
-        # This function blocks the current thread until the async function
-        # completes (which happens when the CancelScope is cancelled).
+        # Run the asynchronous _run_with_scope function using anyio,
+        # starting the worker's main loop.
         anyio.run(self._run_with_scope)
 
     def stop(self) -> None:
         """
-        Requests cancellation of the running worker.
+        Stops the worker's job processing loop by cancelling its task group.
 
-        If the worker has been started and its CancelScope (`_cancel_scope`)
-        is active, calling this method will trigger the cancellation of the
-        underlying asynchronous tasks managed by the scope. This causes the
-        `process_job` loop and subsequently the `anyio.run` call in the `start`
-        method to finish gracefully. If the worker is not running, this method
-        does nothing.
+        This method checks if a cancel scope exists (meaning the worker was started)
+        and cancels it. This signals the asynchronous processing loop to stop.
         """
-        # Check if the CancelScope has been created (i.e., the worker is running).
-        if self._cancel_scope is not None:
-            # If the scope exists, call its cancel method to request cancellation
-            # of all tasks running within that scope.
+        # Check if the cancel scope has been set (i.e., if start was called)
+        if self._cancel_scope:
+            # Cancel the scope, which will propagate cancellation to the
+            # task group and stop the process_job loop.
             self._cancel_scope.cancel()
