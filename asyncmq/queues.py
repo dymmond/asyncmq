@@ -3,10 +3,10 @@ from typing import Any
 
 import anyio
 
-from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.base import BaseBackend, RepeatableInfo
 from asyncmq.conf import settings
-from asyncmq.jobs import Job  # Note: Updated import
-from asyncmq.runners import run_worker  # Note: Updated import
+from asyncmq.jobs import Job
+from asyncmq.runners import run_worker
 
 
 class Queue:
@@ -308,3 +308,21 @@ class Queue:
         """
         # Run the asynchronous 'run' method within an AnyIO event loop.
         anyio.run(self.run)
+
+    async def remove_delayed(self, job_id: str) -> bool:
+        return await self.backend.remove_delayed(self.name, job_id)
+
+    async def list_repeatables(self) -> list[RepeatableInfo]:
+        return await self.backend.list_repeatables(self.name)
+
+    async def pause_repeatable(self, job_def: dict[str, Any]) -> None:
+        await self.backend.pause_repeatable(self.name, job_def)
+
+    async def resume_repeatable(self, job_def: dict[str, Any]) -> float:
+        return await self.backend.resume_repeatable(self.name, job_def)
+
+    async def cancel_job(self, job_id: str) -> None:
+        await self.backend.cancel_job(self.name, job_id)
+
+    async def is_job_cancelled(self, job_id: str) -> bool:
+        return await self.backend.is_job_cancelled(self.name, job_id)

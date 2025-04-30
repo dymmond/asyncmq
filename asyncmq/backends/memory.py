@@ -1,11 +1,13 @@
+import json
 import time
 from typing import Any
 
 import anyio
 
-from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.schedulers import compute_next_run
 
 # Type alias for a job key, which is a tuple of (queue_name, job_id).
 _JobKey = tuple[str, str]
@@ -26,28 +28,35 @@ class InMemoryBackend(BaseBackend):
         """
         Initializes the in-memory backend with empty data structures.
         """
-        # Dictionary mapping queue names to lists of waiting job payloads.
+        # Waiting queues: queue_name -> list of job payloads
         self.queues: dict[str, list[dict[str, Any]]] = {}
-        # Dictionary mapping queue names to lists of failed job payloads (Dead Letter Queue).
+        # Dead-letter queues: queue_name -> list of failed job payloads
         self.dlqs: dict[str, list[dict[str, Any]]] = {}
-        # Dictionary mapping queue names to lists of (run_at_timestamp, job_payload) for delayed jobs.
+        # Delayed jobs: queue_name -> list of (run_at_ts, payload)
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
-        # Dictionary mapping job keys (_JobKey) to their current state string.
+        # Repeatable definitions: queue_name -> { raw_json_def -> { job_def, next_run, paused } }
+        self.repeatables: dict[str, dict[str, dict[str, Any]]] = {}
+        # Cancelled jobs: queue_name -> set of job_ids
+        self.cancelled: dict[str, set[str]] = {}
+
+        # Job state & result tracking
         self.job_states: dict[_JobKey, str] = {}
-        # Dictionary mapping job keys (_JobKey) to their execution result.
         self.job_results: dict[_JobKey, Any] = {}
-        # Dictionary mapping job keys (_JobKey) to their progress percentage (float).
         self.job_progress: dict[_JobKey, float] = {}
-        # Dictionary mapping child job keys (_JobKey) to a set of parent job IDs they are waiting on.
+
+        # Dependency tracking (existing features)
         self.deps_pending: dict[_JobKey, set[str]] = {}
-        # Dictionary mapping parent job keys (_JobKey) to a set of child job IDs that depend on them.
         self.deps_children: dict[_JobKey, set[str]] = {}
-        # Set of queue names that are currently paused.
+
+        # Paused queues (existing feature)
         self.paused: set[str] = set()
-        # An anyio Lock to synchronize access to the in-memory data structures.
-        self.lock: anyio.Lock = anyio.Lock()
-        self.heartbeats: dict[tuple[str, str], float] = {}
-        self.active_jobs: dict[tuple[str, str], dict] = {}
+
+        # Heartbeats & active jobs (existing features)
+        self.heartbeats: dict[_JobKey, float] = {}
+        self.active_jobs: dict[_JobKey, dict[str, Any]] = {}
+
+        # anyio Lock for thread-safe in-process synchronization
+        self.lock = anyio.Lock()
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -166,8 +175,8 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             # Get the current time.
             now = time.time()
-            due_jobs = []  # List to hold jobs that are due.
-            still_delayed = []  # List to hold jobs that are not yet due.
+            due_jobs = []  # list to hold jobs that are due.
+            still_delayed = []  # list to hold jobs that are not yet due.
             # Iterate through the delayed jobs for the queue.
             for run_at, payload in self.delayed.get(queue_name, []):
                 # Check if the job's run time is now or in the past.
@@ -179,16 +188,89 @@ class InMemoryBackend(BaseBackend):
             self.delayed[queue_name] = still_delayed
             return due_jobs  # Return the list of jobs that were due.
 
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """
-        Asynchronously removes a specific job from the delayed list by its ID.
+        Return all delayed jobs for this queue.
+        """
+        async with self.lock:
+            out: list[DelayedInfo] = []
+            for run_at, job in sorted(self.delayed.get(queue_name, []), key=lambda x: x[0]):
+                out.append(DelayedInfo(job_id=job["id"], run_at=run_at, payload=job))
+            return out
 
-        Args:
-            queue_name: The name of the queue the job belongs to.
-            job_id: The ID of the job to remove.
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
-        # This method is not fully implemented in the provided code.
-        pass
+        Remove a scheduled-for-later job. Returns True if removed.
+        """
+        async with self.lock:
+            before = len(self.delayed.get(queue_name, []))
+            self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
+            return len(self.delayed.get(queue_name, [])) < before
+
+    async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return all repeatable-job definitions for this queue.
+        """
+        async with self.lock:
+            out: list[RepeatableInfo] = []
+            for raw, rec in self.repeatables.get(queue_name, {}).items():
+                jd = json.loads(raw)
+                out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
+            return sorted(out, key=lambda x: x.next_run)
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        """
+        Remove a repeatable definition.
+        """
+        async with self.lock:
+            raw = json.dumps(job_def)
+            self.repeatables.get(queue_name, {}).pop(raw, None)
+
+    async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        """
+        Mark the given repeatable paused so scheduler skips it.
+        """
+        async with self.lock:
+            raw = json.dumps(job_def)
+            if raw in self.repeatables.get(queue_name, {}):
+                self.repeatables[queue_name][raw]["paused"] = True
+
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Un-pause the repeatable and return its newly computed next_run timestamp.
+        """
+        async with self.lock:
+            raw = json.dumps(job_def)
+            rec = self.repeatables.get(queue_name, {}).pop(raw, None)
+            if rec is None:
+                raise KeyError(f"Repeatable job not found: {job_def}")
+            clean_def = {k: v for k, v in rec["job_def"].items() if k != "paused"}
+            next_run = compute_next_run(clean_def)
+            self.repeatables.setdefault(queue_name, {})[json.dumps(clean_def)] = {
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+            }
+            return next_run
+
+    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Cancel a job: remove it from waiting/delayed and mark it cancelled.
+        """
+        async with self.lock:
+            # remove from waiting
+            self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
+            # remove from delayed
+            self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
+            # record cancellation
+            self.cancelled.setdefault(queue_name, set()).add(job_id)
+
+    async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
+        """
+        Return True if that job has been cancelled.
+        """
+        async with self.lock:
+            return job_id in self.cancelled.get(queue_name, set())
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -492,7 +574,7 @@ class InMemoryBackend(BaseBackend):
 
     async def list_queues(self) -> list[str]:
         """
-        Lists all known queue names in this in-memory backend instance.
+        lists all known queue names in this in-memory backend instance.
 
         Returns:
             A list of strings, where each string is the name of a queue that
@@ -528,7 +610,7 @@ class InMemoryBackend(BaseBackend):
 
     async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
-        Lists all jobs currently held in memory for a specific queue,
+        lists all jobs currently held in memory for a specific queue,
         regardless of their state (waiting, delayed, or in DLQ).
 
         Args:

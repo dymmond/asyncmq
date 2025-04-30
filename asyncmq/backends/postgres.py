@@ -5,15 +5,17 @@ except ImportError:
 
 import json
 import time
+from datetime import datetime
 from typing import Any
 
 # Import specific types for hints
 from asyncpg import Pool, Record
 
-from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.logging import logger
+from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
 
 
@@ -128,10 +130,10 @@ class PostgresBackend(BaseBackend):
                 # update its status to ACTIVE, and return its data.
                 row: Record | None = await conn.fetchrow(
                     f"""
-                    UPDATE {settings.jobs_table_name}
+                    UPDATE {settings.postgres_jobs_table_name}
                     SET status = $3, updated_at = now()
                     WHERE id = (
-                        SELECT id FROM {settings.jobs_table_name}
+                        SELECT id FROM {settings.postgres_jobs_table_name}
                         WHERE queue_name = $1 AND status = $2
                         ORDER BY created_at ASC
                         LIMIT 1
@@ -235,7 +237,7 @@ class PostgresBackend(BaseBackend):
             rows: list[Record] = await conn.fetch(
                 f"""
                 SELECT data
-                FROM {settings.jobs_table_name}
+                FROM {settings.postgres_jobs_table_name}
                 WHERE queue_name = $1
                   AND (data ->>'delay_until') IS NOT NULL
                   AND (data ->>'delay_until')::float <= $2
@@ -264,6 +266,146 @@ class PostgresBackend(BaseBackend):
         await self.connect()
         # Delete the job from the job store.
         await self.store.delete(queue_name, job_id)
+
+    async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
+        """
+        list all jobs currently scheduled for the future.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT data,
+                       (data ->> 'delay_until')::float AS run_at
+                FROM {settings.postgres_jobs_table_name}
+                WHERE queue_name = $1
+                  AND data ->> 'delay_until' IS NOT NULL
+                ORDER BY run_at
+                """,
+                queue_name,
+            )
+        result: list[DelayedInfo] = []
+        for r in rows:
+            payload = json.loads(r["data"])
+            result.append(DelayedInfo(job_id=payload["id"], run_at=r["run_at"], payload=payload))
+        return result
+
+    async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return all repeatable definitions for this queue.
+        Requires a `repeatables` table with columns (queue_name, job_def JSONB, next_run TIMESTAMPTZ, paused BOOL).
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT job_def, next_run, paused
+                FROM {settings.postgres_repeatables_table_name}
+                WHERE queue_name = $1
+                ORDER BY next_run
+                """,
+                queue_name,
+            )
+        return [
+            RepeatableInfo(
+                job_def=r["job_def"],
+                next_run=r["next_run"].timestamp(),
+                paused=r["paused"],
+            )
+            for r in rows
+        ]
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        """
+        Remove a repeatable definition.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                DELETE
+                FROM {settings.postgres_repeatables_table_name}
+                WHERE queue_name = $1
+                  AND job_def = $2
+                """,
+                queue_name,
+                json.dumps(job_def),
+            )
+
+    async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        """
+        Mark a repeatable as paused so the scheduler will skip it.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                UPDATE {settings.postgres_repeatables_table_name}
+                SET paused = TRUE
+                WHERE queue_name = $1
+                  AND job_def = $2
+                """,
+                queue_name,
+                json.dumps(job_def),
+            )
+
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Un-pause a repeatable, recompute next_run, and return the new timestamp.
+        """
+        await self.connect()
+        clean = {k: v for k, v in job_def.items() if k != "paused"}
+        next_ts = compute_next_run(clean)
+        next_dt = datetime.fromtimestamp(next_ts)
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE {settings.postgres_repeatables_table_name}
+                SET paused   = FALSE,
+                    next_run = $1
+                WHERE queue_name = $2
+                  AND job_def = $3
+                """,
+                next_dt,
+                queue_name,
+                json.dumps(job_def),
+            )
+        return next_ts
+
+    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Cancel a job—prevents waiting, delayed, and in-flight execution.
+        Requires a `cancelled_jobs(queue_name TEXT, job_id TEXT PRIMARY KEY)` table.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            # Record cancellation
+            await conn.execute(
+                f"""
+                INSERT INTO {settings.postgres_cancelled_jobs_table_name}(queue_name, job_id)
+                VALUES ($1, $2) ON CONFLICT DO NOTHING
+                """,
+                queue_name,
+                job_id,
+            )
+
+    async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
+        """
+        Check whether a job has been cancelled.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            found = await conn.fetchval(
+                f"""
+                SELECT 1
+                FROM {settings.postgres_cancelled_jobs_table_name}
+                WHERE queue_name = $1
+                  AND job_id = $2
+                """,
+                queue_name,
+                job_id,
+            )
+        return bool(found)
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -406,7 +548,7 @@ class PostgresBackend(BaseBackend):
             # in their JSONB data.
             rows: list[Record] = await conn.fetch(
                 f"""
-                SELECT id, data FROM {settings.jobs_table_name}
+                SELECT id, data FROM {settings.postgres_jobs_table_name}
                 WHERE queue_name = $1 AND data->'depends_on' IS NOT NULL
                 """,
                 queue_name,
@@ -582,7 +724,7 @@ class PostgresBackend(BaseBackend):
                 # Execute the DELETE query with queue name, status, and age filter.
                 await conn.execute(
                     f"""
-                    DELETE FROM {settings.jobs_table_name}
+                    DELETE FROM {settings.postgres_jobs_table_name}
                     WHERE queue_name = $1 AND status = $2
                       AND EXTRACT(EPOCH FROM created_at) < $3
                     """,
@@ -594,7 +736,7 @@ class PostgresBackend(BaseBackend):
                 # Execute the DELETE query with only queue name and status filter.
                 await conn.execute(
                     f"""
-                    DELETE FROM {settings.jobs_table_name}
+                    DELETE FROM {settings.postgres_jobs_table_name}
                     WHERE queue_name = $1 AND status = $2
                     """,
                     queue_name,
@@ -674,7 +816,9 @@ class PostgresBackend(BaseBackend):
         # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
             # Fetch all distinct queue names from the jobs table.
-            rows: list[Record] = await conn.fetch(f"SELECT DISTINCT queue_name FROM {settings.jobs_table_name}")
+            rows: list[Record] = await conn.fetch(
+                f"SELECT DISTINCT queue_name FROM {settings.postgres_jobs_table_name}"
+            )
             # Extract and return the queue names.
             return [row["queue_name"] for row in rows]
 
@@ -699,17 +843,17 @@ class PostgresBackend(BaseBackend):
         async with self.store.pool.acquire() as conn:
             # Fetch the count of waiting jobs.
             waiting: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
+                f"SELECT COUNT(*) FROM {settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
                 queue_name,
             )
             # Fetch the count of delayed jobs.
             delayed: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='delayed'",
+                f"SELECT COUNT(*) FROM {settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='delayed'",
                 queue_name,
             )
             # Fetch the count of failed jobs.
             failed: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {settings.jobs_table_name} WHERE queue_name=$1 AND status='failed'",
+                f"SELECT COUNT(*) FROM {settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='failed'",
                 queue_name,
             )
             # Return the counts, defaulting None to 0.
@@ -739,7 +883,7 @@ class PostgresBackend(BaseBackend):
         async with self.store.pool.acquire() as conn:
             # Fetch the JSONB data for all jobs in the queue.
             rows: list[Record] = await conn.fetch(
-                f"SELECT data FROM {settings.jobs_table_name} WHERE queue_name=$1",
+                f"SELECT data FROM {settings.postgres_jobs_table_name} WHERE queue_name=$1",
                 queue_name,
             )
             # Deserialize and return the job payloads.
@@ -765,7 +909,7 @@ class PostgresBackend(BaseBackend):
             # Execute an UPDATE statement to change the status of the specific
             # failed job to 'waiting'.
             updated_command_tag: str = await conn.execute(
-                f"UPDATE {settings.jobs_table_name} SET status='waiting' WHERE id=$1 AND queue_name=$2 AND status='failed'",
+                f"UPDATE {settings.postgres_jobs_table_name} SET status='waiting' WHERE id=$1 AND queue_name=$2 AND status='failed'",
                 job_id,
                 queue_name,
             )
@@ -792,7 +936,7 @@ class PostgresBackend(BaseBackend):
         async with self.store.pool.acquire() as conn:
             # Execute a DELETE statement to remove the specific job.
             deleted_command_tag: str = await conn.execute(
-                f"DELETE FROM {settings.jobs_table_name} WHERE id=$1 AND queue_name=$2",
+                f"DELETE FROM {settings.postgres_jobs_table_name} WHERE id=$1 AND queue_name=$2",
                 job_id,
                 queue_name,
             )
@@ -820,7 +964,7 @@ class PostgresBackend(BaseBackend):
             # Execute the SQL UPDATE statement
             await conn.execute(
                 f"""
-                UPDATE {settings.jobs_table_name}
+                UPDATE {settings.postgres_jobs_table_name}
                    SET data = jsonb_set(
                                data,
                                '{{heartbeat}}',
@@ -859,7 +1003,7 @@ class PostgresBackend(BaseBackend):
         rows = await self.pool.fetch(
             f"""
             SELECT queue_name, data
-              FROM {settings.jobs_table_name}
+              FROM {settings.postgres_jobs_table_name}
              WHERE (data->>'heartbeat')::float < $1 -- Filter by heartbeat timestamp
                AND status = $2                      -- Filter by job status being ACTIVE
             """,

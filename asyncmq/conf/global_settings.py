@@ -1,12 +1,11 @@
 from __future__ import annotations  # Enable postponed evaluation of type hints
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from asyncmq import __version__  # noqa: F401 # Import package version, ignore unused warning
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.streams.redis import RedisStream
 
 # Conditionally import LoggingConfig only for type checking purposes.
 # This prevents potential import issues or circular dependencies at runtime.
@@ -15,65 +14,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class StreamSettings:
-    """
-    Settings specific to AsyncMQ stream backend configurations.
-
-    This dataclass holds configuration related to stream processing,
-    including the default table name for Postgres streams and a mapping
-    of available stream backend implementations.
-    """
-
-    # For Postgres: The name of the table used for storing stream data.
-    postgres_streams_table_name: str = "asyncmq_streams"
-    mongo_streams_table_name: str = "asyncmq_streams"
-
-    # A dictionary mapping stream backend names (str) to their corresponding
-    # callable factory or class (BaseBackend). Defaults to include the RedisStream.
-    stream_backends: dict[str, BaseBackend] = field(
-        default_factory=lambda: {
-            "redis": RedisStream,
-        }
-    )
-
-    def add_stream_backend(self, name: str, backend: BaseBackend) -> None:
-        """
-        Adds or updates a stream backend in the `stream_backends` mapping.
-
-        Args:
-            name: The unique name for the stream backend (e.g., "redis", "postgres").
-            backend: The callable factory or class for the stream backend.
-        """
-        self.stream_backends[name] = backend
-
-    def remove_stream_backend(self, name: str) -> None:
-        """
-        Removes a stream backend from the `stream_backends` mapping.
-
-        Args:
-            name: The name of the stream backend to remove.
-
-        Raises:
-            KeyError: If the specified backend name is not found.
-        """
-        del self.stream_backends[name]
-
-    def update_stream_backend(self, name: str, backend: BaseBackend) -> None:
-        """
-        Updates an existing stream backend in the `stream_backends` mapping.
-
-        This method is functionally identical to `add_stream_backend` as
-        dictionary assignment updates existing keys.
-
-        Args:
-            name: The name of the stream backend to update.
-            backend: The new callable factory or class for the backend.
-        """
-        self.add_stream_backend(name, backend)
-
-
-@dataclass
-class Settings(StreamSettings):
+class Settings:
     """
     Comprehensive configuration settings for the entire AsyncMQ system.
 
@@ -104,6 +45,8 @@ class Settings(StreamSettings):
     postgres_jobs_table_name: str = "asyncmq_jobs"
     # For Postgres backend: The connection URL (DSN) for the Postgres database.
     # Can be None if connection string is provided directly to functions.
+    postgres_repeatables_table_name: str = "asyncmq_repeatables"
+    postgres_cancelled_jobs_table_name: str = "asyncmq_cancelled_jobs"
     asyncmq_postgres_backend_url: str | None = None
     # For Postgres backend: A dictionary of options to pass to asyncpg.create_pool.
     # Can be None if default pool options are sufficient or options are

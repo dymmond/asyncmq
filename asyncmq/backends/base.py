@@ -1,5 +1,38 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass
+class RepeatableInfo:
+    """
+    Dataclass representing information about a repeatable job definition.
+
+    Attributes:
+        job_def: A dictionary containing the definition of the repeatable job.
+        next_run: The timestamp (float) when the next run of this job is scheduled.
+        paused: A boolean indicating whether this repeatable job is currently paused.
+    """
+
+    job_def: dict[str, Any]
+    next_run: float
+    paused: bool
+
+
+@dataclass
+class DelayedInfo:
+    """
+    Dataclass representing information about a delayed job.
+
+    Attributes:
+        job_id: The unique identifier of the delayed job.
+        run_at: The timestamp (float) when the delayed job is scheduled to run.
+        payload: A dictionary containing the full job payload for the delayed job.
+    """
+
+    job_id: str
+    run_at: float
+    payload: dict[str, Any]
 
 
 class BaseBackend(ABC):
@@ -10,7 +43,8 @@ class BaseBackend(ABC):
     abstract methods. This interface covers core queue operations (enqueueing,
     dequeueing, dead-letter queue), delayed jobs, job state management,
     dependency tracking, queue pause/resume functionality, bulk operations,
-    cleanup, event emission, and distributed locking.
+    cleanup, event emission, and distributed locking. It also includes methods
+    for managing repeatable jobs and handling stalled jobs.
     """
 
     @abstractmethod
@@ -254,7 +288,7 @@ class BaseBackend(ABC):
             queue_name: The name of the queue to check.
 
         Returns:
-            True if the queue is paused, False otherwise.
+            True if the pause state is active for the queue, False otherwise.
         """
         ...
 
@@ -302,9 +336,9 @@ class BaseBackend(ABC):
             queue_name: The name of the queue to purge jobs from.
             state: The state of the jobs to target for purging.
             older_than: An optional timestamp (float). If provided, only jobs
-                        whose completion/failure time is before this timestamp
-                        will be purged. If None, all jobs in the specified state
-                        are purged.
+                        whose relevant timestamp (e.g., completion/failure time)
+                        is before this timestamp will be purged. If None, all
+                        jobs in the specified state are purged.
         """
         ...
 
@@ -323,14 +357,14 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def create_lock(
-        self, key: str, ttl: int
-    ) -> Any:  # Changed return type to Any as lock type is backend specific
+    async def create_lock(self, key: str, ttl: int) -> Any:
         """
         Asynchronously creates a backend-specific distributed lock.
 
         This method provides a mechanism for ensuring that only one worker or
         process can acquire a lock for a given key across a distributed system.
+        The specific type of the returned lock object depends on the backend
+        implementation.
 
         Args:
             key: A unique string identifier for the lock.
@@ -355,7 +389,7 @@ class BaseBackend(ABC):
         This method provides a default implementation that sequentially enqueues
         jobs and then adds dependencies. Backends that support true atomic
         operations for flow creation should override this method for better
-        consistency.
+        consistency and performance.
 
         Args:
             queue_name: The target queue for all jobs in the flow.
@@ -384,21 +418,128 @@ class BaseBackend(ABC):
     @abstractmethod
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
-        Record the timestamp of the last heartbeat for a running job.
+        Asynchronously records the timestamp of the last heartbeat for a running job.
+
+        This is used by the stalled job detection mechanism to track the activity
+        of currently processing jobs.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+            timestamp: The timestamp (float) of the last heartbeat.
         """
         ...
 
     @abstractmethod
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
-        Retrieve all jobs whose last heartbeat is older than `older_than`.
-        Returns a list of dicts like {'queue': queue_name, 'job_data': raw_job}.
+        Asynchronously retrieves all jobs whose last heartbeat is older than a
+        specified timestamp, indicating they might be stalled.
+
+        Args:
+            older_than: A timestamp (float). Jobs whose last heartbeat is before
+                        this time are considered potentially stalled.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a potentially
+            stalled job and includes information like the queue name and job data.
+            The structure might be like `{'queue': queue_name, 'job_data': raw_job}`.
         """
         ...
 
     @abstractmethod
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """
-        Re-enqueue a stalled job back onto its queue for re-processing.
+        Asynchronously re-enqueues a stalled job back onto its original queue
+        for re-processing.
+
+        This is part of the stalled job recovery process.
+
+        Args:
+            queue_name: The name of the queue the stalled job belongs to.
+            job_data: The dictionary containing the job data of the stalled job.
+        """
+        ...
+
+    @abstractmethod
+    async def list_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves a list of all currently delayed jobs for a
+        specific queue.
+
+        Args:
+            queue_name: The name of the queue to list delayed jobs for.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a delayed
+            job and includes information like 'id', 'payload', and 'run_at'.
+        """
+        ...
+
+    @abstractmethod
+    async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Asynchronously retrieves a list of all repeatable job definitions for a
+        specific queue.
+
+        Args:
+            queue_name: The name of the queue to list repeatable jobs for.
+
+        Returns:
+            A list of `RepeatableInfo` dataclass instances.
+        """
+        ...
+
+    @abstractmethod
+    async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        """
+        Asynchronously marks a specific repeatable job definition as paused.
+
+        The scheduler should skip scheduling new instances of a paused repeatable job.
+
+        Args:
+            queue_name: The name of the queue the repeatable job belongs to.
+            job_def: The dictionary defining the repeatable job to pause.
+        """
+        ...
+
+    @abstractmethod
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Asynchronously un-pauses a repeatable job definition and computes its
+        next scheduled run time.
+
+        Args:
+            queue_name: The name of the queue the repeatable job belongs to.
+            job_def: The dictionary defining the repeatable job to resume.
+
+        Returns:
+            The newly computed timestamp (float) for the next run of the repeatable job.
+        """
+        ...
+
+    @abstractmethod
+    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Asynchronously cancels a job, removing it from active/waiting/delayed
+        queues and marking it so workers will stop processing or skip it.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to cancel.
+        """
+        ...
+
+    @abstractmethod
+    async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
+        """
+        Asynchronously checks if a specific job has been marked as cancelled.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to check.
+
+        Returns:
+            True if the job is cancelled, False otherwise.
         """
         ...
