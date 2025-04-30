@@ -15,6 +15,26 @@ JOB_STATES: tuple[str, ...] = (
     State.EXPIRED,
 )
 
+class JobOptions:
+    """
+    Configuration for individual jobs: number of attempts, priority, backoff, etc.
+    """
+    def __init__(
+        self,
+        attempts: int = 1,
+        priority: int | None = None,
+        backoff: Any | None = None,
+        remove_on_complete: bool = True,
+        **extra,
+    ):
+        self.attempts = attempts
+        self.priority = priority
+        self.backoff = backoff
+        self.remove_on_complete = remove_on_complete
+        # any other custom options
+        for k, v in extra.items():
+            setattr(self, k, v)
+
 
 class Job:
     """

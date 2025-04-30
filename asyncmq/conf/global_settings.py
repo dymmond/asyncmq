@@ -35,16 +35,29 @@ class Settings:
     version: str = __version__
     is_logging_setup: bool = False
 
-    # For Postgres and MongoDB
+    # For Postgres backend
     jobs_table_schema: str = "asyncmq"
     jobs_table_name: str = "asyncmq_jobs"
     asyncmq_postgres_backend_url: str | None = None
+
+    # For MongoDB backend
     asyncmq_mongodb_backend_url: str | None = None
     asyncmq_mongodb_database_name: str | None = "asyncmq"
 
     # For stalled recovery scheduler
     stalled_check_interval: float = 60.0
     stalled_threshold: float = 30.0
+
+    # For the sandbox settings usage
+    sandbox_enabled: bool = False
+    sandbox_default_timeout: float = 30.0 # seconds
+    sandbox_ctx: str | None = "fork"  # or "spawn", or "forkserver"
+
+    # How many jobs to run in parallel per worker process
+    worker_concurrency: int = 10
+
+    # Rate-limit configuration for RateLimiter (e.g. {"my-queue": {"max_calls": 100, "period": 60}})
+    rate_limit_config: dict[str, dict[str, int]] | None = None
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:
