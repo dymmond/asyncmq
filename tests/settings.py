@@ -12,8 +12,6 @@ class TestSettings(Settings):
     stalled_threshold: float = test_scanner_interval
 
     asyncmq_postgres_pool_options = {
-        "max_overflow": 10,
-        "pool_size": 5,
-        "pool_timeout": 30,
-        "pool_recycle": 1800,
+        "min_size": 10,
+        "max_size" : 200,
     }

@@ -49,8 +49,8 @@ class PostgresBackend(BaseBackend):
         # Initialize the asyncpg connection pool to None; it will be created on connect.
         self.pool: Pool | None = None
         # Initialize the PostgresJobStore with the DSN.
-        self.store: PostgresJobStore = PostgresJobStore(dsn=dsn)
         self.pool_options = pool_options or settings.asyncmq_postgres_pool_options or {}
+        self.store: PostgresJobStore = PostgresJobStore(dsn=dsn, pool_options=self.pool_options)
 
     async def connect(self) -> None:
         """
