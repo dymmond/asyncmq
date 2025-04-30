@@ -11,6 +11,7 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
@@ -132,6 +133,11 @@ async def handle_job(
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(raw_job)
 
+    if await backend.is_job_cancelled(queue_name, job.id):
+        await backend.ack(queue_name, job.id)
+        await event_emitter.emit("job:cancelled", job.to_dict())
+        return
+
     # 1) TTL expiration check: If the job has expired based on its TTL
     if job.is_expired():
         # Update job status to EXPIRED
@@ -160,9 +166,16 @@ async def handle_job(
         # Emit a job:started event
         await event_emitter.emit("job:started", job.to_dict())
 
+        if settings.enable_stalled_check:
+            await backend.save_heartbeat(queue_name, job.id, time.time())
+
         # Retrieve task metadata and the handler function from the registry
         meta = TASK_REGISTRY[job.task_id]
         handler = meta["func"]
+
+        # Mid-flight cancellation check
+        if await backend.is_job_cancelled(queue_name, job.id):
+            raise JobCancelled()
 
         # 4) Execute task (sandbox vs direct): Run the task, potentially in a sandbox
         if settings.sandbox_enabled:
@@ -197,6 +210,10 @@ async def handle_job(
         await backend.ack(queue_name, job.id)
         # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
+
+    except JobCancelled:
+        # Cancellation path
+        await event_emitter.emit("job:cancelled", job.to_dict())
 
     except Exception:
         # Exception handling: If any exception occurs during execution

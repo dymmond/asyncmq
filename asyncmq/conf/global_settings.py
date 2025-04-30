@@ -60,6 +60,7 @@ class Settings:
     # Defaults to "asyncmq".
     asyncmq_mongodb_database_name: str | None = "asyncmq"
 
+    enable_stalled_check: bool = False
     # For stalled recovery scheduler: The interval (in seconds) between checks
     # for stalled jobs.
     stalled_check_interval: float = 60.0

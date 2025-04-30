@@ -309,6 +309,9 @@ class Queue:
         # Run the asynchronous 'run' method within an AnyIO event loop.
         anyio.run(self.run)
 
+    async def list_delayed(self) -> bool:
+        return await self.backend.list_delayed(self.name)
+
     async def remove_delayed(self, job_id: str) -> bool:
         return await self.backend.remove_delayed(self.name, job_id)
 
