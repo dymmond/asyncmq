@@ -165,7 +165,7 @@ class PostgresBackend(BaseBackend):
 
         # Only delete if there is no saved result to retrieve.
         job = await self.store.load(queue_name, job_id)
-        if not job or "result" not in job:
+        if not job or job.get("result") is None:
             await self.store.delete(queue_name, job_id)
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
