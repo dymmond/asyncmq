@@ -1,167 +1,165 @@
-# AsyncMQ
+AsyncMQ
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-org/asyncmq/ci.yml?branch=main)](https://github.com/tarsil/asyncmq/actions)
-[![PyPI Version](https://img.shields.io/pypi/v/asyncmq.svg)](https://pypi.org/project/asyncmq/)
-[![License](https://img.shields.io/github/license/tarsil/asyncmq)](https://github.com/tarsil/asyncmq/blob/main/LICENSE)
-[![Downloads](https://static.pepy.tech/badge/asyncmq)](https://pepy.tech/project/asyncmq)
+   
 
-**Supercharge your async applications with a modern, blazing-fast task queue for Python.**  
-_Tasks so fast, you’ll think you’re bending time itself._
+> Async task queue with BullMQ-like features, but 100% Pythonic and asyncio-powered 🚀
 
----
 
-## What is AsyncMQ?
 
-AsyncMQ is a **modern**, **async-native**, **highly extensible** task queue built for **Python 3.11+**.  
-Inspired by giants like **BullMQ**, **Celery**, and **RQ** — but designed for the speed demons of the async world.
+If you've ever wondered what BullMQ would feel like in Python—complete with async/await syntax, multiple backends, and a sprinkle of human-friendly CLI—well, wonder no more. AsyncMQ is your new best friend for orchestrating distributed jobs, cron tasks, retries, and more, all without leaving the comfy confines of Python.
 
-Whether you need **scheduled jobs**, **retries**, **dead letter queues**, **persistence**, or **Pub/Sub events**, AsyncMQ has your back — all without blocking your event loop.
+🎯 Features
 
-> Build faster. Scale easier. Sleep better.
+* Fully Async: Built on asyncio/anyio, speed and concurrency at your fingertips.
 
----
+* Multi-Backend Support: Redis, PostgreSQL, MongoDB, or pure in-memory for local dev & testing.
 
-## Features
+* Delays & Repeatables: Schedule one-off delays or cron-style repeatable jobs with ease.
 
-- ⚡ **Blazing Fast** — Built from the ground up with `asyncio`.
-- ⛓ **Redis & Memory Backends** — Choose between lightweight or battle-tested.
-- ♻️ **Automatic Retries & TTLs** — No more babysitting jobs.
-- ☠️ **Dead Letter Queue** — Handle failures like a pro.
-- ⏰ **Delayed Jobs** — Schedule work for the future (because who likes deadlines?).
-- 📡 **Pub/Sub Job Events** — Real-time feedback on job progress.
-- 🛠 **Pluggable Persistence** — Postgres-backed job storage included!
-- 🧵 **Seamless Integration** — Works natively with **Esmerald**, **FastAPI**, and any async app.
-- ✨ **CLI Goodness** — List, retry, inspect jobs directly from your terminal.
-- ❤️ **Designed to be loved** — Beautifully documented. Dead simple to use.
+* Retries & Backoff: Configurable max retries and custom backoff strategies.
 
----
+* TTL & DLQ: Job expiration and dead-letter handling, so nothing ever silently vanishes.
 
-## Installation
+* Priorities & Rate Limiting: Push urgent jobs ahead and throttle workers when you need it.
 
-```bash
+* Stalled Recovery: Automatic detection & rescue of stuck jobs.
+
+* Flows & Dependencies: Define DAGs of jobs that run atomically when dependencies are met.
+
+* Sandboxed Processors: Run your task code in isolated subprocesses for extra safety.
+
+* Rich CLI: asyncmq queue, asyncmq worker, asyncmq job, asyncmq info commands.
+
+🚀 Quickstart
+
+Installation
+
 pip install asyncmq
+
+Define a Task
+
+# tasks.py
+
+```pyrhon
+from asyncmq.tasks import task
+
+@task(name="say-hello", max_retries=3, backoff=lambda n: 2**n)
+async def say_hello(name: str) -> None:
+    print(f"👋 Hello, {name}!")
 ```
 
-For Postgres persistence support:
+Enqueue a Job
 
-```bash
-pip install asyncmq[postgres]
+```python
+from asyncmq.queues import Queue
+import asyncio
 
+async def main():
+    q = Queue("greetings", backend_url="redis://localhost:6379")
+    await q.add("say-hello", {"name": "World"}, priority=10)
+    await q.close()
+
+asyncio.run(main())
 ```
-For Redis backend:
 
-It's built-in.
+Run a Worker
+
+```python
+asyncmq worker greetings --concurrency 5
+```
+
+That’s it! Your worker will pick up say-hello jobs and run them safely in a subprocess sandbox.
+
+🛠 CLI Usage
+
+# List all queues
+
+```python
+asyncmq queue list
+```
+
+# Inspect jobs in a queue
+
+```python
+asyncmq job list --queue greetings
+```
+
+# Pause and resume
+
+```python
+asyncmq queue pause greetings
+asyncmq queue resume greetings
+
+# View queue stats
+asyncmq info stats --queue greetings
+```
+
+📦 Backend Configuration
+
+AsyncMQ supports multiple backends. Configure via URL or parameters:
+
+# Redis (default)
+
+```pythoj
+q = Queue("q1", backend_url="redis://localhost:6379")
+
+# PostgreSQL
+q = Queue("q2", backend_url="postgres://user:pass@localhost:5432/db")
+
+# MongoDB
+tasks = Queue("q3", backend_url="mongodb://localhost:27017/db")
+
+# In-memory (for tests)
+q = Queue("test", backend_url="memory://")
+```
+
+📖 Documentation & Roadmap
+
+Head over to the full docs for:
+
+Detailed API reference
+
+Backend-specific caveats & tuning
+
+Guides on metrics, monitoring, and deployment
+
+
+Roadmap highlights:
+
+Cross-process event bus using Redis Pub/Sub
+
+Built-in metrics & Prometheus exporter
+
+Official dashboard (coming soon!)
+
+Extra backoff presets (exponential, jitter, etc.)
+
+
+🤝 Contributing
+
+Contributions, issues, and feature requests are welcome! Feel free to check our Changelog and drop a PR.
+
+1. Fork it
+
+
+2. Create your feature branch (git checkout -b feature/fooBar)
+
+
+3. Commit your changes (git commit -am 'Add some fooBar')
+
+
+4. Push to the branch (git push origin feature/fooBar)
+
+
+5. Create a new Pull Request
+
+
+
+📜 License
+
+AsyncMQ is released under the BSD 3-Clause License. See LICENSE for details.
+
 
 ---
 
-Quick Start
-
-```python
-from asyncmq import Queue, Worker, Job
-```
-
-# Create a queue
-
-```python
-queue = Queue(name="emails")
-```
-
-# Define a job processor
-
-```python
-async def : Job):
-    print(f"Sending email to {job.data['to']}")
-```
-
-# Register the worker
-
-```python
-worker = Worker(queue)
-worker.register_processor(send_email)
-```
-
-# Add a job
-
-```python
-await queue.add({"to": "user@example.com"})
-```
-
-# Start the worker
-
-```python
-await worker.start()
-```
-
-Boom. Emails flying faster than you can say "async def".
-
-
----
-
-Real-World Example
-
-Want to schedule a notification to be sent 1 hour later with retries and error handling?
-
-```python
-await queue.add(
-    data={"user_id": 42, "message": "Don't forget to hydrate!"},
-    delay=3600,    # Delay by 1 hour
-    attempts=5,    # Retry up to 5 times
-    backoff=30,    # 30s backoff between retries
-    ttl=7200       # TTL of 2 hours
-)
-
-```
-
-> AsyncMQ makes it effortless to schedule, retry, and recover from failures.
-
----
-
-Documentation
-
-The full documentation lives at /docs/.
-There you’ll find:
-
-Beginner tutorials
-
-Advanced guides
-
-Real-world usage examples
-
-Integration with Esmerald and FastAPI
-
-How to extend AsyncMQ
-
-And much more!
-
----
-
-Integrations
-
-AsyncMQ + Esmerald
-
-Want to trigger background jobs from your Esmerald endpoints? It’s native.
-See full Esmerald integration guide.
-
-AsyncMQ + FastAPI
-
-Need ultra-fast background tasks for your FastAPI apps? We got you.
-See full FastAPI integration guide.
-
----
-
-Contributing
-
-Contributions are more than welcome!
-AsyncMQ is community-driven — feel free to submit PRs, suggest features, fix typos, or just tell us you love us.
-
-* Fork it
-* Create your feature branch (git checkout -b feature/amazing-feature)
-* Commit your changes (git commit -m 'Add amazing feature')
-* Push to the branch (git push origin feature/amazing-feature)
-* Open a Pull Request
-
----
-
-License
-
-Licensed under the BSD-3 License
+Made with ❤️ in Python by Tiago Silva and the AsyncMQ community.
