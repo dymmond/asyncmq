@@ -355,3 +355,6 @@ class Queue:
         Get counts of waiting, delayed, failed for this queue.
         """
         return await self.backend.queue_stats(self.name)
+
+    async def list_jobs(self, state: str) -> list[dict[str, Any]]:
+        return await self.backend.list_jobs(self.name, state)

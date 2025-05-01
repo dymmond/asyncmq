@@ -608,30 +608,27 @@ class InMemoryBackend(BaseBackend):
             "failed": failed,
         }
 
-    async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+    async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        lists all jobs currently held in memory for a specific queue,
-        regardless of their state (waiting, delayed, or in DLQ).
+        Lists jobs from the in-memory backend filtered by state.
 
         Args:
-            queue_name: The name of the queue to list jobs for.
+            queue_name: The name of the queue to list jobs from.
+            state: The job state to filter (waiting, delayed, failed).
 
         Returns:
-            A list of dictionaries, each representing a job payload.
+            A list of job dictionaries.
         """
         async with self.lock:
-            jobs = []
-            # Add jobs from the waiting queue.
-            for job in self.queues.get(queue_name, []):
-                jobs.append(job)
-            # Add job payloads from the delayed list.
-            for _, job in self.delayed.get(queue_name, []):
-                jobs.append(job)
-            # Add jobs from the DLQ.
-            for job in self.dlqs.get(queue_name, []):
-                jobs.append(job)
-            # Return the combined list of jobs.
-            return jobs
+            match state:
+                case "waiting":
+                    return list(self.queues.get(queue_name, []))
+                case "delayed":
+                    return [job for _, job in self.delayed.get(queue_name, [])]
+                case "failed":
+                    return list(self.dlqs.get(queue_name, []))
+                case _:
+                    return []  # Unsupported state
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -806,3 +803,14 @@ class InMemoryBackend(BaseBackend):
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            match state:
+                case "waiting":
+                    return list(self.queues.get(queue, []))
+                case "delayed":
+                    return [j for _, j in self.delayed.get(queue, [])]
+                case "failed":
+                    return list(self.dlqs.get(queue, []))
+                case _:
+                    return []  # Memory backend may not track active/completed

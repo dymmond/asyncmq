@@ -213,3 +213,12 @@ class PostgresJobStore(BaseJobStore):
             )
             # Extract and return the 'data' column (JSONB) from each row as a list of dictionaries.
             return [json.loads(row["data"]) for row in rows]
+
+    async def filter(self, queue: str, state: str) -> list[dict[str, Any]]:
+        await self.connect()
+        query = f"""
+            SELECT data FROM {settings.postgres_jobs_table_name}
+            WHERE queue_name = $1 AND status = $2
+        """
+        rows = await self.pool.fetch(query, queue, state)
+        return [json.loads(row["data"]) for row in rows]

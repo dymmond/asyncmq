@@ -4,6 +4,7 @@ import time
 import pytest
 
 from asyncmq.backends.mongodb import MongoDBBackend
+from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 
@@ -84,3 +85,22 @@ async def test_pause_resume(backend):
 
     await backend.resume_queue("test-queue")
     assert await backend.is_queue_paused("test-queue") is False
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_by_state(backend, state):
+    queue = "test-queue"
+    job = Job(task_id="test.task", args=[], kwargs={})
+
+    if state == "waiting":
+        await backend.enqueue(queue, job.to_dict())
+    elif state == "delayed":
+        delayed_job = job.to_dict()
+        await backend.enqueue_delayed(queue, delayed_job, run_at=9999999999)
+    elif state == "failed":
+        await backend.enqueue(queue, job.to_dict())
+        await backend.move_to_dlq(queue, job.to_dict())
+
+    jobs = await backend.list_jobs(queue, state)
+    print("Returned jobs:", jobs)
+    assert isinstance(jobs, list)
+    assert any(j.get("task") == "test.task" for j in jobs)

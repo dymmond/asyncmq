@@ -170,3 +170,20 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
     anyio.run(q.cancel_job, job_id)
     # Print a confirmation message with a no-entry emoji and the job ID.
     console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")
+
+
+@job_app.command("list")
+@click.option("--queue", required=True, help="Queue name to filter jobs")
+@click.option("--state", required=True, help="Job state to filter (waiting, active, completed, failed, delayed)")
+def list_jobs(queue: str, state: str) -> None:
+    """Lists jobs in a specific queue filtered by job state."""
+    get_print_banner(JOBS_LOGO, title="AsyncMQ List Jobs")
+    # Create a Queue instance for the specified queue name.
+    q = Queue(queue)
+    jobs = anyio.run(q.list_jobs, state)
+    if not jobs:
+        console.print(f"[bold yellow]No jobs found in '{queue}' with state '{state}'.[/]")
+        return
+    for job in jobs:
+        console.print(
+            f"[green]ID:[/] {job.get('job_id')}  [blue]State:[/] {job.get('status')}  [magenta]Task:[/] {job.get('task_id')}")
