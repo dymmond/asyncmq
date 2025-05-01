@@ -32,15 +32,17 @@ If you've ever wondered what BullMQ would feel like in Python—complete with as
 
 🚀 Quickstart
 
-Installation
+Installatio
 
+```shell
 pip install asyncmq
+```
 
 Define a Task
 
 # tasks.py
 
-```pyrhon
+```python
 from asyncmq.tasks import task
 
 @task(name="say-hello", max_retries=3, backoff=lambda n: 2**n)
