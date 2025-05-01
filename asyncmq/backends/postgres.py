@@ -863,30 +863,27 @@ class PostgresBackend(BaseBackend):
                 "failed": failed or 0,
             }
 
-    async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+    async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        Asynchronously lists all jobs (payloads) in any state within a specific
-        queue by querying the database.
-
-        Retrieves the `data` column (JSONB payload) for all jobs belonging
-        to the specified queue and deserializes them.
+        Lists jobs in a specific queue filtered by job state.
 
         Args:
-            queue_name: The name of the queue to list jobs from.
+            queue_name: The name of the queue.
+            state: The job status (e.g. waiting, active, completed, failed, delayed).
 
         Returns:
-            A list of dictionaries, where each dictionary is a job payload.
+            A list of job payload dictionaries.
         """
-        # Acquire a connection from the job store's pool.
-        # Note: This accesses the pool via the job store, which differs from
-        # other methods using `self.pool.acquire()`.
         async with self.store.pool.acquire() as conn:
-            # Fetch the JSONB data for all jobs in the queue.
-            rows: list[Record] = await conn.fetch(
-                f"SELECT data FROM {settings.postgres_jobs_table_name} WHERE queue_name=$1",
+            rows = await conn.fetch(
+                f"""
+                SELECT data
+                FROM {settings.postgres_jobs_table_name}
+                WHERE queue_name = $1 AND status = $2
+                """,
                 queue_name,
+                state,
             )
-            # Deserialize and return the job payloads.
             return [json.loads(row["data"]) for row in rows]
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:

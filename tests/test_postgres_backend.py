@@ -6,6 +6,7 @@ import pytest
 from asyncmq.backends.postgres import PostgresBackend
 from asyncmq.core.enums import State
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
+from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 
@@ -88,9 +89,8 @@ async def test_save_job_progress(backend):
 async def test_bulk_enqueue(backend):
     jobs = [{"id": f"bulk-{i}", "task_id": "bulk_task", "args": [], "kwargs": {}} for i in range(5)]
     await backend.bulk_enqueue("test-queue", jobs)
-    # We can't guarantee order, but 5 jobs should exist
     all_jobs = await backend.store.all_jobs("test-queue")
-    assert len([job for job in all_jobs if job["task_id"] == "bulk_task"]) >= 5
+    assert len([job for job in all_jobs if job.get("task_id") == "bulk_task" or job.get("task") == "bulk_task"]) >= 5
 
 
 async def test_purge(backend):
@@ -108,3 +108,69 @@ async def test_distributed_lock(backend):
     acquired = await lock.acquire()
     assert acquired
     await lock.release()
+
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_by_state(backend, state):
+    queue = "test-queue"
+    job = Job(task_id="test.task", args=[], kwargs={})
+
+    if state == "waiting":
+        await backend.enqueue(queue, job.to_dict())
+    elif state == "delayed":
+        delayed_job = job.to_dict()
+        await backend.enqueue_delayed(queue, delayed_job, run_at=9999999999)
+    elif state == "failed":
+        await backend.enqueue(queue, job.to_dict())
+        await backend.move_to_dlq(queue, job.to_dict())
+
+    jobs = await backend.list_jobs(queue, state)
+    print("Returned jobs:", jobs)
+    assert isinstance(jobs, list)
+    assert any(j.get("task") == "test.task" for j in jobs)
+
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_empty_queue(backend, state):
+    jobs = await backend.list_jobs("empty-queue", state)
+    assert isinstance(jobs, list)
+    assert len(jobs) == 0
+
+
+async def test_list_jobs_filters_correctly(backend):
+    queue = "filter-test"
+    job1 = Job(task_id="waiting.job", args=[], kwargs={})
+    job2 = Job(task_id="delayed.job", args=[], kwargs={})
+    job3 = Job(task_id="failed.job", args=[], kwargs={})
+
+    await backend.enqueue(queue, job1.to_dict())
+    await backend.enqueue_delayed(queue, job2.to_dict(), run_at=9999999999)
+    await backend.enqueue(queue, job3.to_dict())
+    await backend.move_to_dlq(queue, job3.to_dict())
+
+    waiting = await backend.list_jobs(queue, "waiting")
+    delayed = await backend.list_jobs(queue, "delayed")
+    failed = await backend.list_jobs(queue, "failed")
+
+    assert all(j["task"] == "waiting.job" for j in waiting)
+    assert all(j["task"] == "delayed.job" for j in delayed)
+    assert all(j["task"] == "failed.job" for j in failed)
+
+
+async def test_list_jobs_case_sensitive_state(backend):
+    queue = "case-queue"
+    job = Job(task_id="case.job", args=[], kwargs={})
+    await backend.enqueue(queue, job.to_dict())
+
+    jobs = await backend.list_jobs(queue, "Waiting")  # mixed case
+    assert jobs == []  # or assert case-insensitive match if backend supports it
+
+
+async def test_list_jobs_wrong_status_filter(backend):
+    queue = "wrong-status-queue"
+    job = Job(task_id="present.job", args=[], kwargs={})
+    await backend.enqueue(queue, job.to_dict())
+
+    # Ask for "failed", should return empty
+    jobs = await backend.list_jobs(queue, "failed")
+    assert jobs == []

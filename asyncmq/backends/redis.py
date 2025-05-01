@@ -826,31 +826,38 @@ class RedisBackend(BaseBackend):
             "failed": failed,
         }
 
-    async def list_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+    async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        Asynchronously lists all jobs (payloads) across the waiting, delayed,
-        and Dead Letter Queue (DLQ) for a specific queue.
+        Lists jobs in a given queue filtered by a specific state.
 
-        Retrieves all members from the respective Redis Sorted Sets (`queue:{queue_name}:waiting`,
-        `queue:{queue_name}:delayed`, `queue:{queue_name}:dlq`), decodes
-        the JSON payloads, and returns them as a list of dictionaries.
+        Supported states: waiting, delayed, failed.
 
         Args:
-            queue_name: The name of the queue to list jobs from.
+            queue_name: The name of the queue.
+            state: The job state to filter by.
 
         Returns:
-            A list of dictionaries, where each dictionary is a job payload.
+            A list of job dictionaries.
         """
+        key_map = {
+            "waiting": self._waiting_key(queue_name),
+            "delayed": self._delayed_key(queue_name),
+            "failed": self._dlq_key(queue_name),  # DLQ is for failed jobs
+        }
+
+        key = key_map.get(state)
+        if not key:
+            return []  # Unknown state or unsupported in Redis
+
+        raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
         jobs: list[dict[str, Any]] = []
-        # Get all members from the waiting queue Sorted Set.
-        raw_waiting: list[str] = await self.redis.zrange(self._waiting_key(queue_name), 0, -1)
-        # Get all members from the delayed queue Sorted Set.
-        raw_delayed: list[str] = await self.redis.zrange(self._delayed_key(queue_name), 0, -1)
-        # Get all members from the DLQ Sorted Set.
-        raw_dlq: list[str] = await self.redis.zrange(self._dlq_key(queue_name), 0, -1)
-        # Combine the results from all three sets and deserialize the JSON strings.
-        for raw in raw_waiting + raw_delayed + raw_dlq:
-            jobs.append(json.loads(raw))
+
+        for raw in raw_jobs:
+            try:
+                jobs.append(json.loads(raw))
+            except Exception:
+                continue
+
         return jobs
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:

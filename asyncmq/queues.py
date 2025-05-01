@@ -315,9 +315,7 @@ class Queue:
         """
         await self.backend.enqueue(self.name, payload)
 
-    async def enqueue_delayed(
-            self, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, payload: dict[str, Any], run_at: float) -> None:
         """
         Schedule a job to run at a future UNIX timestamp.
         """
@@ -355,3 +353,6 @@ class Queue:
         Get counts of waiting, delayed, failed for this queue.
         """
         return await self.backend.queue_stats(self.name)
+
+    async def list_jobs(self, state: str) -> list[dict[str, Any]]:
+        return await self.backend.list_jobs(self.name, state)

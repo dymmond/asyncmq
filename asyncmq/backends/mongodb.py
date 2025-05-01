@@ -192,7 +192,7 @@ class MongoDBBackend(BaseBackend):
             # Save the job to the MongoDB store with the EXPIRED status.
             # Note: The original code sets status to EXPIRED here. Consider changing to DELAYED
             # if a distinct DELAYED state is desired in the store.
-            await self.store.save(queue_name, payload["id"], {**payload, "status": State.EXPIRED})
+            await self.store.save(queue_name, payload["id"], {**payload, "status": State.DELAYED})
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -955,3 +955,6 @@ class MongoDBBackend(BaseBackend):
             # Check if the job ID is present in the in-memory set of cancelled jobs
             # for the specified queue. Use .get() with default set() for safety.
             return job_id in self.cancelled.get(queue_name, set())
+
+    async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+        return await self.store.filter(queue=queue, state=state)

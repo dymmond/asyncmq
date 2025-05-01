@@ -543,3 +543,8 @@ class BaseBackend(ABC):
             True if the job is cancelled, False otherwise.
         """
         ...
+
+    @abstractmethod
+    async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+        """List jobs by queue and state."""
+        ...
