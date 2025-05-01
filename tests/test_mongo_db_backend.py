@@ -104,3 +104,9 @@ async def test_list_jobs_by_state(backend, state):
     print("Returned jobs:", jobs)
     assert isinstance(jobs, list)
     assert any(j.get("task") == "test.task" for j in jobs)
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_empty_queue(backend, state):
+    jobs = await backend.list_jobs("empty-queue", state)
+    assert isinstance(jobs, list)
+    assert len(jobs) == 0

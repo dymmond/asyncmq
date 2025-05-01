@@ -104,3 +104,11 @@ async def test_list_jobs_by_state(state):
     print("Returned jobs:", jobs)
     assert isinstance(jobs, list)
     assert any(j.get("task") == "test.task" for j in jobs)
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+@pytest.mark.asyncio
+async def test_list_jobs_empty_queue(state):
+    backend = RedisBackend()
+    jobs = await backend.list_jobs("empty-queue", state)
+    assert isinstance(jobs, list)
+    assert len(jobs) == 0
