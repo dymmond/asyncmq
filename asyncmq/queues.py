@@ -315,9 +315,7 @@ class Queue:
         """
         await self.backend.enqueue(self.name, payload)
 
-    async def enqueue_delayed(
-            self, payload: dict[str, Any], run_at: float
-    ) -> None:
+    async def enqueue_delayed(self, payload: dict[str, Any], run_at: float) -> None:
         """
         Schedule a job to run at a future UNIX timestamp.
         """

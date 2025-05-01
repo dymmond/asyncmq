@@ -139,10 +139,7 @@ class MongoDBStore(BaseJobStore):
 
     async def filter(self, queue: str, state: str) -> list[dict[str, Any]]:
         await self.connect()
-        cursor = self.collection.find({
-            "queue_name": queue,
-            "status": state
-        })
+        cursor = self.collection.find({"queue_name": queue, "status": state})
         jobs = []
         async for doc in cursor:
             doc.pop("_id", None)  # Optional: remove internal MongoDB ID

@@ -64,6 +64,7 @@ async def test_remove_delayed():
     delayed = await backend.get_due_delayed("test")
     assert all(j["id"] != job.id for j in delayed)
 
+
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
 async def test_list_jobs_by_state(state):
     backend = InMemoryBackend()
@@ -91,3 +92,25 @@ async def test_list_jobs_empty_queue(state):
     jobs = await backend.list_jobs("empty-queue", state)
     assert isinstance(jobs, list)
     assert len(jobs) == 0
+
+
+async def test_list_jobs_filters_correctly():
+    backend = InMemoryBackend()
+    queue = "filter-test"
+
+    job1 = Job(task_id="waiting.job", args=[], kwargs={})
+    await backend.enqueue(queue, job1.to_dict())
+
+    job2 = Job(task_id="delayed.job", args=[], kwargs={})
+    await backend.enqueue_delayed(queue, job2.to_dict(), run_at=9999999999)
+
+    job3 = Job(task_id="failed.job", args=[], kwargs={})
+    await backend.move_to_dlq(queue, job3.to_dict())
+
+    waiting = await backend.list_jobs(queue, "waiting")
+    delayed = await backend.list_jobs(queue, "delayed")
+    failed = await backend.list_jobs(queue, "failed")
+
+    assert any(j["task"] == "waiting.job" for j in waiting)
+    assert all(j["task"] == "delayed.job" for j in delayed)
+    assert all(j["task"] == "failed.job" for j in failed)

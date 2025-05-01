@@ -84,6 +84,7 @@ async def test_remove_delayed(redis):
     delayed = await backend.get_due_delayed("test")
     assert all(j["id"] != job.id for j in delayed)
 
+
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
 @pytest.mark.asyncio
 async def test_list_jobs_by_state(state):
@@ -105,6 +106,7 @@ async def test_list_jobs_by_state(state):
     assert isinstance(jobs, list)
     assert any(j.get("task") == "test.task" for j in jobs)
 
+
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
 @pytest.mark.asyncio
 async def test_list_jobs_empty_queue(state):
@@ -112,3 +114,24 @@ async def test_list_jobs_empty_queue(state):
     jobs = await backend.list_jobs("empty-queue", state)
     assert isinstance(jobs, list)
     assert len(jobs) == 0
+
+
+async def test_list_jobs_filters_correctly():
+    backend = RedisBackend()
+    queue = "filter-test"
+    job1 = Job(task_id="waiting.job", args=[], kwargs={})
+    job2 = Job(task_id="delayed.job", args=[], kwargs={})
+    job3 = Job(task_id="failed.job", args=[], kwargs={})
+
+    await backend.enqueue(queue, job1.to_dict())
+    await backend.enqueue_delayed(queue, job2.to_dict(), run_at=9999999999)
+    await backend.enqueue(queue, job3.to_dict())
+    await backend.move_to_dlq(queue, job3.to_dict())
+
+    waiting = await backend.list_jobs(queue, "waiting")
+    delayed = await backend.list_jobs(queue, "delayed")
+    failed = await backend.list_jobs(queue, "failed")
+
+    assert all(j["task"] == "waiting.job" for j in waiting)
+    assert all(j["task"] == "delayed.job" for j in delayed)
+    assert all(j["task"] == "failed.job" for j in failed)
