@@ -9,8 +9,9 @@ from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.asyncio
+
 async def test_enqueue_and_dequeue(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.enqueue", args=[], kwargs={})
@@ -31,7 +32,6 @@ async def test_enqueue_and_dequeue(redis):
     assert result["id"] == job.id
 
 
-@pytest.mark.asyncio
 async def test_job_state_tracking(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.state", args=[], kwargs={})
@@ -41,7 +41,6 @@ async def test_job_state_tracking(redis):
     assert state == State.ACTIVE
 
 
-@pytest.mark.asyncio
 async def test_job_result_handling(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.result", args=[], kwargs={})
@@ -51,7 +50,6 @@ async def test_job_result_handling(redis):
     assert result == 9876
 
 
-@pytest.mark.asyncio
 async def test_enqueue_delayed_and_due(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.delayed", args=[], kwargs={})
@@ -65,7 +63,6 @@ async def test_enqueue_delayed_and_due(redis):
     assert any(j.get("id") == job.id for j in due)
 
 
-@pytest.mark.asyncio
 async def test_move_to_dlq(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.dlq", args=[], kwargs={})
@@ -74,7 +71,6 @@ async def test_move_to_dlq(redis):
     assert state == State.FAILED
 
 
-@pytest.mark.asyncio
 async def test_remove_delayed(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.remove_delayed", args=[], kwargs={})
@@ -86,7 +82,6 @@ async def test_remove_delayed(redis):
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
-@pytest.mark.asyncio
 async def test_list_jobs_by_state(state):
     backend = RedisBackend()
     queue = "test-queue"
@@ -108,7 +103,6 @@ async def test_list_jobs_by_state(state):
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
-@pytest.mark.asyncio
 async def test_list_jobs_empty_queue(state):
     backend = RedisBackend()
     jobs = await backend.list_jobs("empty-queue", state)
