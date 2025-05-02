@@ -66,6 +66,7 @@ nav:
       - "features/jobs.md"
       - "features/flows.md"
       - "features/cli.md"
+      - "features/postgres-backend.md"
   - Tutorial:
       - "learn/index.md"
       - "learn/integration.md"
