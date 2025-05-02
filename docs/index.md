@@ -6,81 +6,129 @@ hide:
 # AsyncMQ
 
 <p align="center">
-  <a href="https://asyncmq.dymmond.com"><img src="https://res.cloudinary.com/dymmond/image/upload/v1746002620/asyncmq/oq2qhgqdlra7rudxaqhl.png" alt='AsyncMQ'></a>
+  <a href="https://asyncmq.dymmond.com"><img src="https://res.cloudinary.com/dymmond/image/upload/v1746002620/asyncmq/oq2qhgqdlra7rudxaqhl.png" alt="AsyncMQ Logo"></a>
 </p>
 
 <p align="center">
-    <span>⚡ Supercharge your async applications with tasks so fast, you’ll think you’re bending time itself. ⚡</span>
+  <span>⚡ Supercharge your async applications with tasks so fast, you’ll think you’re bending time itself. ⚡</span>
 </p>
 
 <p align="center">
-<a href="https://github.com/dymmond/asyncmq/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" target="_blank">
+  <a href="https://github.com/dymmond/asyncmq/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" target="_blank">
     <img src="https://github.com/dymmond/asyncmq/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" alt="Test Suite">
-</a>
-
-<a href="https://pypi.org/project/asyncmq" target="_blank">
+  </a>
+  <a href="https://pypi.org/project/asyncmq" target="_blank">
     <img src="https://img.shields.io/pypi/v/asyncmq?color=%2334D058&label=pypi%20package" alt="Package version">
-</a>
-
-<a href="https://pypi.org/project/asyncmq" target="_blank">
+  </a>
+  <a href="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" target="_blank">
     <img src="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" alt="Supported Python versions">
-</a>
+  </a>
 </p>
 
 ---
 
-Welcome to **AsyncMQ**—a modern, async-native task queue for Python that brings blazing speed and flexibility to your background processing.
+Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexible**, and **lightning-fast** background processing to your Python stack. Whether you're building microservices, handling high-throughput data pipelines, or just want reliable delayed jobs, AsyncMQ has your back.
 
-## What Is AsyncMQ?
+## 🚀 Why Choose AsyncMQ?
 
-AsyncMQ is an **async-native**, **highly extensible** task queue built for Python (>=3.10). Drawing inspiration from giants like BullMQ and RQ, AsyncMQ is designed specifically for the speed demons of the asyncio era.
+1. **Asyncio & AnyIO-Native**
+   No more wrestling with threads or callbacks—AsyncMQ is built on `asyncio` and `anyio`, so your tasks are non-blocking and integrate seamlessly into modern async frameworks like FastAPI and Esmerald.
 
-Key highlights:
+2. **Multi-Backend Flexibility**
+   From the blistering speed of Redis to the ACID guarantees of Postgres, or the schema-less power of MongoDB, AsyncMQ supports multiple backends out of the box—and you can write your own by implementing `BaseBackend`.
 
-* **Asynchronous First**: Built from the ground up on `asyncio` and `anyio` for native async/await support.
-* **Pluggable Backends**: Choose from In-Memory, Redis, MongoDB, or Postgres backends (and add your own).
-* **Automatic Retries & TTLs**: Jobs can be retried on failure and automatically expire based on time-to-live settings.
-* **Dead Letter Queue**: Failed jobs get sent to a dead-letter queue for inspection and replay.
-* **Delayed Jobs**: Schedule tasks to run in the future, with precise delay semantics.
-* **Event Pub/Sub**: Subscribe to real-time job events and hook into logging, metrics, or notifications.
-* **CLI Goodness**: Inspect, list, retry, and manage jobs straight from your terminal.
-* **Esmerald, FastAPI or any ASGI Framework Ready**: Seamless integration with popular async web frameworks.
+3. **Advanced Scheduling**
 
-## Why You’ll Love It
+   * **Delayed Jobs**: Fire off tasks in the future with precise delays.
+   * **Repeatable & Cron**: Create heartbeat jobs or cron-like schedules with a single line.
+   * **Scan & Scheduler**: Smart polling intervals and cron logic keep your timings accurate without burning CPU cycles.
 
-* **Speed**: AsyncIO under the hood means minimal overhead and maximal throughput.
-* **Flexibility**: Swap in any storage backend or hook into job events without changing your application code.
-* **Simplicity**: Clean, consistent API that's easy to pick up—your first task can be queued in three lines of code.
+4. **Robust Error Handling**
 
-## Prerequisites & Compatibility
+   * **Retries & Backoff**: Exponential or custom backoff strategies to gracefully handle failures.
+   * **Dead Letter Queue (DLQ)**: Automatically route permanently failed tasks for later inspection and reprocessing.
 
-* **Python**: 3.10+ (async features are best leveraged on 3.11+).
-* **Backends**:
+5. **Observability & Event Hooks**
+   Tap into lifecycle events (`job:started`, `job:completed`, `job:failed`, `job:progress`) to power real-time dashboards, metrics, or custom alerts.
 
-  * **In-Memory** (for testing or ephemeral tasks)
-  * **Redis** (battle-tested, high-performance)
-  * **MongoDB** (NoSQL storage)
-  * **Postgres** (ACID guarantees)
-  * **Custom**: Implement `BaseBackend` & `BaseStore` to add your own.
+6. **Rate Limiting & Concurrency Control**
+   Fine-tune throughput with token-bucket rate limiting and capacity limiters. Scale your worker concurrency without overloading downstream systems.
 
-* **Frameworks**:
+7. **Sandboxed Execution**
+   Run untrusted or CPU-bound tasks in isolated subprocesses with timeouts to protect your main workers from rogue code or infinite loops.
 
-  * **Esmerald**, **FastAPI**, or any ASGI app.
+8. **Flow/DAG Orchestration**
+   Create complex task graphs with dependencies using `FlowProducer`. Enqueue entire pipelines atomically or fall back to safe sequential logic.
 
-## Core Components Overview
+9. **CLI & Dev Experience**
+   A feature-rich CLI for managing queues, jobs, and workers—intuitive commands, JSON output support, and built-in help for every scenario.
 
-```text
-+----------------+       +----------------+       +-------------+
-|   Producer     |  -->  |     Queue      |  -->  |   Backend   |
-+----------------+       +----------------+       +-------------+
-                              ^   |
-                              |   v
-                          +--------+
-                          | Worker |
-                          +--------+
-```
+10. **Seamless ASGI Integration**
+    Out-of-the-box compatibility with FastAPI, Esmerald, or any ASGI application. Manage workers within your app’s lifecycle events.
 
-* **Producer**: Enqueues jobs onto named queues.
-* **Queue**: High-level API for adding, scheduling, and inspecting jobs.
-* **Backend**: Storage engine managing job persistence and state transitions.
-* **Worker**: Processes jobs concurrently, with graceful shutdown and rate limiting.
+---
+
+## ⚡ Core Features at a Glance
+
+| Category               | Highlights                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| **Task Definition**    | `@task` decorator, `.enqueue()`, progress callbacks, TTL, retries, dependencies, repeats  |
+| **Queue API**          | `add()`, `add_bulk()`, `add_repeatable()`, `pause()`, `resume()`, `clean()`, stats        |
+| **Worker Engine**      | `process_job()`, capacity & rate limiters, sandbox, event emitter, DLQ handling           |
+| **Scheduling**         | `delayed_job_scanner`, `repeatable_scheduler`, cron vs interval support                   |
+| **Flow Orchestration** | `FlowProducer.add_flow()`, atomic backend support, fallback mode for dependency wiring    |
+| **Configuration**      | Central `Settings` dataclass, env var override, dynamic tuning of concurrency & intervals |
+| **Observability**      | LoggingConfig protocol, structured logs, event subscriptions, metrics integration         |
+| **CLI Management**     | `asyncmq queue`, `asyncmq job`, `asyncmq worker`, `asyncmq info` commands                 |
+
+---
+
+## 🎬 Quickstart
+
+1. **Install**
+
+   ```bash
+   pip install asyncmq
+   ```
+2. **Configure**
+
+   Override the default settings `from asyncmq.conf import Settings` and create your own, then make it global.
+
+   ```bash
+   export ASYNCMQ_SETTINGS_MODULE=myapp.settings.Settings
+   ```
+3. **Define a Task**
+
+   ```python
+   from asyncmq.tasks import task
+
+   @task(queue="emails", retries=2, ttl=120)
+   async def send_welcome(email: str):
+       # Imagine real email-sending logic here
+       print(f"📧 Sent welcome to {email}")
+   ```
+4. **Enqueue & Run**
+
+   ```python
+   import anyio
+   from asyncmq.queues import Queue
+
+   async def main():
+       q = Queue("emails")
+       await send_welcome.enqueue(q.backend, "alice@example.com", delay=10)
+   anyio.run(main)
+   ```
+5. **Start Workers**
+
+   ```bash
+   asyncmq worker start emails --concurrency 5
+   ```
+
+---
+
+AsyncMQ is more than just a task queue, it’s the swiss army knife of async background processing.
+Dive into the **Learn** section to master every feature, or jump into the **Features** docs for quick reference.
+
+Ready to bend time?
+
+**Get started today** and experience async tasking at warp speed! 🎉
