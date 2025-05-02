@@ -79,7 +79,3 @@ Key highlights:
 * **Queue**: High-level API for adding, scheduling, and inspecting jobs.
 * **Backend**: Storage engine managing job persistence and state transitions.
 * **Worker**: Processes jobs concurrently, with graceful shutdown and rate limiting.
-
----
-
-Next up: **Installation & Setup**—let’s get AsyncMQ running on your machine!
