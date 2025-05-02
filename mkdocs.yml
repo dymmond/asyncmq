@@ -60,6 +60,7 @@ nav:
       - "learn/integration.md"
       - "learn/advanced-patterns.md"
       - "learn/performance-tuning-and-benchmarks.md"
+      - "learn/security-and-compliance.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"
