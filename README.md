@@ -1,8 +1,3 @@
----
-hide:
-  - navigation
----
-
 # AsyncMQ
 
 <p align="center">

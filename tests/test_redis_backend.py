@@ -116,6 +116,7 @@ async def test_list_jobs_empty_queue(state):
     assert len(jobs) == 0
 
 
+@pytest.mark.asyncio
 async def test_list_jobs_filters_correctly():
     backend = RedisBackend()
     queue = "filter-test"

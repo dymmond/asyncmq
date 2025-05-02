@@ -246,14 +246,36 @@ class RedisBackend(BaseBackend):
             payload: The job data as a dictionary, expected to contain at least
                      an "id" key.
         """
-        # Get the Redis key for the DLQ's Sorted Set.
-        key: str = self._dlq_key(queue_name)
-        # Create a new payload dictionary with the status set to FAILED.
-        dlq_payload: dict[str, Any] = {**payload, "status": State.FAILED}
-        # Add the JSON-serialized DLQ payload to the DLQ Sorted Set, scored by the current time.
-        await self.redis.zadd(key, {json.dumps(dlq_payload): time.time()})
-        # Update the job's status to FAILED and save the full payload in the job store.
-        await self.job_store.save(queue_name, payload["id"], dlq_payload)
+        # 1) Remove from the waiting set if present
+        waiting_key = self._waiting_key(queue_name)
+        for member in await self.redis.zrange(waiting_key, 0, -1):
+            try:
+                job = json.loads(member)
+            except Exception:
+                continue
+            if job.get("id") == payload["id"]:
+                await self.redis.zrem(waiting_key, member)
+                break
+
+        # 2) Remove from the delayed set if present
+        delayed_key = self._delayed_key(queue_name)
+        for member in await self.redis.zrange(delayed_key, 0, -1):
+            try:
+                job = json.loads(member)
+            except Exception:
+                continue
+            if job.get("id") == payload["id"]:
+                await self.redis.zrem(delayed_key, member)
+                break
+
+        # 3) Add to the DLQ Sorted Set
+        dlq_key: str = self._dlq_key(queue_name)
+        # Prepare a new payload dict with FAILED status
+        raw_json = json.dumps({**payload, "status": State.FAILED})
+        await self.redis.zadd(dlq_key, {raw_json: time.time()})
+
+        # 4) Persist FAILED status in the job store
+        await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.FAILED})
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
