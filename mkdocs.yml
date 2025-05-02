@@ -51,10 +51,12 @@ plugins:
 nav:
   - Introduction: "index.md"
   - "installation.md"
+  - Features:
+      - "features/index.md"
+      - "features/quickstart.md"
+      - "features/core-concepts.md"
   - Learn:
       - "learn/index.md"
-      - "learn/quickstart.md"
-      - "learn/core-concepts.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"

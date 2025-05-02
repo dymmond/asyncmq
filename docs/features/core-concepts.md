@@ -8,7 +8,7 @@ This deep dive explains exactly how AsyncMQ moves your tasks from producer to wo
 
 A `Queue` object ties together the queue **name**, **backend storage**, **concurrency**, and **rate limit** settings.
 
-* Provide a name and backend (This is optional, as it will default to the `settings.backend`.
+* Provide a name and backend (The backend is optional as it will default to the `settings.backend`).
 * Optionally tune concurrency (defaults to 3) and rate limit (disabled by default).
 
 ```python

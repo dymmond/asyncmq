@@ -1,14 +1,12 @@
-from __future__ import annotations  # Enable postponed evaluation of type hints
+from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
-from asyncmq import __version__  # noqa: F401 # Import package version, ignore unused warning
+from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
 
-# Conditionally import LoggingConfig only for type checking purposes.
-# This prevents potential import issues or circular dependencies at runtime.
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig
 
@@ -16,164 +14,283 @@ if TYPE_CHECKING:
 @dataclass
 class Settings:
     """
-    Comprehensive configuration settings for the entire AsyncMQ system.
+    Defines a comprehensive set of configuration parameters for the AsyncMQ library.
 
-    Inherits stream-specific settings from `StreamSettings`. This dataclass
-    defines various configuration options for debugging, logging, default
-    backend, database connections (Postgres, MongoDB), stalled job recovery,
-    sandbox execution, worker concurrency, and rate limiting.
+    This dataclass encapsulates various settings controlling core aspects of
+    AsyncMQ's behavior, including debugging modes, logging configuration,
+    default backend implementation, database connection details for different
+    backends (Postgres, MongoDB), parameters for stalled job recovery,
+    sandbox execution settings, worker concurrency limits, and rate limiting
+    configurations. It provides a centralized place to manage and access
+    these operational settings.
     """
 
-    # Debug mode flag. If True, enables debugging features and potentially
-    # changes logging level.
     debug: bool = False
-    # The logging level for the application (e.g., "INFO", "DEBUG", "WARNING").
+    """
+    Enables debug mode if True.
+
+    Debug mode may activate additional logging, detailed error reporting,
+    and potentially other debugging features within the AsyncMQ system.
+    Defaults to False.
+    """
+
     logging_level: str = "INFO"
-    # The default backend instance to use for queue operations if not
-    # specified otherwise. Defaults to an instance of RedisBackend.
-    # Note: The type hint is for the class, but the default is an instance
-    # based on the original code's logic.
+    """
+    Specifies the minimum severity level for log messages to be processed.
+
+    Standard logging levels include "DEBUG", "INFO", "WARNING", "ERROR",
+    and "CRITICAL". This setting determines the verbosity of the application's
+    logging output. Defaults to "INFO".
+    """
+
     backend: BaseBackend = RedisBackend()
-    # The version string of the AsyncMQ library.
+    """
+    Sets the default backend instance used for queue operations.
+
+    This specifies which storage and message brokering mechanism AsyncMQ
+    will use if a specific backend is not explicitly provided for a queue
+    or operation. Defaults to an instance of `RedisBackend`.
+    """
+
     version: str = __version__
-    # Flag indicating if logging has been set up.
+    """
+    Stores the current version string of the AsyncMQ library.
+
+    This attribute holds the version information as defined in the library's
+    package metadata. It's read-only and primarily for informational purposes.
+    """
+
     is_logging_setup: bool = False
+    """
+    Indicates whether the logging system has been initialized.
 
-    # For Postgres backend: The schema name for Postgres tables.
+    This flag is used internally to track the setup status of the logging
+    configuration and prevent repeated initialization. Defaults to False.
+    """
+
     jobs_table_schema: str = "asyncmq"
-    # For Postgres backend: The name of the table used for storing job data.
-    postgres_jobs_table_name: str = "asyncmq_jobs"
-    # For Postgres backend: The connection URL (DSN) for the Postgres database.
-    # Can be None if connection string is provided directly to functions.
-    postgres_repeatables_table_name: str = "asyncmq_repeatables"
-    postgres_cancelled_jobs_table_name: str = "asyncmq_cancelled_jobs"
-    asyncmq_postgres_backend_url: str | None = None
-    # For Postgres backend: A dictionary of options to pass to asyncpg.create_pool.
-    # Can be None if default pool options are sufficient or options are
-    # provided directly to functions.
-    asyncmq_postgres_pool_options: dict[str, Any] | None = None
+    """
+    Specifies the database schema name for Postgres-specific tables.
 
-    # For MongoDB backend: The connection URL for the MongoDB database.
-    # Can be None if MongoDB is not used or connection string is provided elsewhere.
+    When using the Postgres backend, this setting determines the schema
+    in which AsyncMQ's job-related tables will be created and accessed.
+    Defaults to "asyncmq".
+    """
+
+    postgres_jobs_table_name: str = "asyncmq_jobs"
+    """
+    Defines the name of the table storing job data in the Postgres backend.
+
+    This is the primary table used by the Postgres backend to persist
+    information about queued, ongoing, and completed jobs. Defaults to
+    "asyncmq_jobs".
+    """
+
+    postgres_repeatables_table_name: str = "asyncmq_repeatables"
+    """
+    Specifies the table name for repeatable job configurations in Postgres.
+
+    This table stores information about jobs scheduled to run at recurring
+    intervals when using the Postgres backend. Defaults to
+    "asyncmq_repeatables".
+    """
+
+    postgres_cancelled_jobs_table_name: str = "asyncmq_cancelled_jobs"
+    """
+    Sets the table name for cancelled job records in the Postgres backend.
+
+    This table is used to keep track of jobs that have been explicitly
+    cancelled when utilizing the Postgres backend. Defaults to
+    "asyncmq_cancelled_jobs".
+    """
+
+    asyncmq_postgres_backend_url: str | None = None
+    """
+    The connection URL (DSN) for the Postgres database.
+
+    This string contains the necessary details (host, port, database name,
+    user, password) to establish a connection to the Postgres server used
+    by the backend. Can be None if connection details are provided via
+    `asyncmq_postgres_pool_options` or elsewhere. Defaults to None.
+    """
+
+    asyncmq_postgres_pool_options: dict[str, Any] | None = None
+    """
+    A dictionary of options for configuring the asyncpg connection pool.
+
+    These options are passed directly to `asyncpg.create_pool` when
+    establishing connections to the Postgres database. Allows fine-tuning
+    of connection pool behavior. Can be None if default pool options are
+    sufficient. Defaults to None.
+    """
+
     asyncmq_mongodb_backend_url: str | None = None
-    # For MongoDB backend: The name of the database to use in MongoDB.
-    # Defaults to "asyncmq".
+    """
+    The connection URL (DSN) for the MongoDB database.
+
+    This string provides the connection details for the MongoDB server when
+    using the MongoDB backend. Can be None if MongoDB is not utilized or
+    connection details are provided elsewhere. Defaults to None.
+    """
+
     asyncmq_mongodb_database_name: str | None = "asyncmq"
+    """
+    The name of the database to use within the MongoDB instance.
+
+    Specifies the target database within the MongoDB server where AsyncMQ
+    will store its data. Defaults to "asyncmq".
+    """
 
     enable_stalled_check: bool = False
-    # For stalled recovery scheduler: The interval (in seconds) between checks
-    # for stalled jobs.
+    """
+    Activates the stalled job recovery mechanism if True.
+
+    If enabled, a scheduler will periodically check for jobs that have
+    been started but have not completed within a defined threshold, marking
+    them as failed or re-queuing them. Defaults to False.
+    """
+
     stalled_check_interval: float = 60.0
-    # For stalled recovery scheduler: The threshold (in seconds) after which
-    # a job is considered stalled.
+    """
+    The frequency (in seconds) at which the stalled job checker runs.
+
+    This setting determines how often the system scans for potentially
+    stalled jobs. Only relevant if `enable_stalled_check` is True. Defaults
+    to 60.0 seconds.
+    """
+
     stalled_threshold: float = 30.0
+    """
+    The time duration (in seconds) after which a job is considered stalled.
 
-    # For the sandbox settings usage: Flag to enable sandbox execution.
+    If a job's execution time exceeds this threshold without completion,
+    it is flagged as stalled by the checker. Only relevant if
+    `enable_stalled_check` is True. Defaults to 30.0 seconds.
+    """
+
     sandbox_enabled: bool = False
-    # For the sandbox settings usage: Default timeout (in seconds) for sandbox processes.
+    """
+    Enables execution of jobs within a sandboxed environment if True.
+
+    Sandboxing can isolate job execution to prevent interference or
+    security issues between jobs. Defaults to False.
+    """
+
     sandbox_default_timeout: float = 30.0
-    # For the sandbox settings usage: The context method for starting processes
-    # ("fork", "spawn", or "forkserver").
+    """
+    The default maximum execution time (in seconds) for a job in the sandbox.
+
+    Jobs running in the sandbox will be terminated if they exceed this duration.
+    Only relevant if `sandbox_enabled` is True. Defaults to 30.0 seconds.
+    """
+
     sandbox_ctx: str | None = "fork"
+    """
+    Specifies the multiprocessing context method for the sandbox.
 
-    # How many jobs to run in parallel per worker process.
+    Determines how new processes are created for sandboxed jobs. Possible
+    values depend on the operating system but commonly include "fork",
+    "spawn", or "forkserver". Only relevant if `sandbox_enabled` is True.
+    Defaults to "fork".
+    """
+
     worker_concurrency: int = 1
+    """
+    The maximum number of jobs a single worker process can execute concurrently.
 
-    # Rate-limit configuration for RateLimiter. A dictionary where keys are
-    # queue names and values are dictionaries specifying rate limit parameters
-    # like "max_calls" and "period". Can be None if no rate limiting is configured.
+    This setting controls how many jobs a worker can process in parallel,
+    depending on the worker implementation and job types. Defaults to 1.
+    """
+
     rate_limit_config: dict[str, dict[str, int]] | None = None
+    """
+    Configuration for rate limiting specific queues.
+
+    A dictionary where keys are queue names and values are dictionaries
+    defining rate limit parameters (e.g., "max_calls", "period") for that
+    queue. Allows controlling the processing rate of individual queues.
+    Can be None if no rate limiting is configured. Defaults to None.
+    """
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:
         """
-        Returns the logging configuration based on the current settings.
+        Provides the configured logging setup based on current settings.
 
-        This property dynamically creates and returns a logging configuration
-        object. Currently, it uses `StandardLoggingConfig` and sets the level
-        based on the `logging_level` attribute. In more complex scenarios,
-        it could return different configurations or None.
+        This property dynamically creates and returns an object that adheres
+        to the `LoggingConfig` protocol, configured according to the
+        `logging_level` attribute. It abstracts the specifics of the logging
+        implementation.
 
         Returns:
-            An instance of a class implementing `LoggingConfig` (specifically
-            `StandardLoggingConfig` in this implementation) with the configured
-            logging level, or None if logging should be disabled.
+            An instance implementing `LoggingConfig` with the specified
+            logging level, or None if logging should not be configured
+            (though the current implementation always returns a config).
         """
         # Import StandardLoggingConfig locally to avoid potential circular imports
         # if asyncmq.logging depends on asyncmq.conf.settings.
         from asyncmq.core.utils.logging import StandardLoggingConfig
 
-        # Return a StandardLoggingConfig instance configured with the specified level.
+        # Returns a logging configuration object with the specified level.
         return StandardLoggingConfig(level=self.logging_level)
 
     def dict(self, exclude_none: bool = False, upper: bool = False) -> dict[str, Any]:
         """
-        Dumps all the settings into a Python dictionary.
+        Converts the Settings object into a dictionary representation.
 
-        This method converts the dataclass instance into a dictionary,
-        with options to exclude None values and convert keys to uppercase.
-
-        Args:
-            exclude_none: If True, keys with a value of None are excluded
-                          from the resulting dictionary. Defaults to False.
-            upper: If True, converts all keys in the resulting dictionary
-                   to uppercase. Defaults to False.
-
-        Returns:
-            A dictionary containing the settings data.
-        """
-        # Get the dictionary representation of the dataclass fields using asdict.
-        original = asdict(self)
-
-        # Handle the case where None values should be included.
-        if not exclude_none:
-            # If keys should not be upper-cased, return the original dictionary.
-            if not upper:
-                return original
-            # If keys should be upper-cased, create a new dictionary with upper keys.
-            return {k.upper(): v for k, v in original.items()}
-
-        # Handle the case where None values should be excluded.
-        # If keys should not be upper-cased, return a filtered dictionary.
-        if not upper:
-            return {k: v for k, v in original.items() if v is not None}
-        # If keys should be upper-cased, filter and create a new dictionary
-        # with upper keys.
-        return {k.upper(): v for k, v in original.items() if v is not None}
-
-    def tuple(self, exclude_none: bool = False, upper: bool = False) -> list[tuple[str, Any]]:
-        """
-        Dumps all the settings into a list of key-value tuples.
-
-        This method converts the dataclass instance into a list of (key, value)
-        tuples, with options to exclude tuples with None values and convert
+        Provides a dictionary containing all the configuration settings defined
+        in the dataclass. Offers options to exclude None values and transform
         keys to uppercase.
 
         Args:
-            exclude_none: If True, tuples where the value is None are excluded
-                          from the resulting list. Defaults to False.
-            upper: If True, converts the keys in the resulting tuples
-                   to uppercase. Defaults to False.
+            exclude_none: If True, omits key-value pairs where the value is None.
+                          Defaults to False.
+            upper: If True, converts all dictionary keys to uppercase strings.
+                   Defaults to False.
 
         Returns:
-            A list of (key, value) tuples containing the settings data.
+            A dictionary where keys are setting names and values are the
+            corresponding setting values.
         """
-        # Get the dictionary representation of the dataclass fields using asdict.
-        original = asdict(self)
+        original = asdict(self)  # Get the dataclass fields as a dictionary.
 
-        # Handle the case where None values should be included.
+        # Handle the case where None values should be included in the output.
         if not exclude_none:
-            # If keys should not be upper-cased, return a list of original items.
-            if not upper:
-                return list(original.items())
-            # If keys should be upper-cased, create a dictionary with upper keys
-            # and return a list of its items.
-            return list({k.upper(): v for k, v in original.items()}.items())
+            # Return either the original dictionary or an uppercase-keyed version.
+            return {k.upper(): v for k, v in original.items()} if upper else original
 
-        # Handle the case where None values should be excluded.
-        # If keys should not be upper-cased, return a filtered list of tuples.
-        if not upper:
-            return [(k, v) for k, v in original.items() if v is not None]
-        # If keys should be upper-cased, filter and create a list of tuples
-        # with upper keys.
-        return [(k.upper(), v) for k, v in original.items() if v is not None]
+        # Handle the case where None values should be excluded from the output.
+        # Create a filtered dictionary, then potentially uppercase the keys.
+        filtered = {k: v for k, v in original.items() if v is not None}
+        return {k.upper(): v for k, v in filtered.items()} if upper else filtered
+
+    def tuple(self, exclude_none: bool = False, upper: bool = False) -> list[tuple[str, Any]]:
+        """
+        Converts the Settings object into a list of key-value tuples.
+
+        Provides a list of (key, value) tuples representing each configuration
+        setting. Allows for excluding tuples with None values and converting
+        keys to uppercase within the tuples.
+
+        Args:
+            exclude_none: If True, omits tuples where the value is None.
+                          Defaults to False.
+            upper: If True, converts the key string in each tuple to uppercase.
+                   Defaults to False.
+
+        Returns:
+            A list of (string, Any) tuples, where each tuple contains a setting
+            name and its corresponding value.
+        """
+        original = asdict(self)  # Get the dataclass fields as a dictionary.
+
+        # Handle the case where None values should be included in the output.
+        if not exclude_none:
+            # Return a list of items from either the original or uppercase-keyed
+            # dictionary.
+            return list({k.upper(): v for k, v in original.items()}.items()) if upper else list(original.items())
+
+        # Handle the case where None values should be excluded from the output.
+        # Create a filtered list of tuples, then potentially uppercase the keys.
+        filtered_tuples = [(k, v) for k, v in original.items() if v is not None]
+        return [(k.upper(), v) for k, v in filtered_tuples] if upper else filtered_tuples

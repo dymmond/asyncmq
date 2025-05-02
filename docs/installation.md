@@ -149,4 +149,4 @@ You can also do `asyncmq` directly in the command line and you should see someth
 
 <img src="https://res.cloudinary.com/dymmond/image/upload/v1746168744/asyncmq/docs/cpnmhbed53jnlrriciof.png" alt="AsyncMQ CLI Help"/>
 
-Next up: **[Quickstart](./learn/quickstart.md)**. Let’s enqueue your first job!
+Next up: **[Quickstart](features/quickstart.md)**. Let’s enqueue your first job!
