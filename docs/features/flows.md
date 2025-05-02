@@ -1,9 +1,9 @@
-# Flows & the `FlowProducer`
+# Flows & `FlowProducer`
 
 Flows let you treat multiple interdependent jobs as a single unit, perfect for orchestrating pipelines,
 DAGs, or any scenario where one task must wait for another.
 
-The `FlowProducer` class handles enqueuing jobs and wiring up their dependencies, using atomic operations 
+The `FlowProducer` class handles enqueuing jobs and wiring up their dependencies, using atomic operations
 when supported or falling back to safe sequential logic.
 
 ---
