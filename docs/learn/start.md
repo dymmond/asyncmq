@@ -1,4 +1,4 @@
-# Learn: Esmerald Integration Tutorial
+# Esmerald Integration Tutorial
 
 Welcome to a hands-on, behind-the-scenes guide for integrating **AsyncMQ** into your **Esmerald** application.
 We’ll sprinkle in professional insights and a dash of humor, because who said documentation has to be dry?
@@ -72,24 +72,12 @@ This allows you to simply isolate each settings by its corresponding responsabil
 
 ---
 
-## 2. Defining Tasks (tasks.py)
+## 2. Defining Tasks (`tasks.py`)
 
 Tasks are your building blocks—think of them as mini-applications that run outside the request/response cycle.
 
 ```python
-# tasks.py
-import time
-from asyncmq.tasks import task
-
-@task(queue="email", retries=2, ttl=120)
-async def send_welcome(email: str):
-    """
-    Simulate sending a welcome email.
-    If this were real, you'd integrate with SMTP or SendGrid.
-    """
-    # time.sleep runs in a thread if the function is async—no event loop blockage.
-    time.sleep(0.1)
-    print(f"✉️  Welcome email sent to {email}")
+{!> ../docs_src/tutorial/tasks.py !}
 ```
 
 ### Why these parameters?
@@ -98,84 +86,32 @@ async def send_welcome(email: str):
 * **retries**: automatically retry transient failures—network hiccups, API rate limits—without manual intervention.
 * **ttl**: cap the lifetime of a stuck job; after `ttl` seconds, it goes to the Dead-Letter Queue (DLQ) to avoid clutter.
 
-> **Caution:** Avoid CPU-bound operations here (e.g., large data crunching)—they block threads. Offload heavy lifting to specialized services or use `anyio.to_thread` consciously.
+!!! Warning
+    Avoid CPU-bound operations here (e.g., large data crunching), they block threads. Offload heavy lifting to
+    specialized services or use `anyio.to_thread` consciously.
 
 ---
 
-## 3. Enqueuing via Esmerald Gateway (app.py)
+## 3. Enqueuing via Esmerald Gateway (`app.py`)
 
-Your Esmerald endpoint becomes the order desk for background work: submit a request, get an immediate response, and let AsyncMQ handle the prep.
+Your Esmerald endpoint becomes the order desk for background work: submit a request, get an immediate response,
+and let AsyncMQ handle the prep.
 
 ```python
-# app.py
-import asyncio
-from pydantic import BaseModel
-from esmerald import Esmerald, Gateway, post, Lifespan
-from asyncmq.backends.redis import RedisBackend
-from asyncmq.queues import Queue
-from asyncmq.core.enums import State
-from .tasks import send_welcome
-
-# Instantiate backend and queue (must mirror settings.py)
-backend = RedisBackend(redis_url="redis://localhost:6379/0")
-email_queue = Queue(name="email", backend=backend)
-
-class SignupPayload(BaseModel):
-    email: str
-
-@post(
-    path="/signup",
-    response_model=dict,
-)
-async def signup(payload: SignupPayload) -> dict:
-    """
-    Enqueue a send_welcome job and return immediately.
-    """
-    job_id = await send_welcome.enqueue(
-        backend,
-        payload.email,
-        delay=0,           # Optional: schedule in the future
-        priority=5         # 1=high priority, 10=low priority
-    )
-    return {"status": "queued", "job_id": job_id}
-
-# Health-check endpoint
-@get(path="/health", response_model=dict)
-async def health() -> dict:
-    stats = await email_queue.queue_stats()
-    return {s.name: count for s, count in stats.items()}
-
-# Lifecycle events for worker management
-async def on_startup():
-    print("🚀 Starting background worker...")
-    # Run in background; .run() is async and never returns on its own
-    app.state.worker_task = asyncio.create_task(
-        email_queue.run()
-    )
-
-async def on_shutdown():
-    print("🛑 Shutting down worker...")
-    # Cancel and await graceful exit
-    app.state.worker_task.cancel()
-    try:
-        await app.state.worker_task
-    except asyncio.CancelledError:
-        pass
-
-# Assemble the app
-app = Esmerald(
-    routes=[Gateway(handler=signup), Gateway(handler=health)],
-    lifespan=Lifespan(on_startup=on_startup, on_shutdown=on_shutdown)
-)
+{!> ../docs_src/tutorial/app.py !}
 ```
 
 ### What just happened?
 
 1. **Signup Endpoint**: Accepts a JSON payload, calls `send_welcome.enqueue(...)`, and returns immediately with a `job_id`.
-2. **Health Endpoint**: Uses `queue_stats()` to expose counts of waiting, active, completed, and failed jobs—ideal for monitoring dashboards.
-3. **Lifespan Hooks**: Leverage Esmerald’s ASGI lifespan to spin up `email_queue.run()` right after startup and shut it down cleanly on server stop.
+2. **Health Endpoint**: Uses `queue_stats()` to expose counts of `waiting`, `active`, `completed`, and `failed` jobs,
+ideal for monitoring dashboards.
+3. **Lifespan Hooks**: Leverage Esmerald’s ASGI lifespan to spin up `email_queue.run()` right after startup and shut it down
+cleanly on server stop.
 
-> **Why `queue.run()` instead of `start()`?** `run()` exposes granular control—handles delayed scanners, repeatable jobs, and rate limiting exactly as configured.
+!!! Check
+    **Why `queue.run()` instead of `start()`?** `run()` exposes granular control—handles delayed scanners,
+    repeatable jobs, and rate limiting exactly as configured.
 
 ---
 
@@ -194,15 +130,11 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 * Expose `queue_stats()` for Prometheus scraping or uptime monitors.
 * Hook into `event_emitter` for granular metrics:
 
-  ```python
-  from asyncmq.core.event import event_emitter
+    ```python
+    {!> ../docs_src/tutorial/emitter.py !}
+    ```
 
-  def on_complete(payload):
-      print(f"😃 Job {payload['id']} complete in {payload['timestamps']['finished_at'] - payload['timestamps']['created_at']:.2f}s")
-
-  event_emitter.on("job:completed", on_complete)
-  ```
-* Gauge queue length, processing time, failure rates—know your bottlenecks!
+* Gauge queue length, processing time, failure rates, know your bottlenecks!
 
 ---
 
@@ -217,10 +149,11 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 3. **Manual Replay**: Resurrect failed jobs once you’ve fixed the root cause:
 
    ```bash
-   asyncmq job retry --queue email --job-id <failed_job_id>
+   asyncmq job retry <failed_job_id> --queue email
    ```
 
-> **Humorous moment:** Treat your DLQ like voicemail—don’t ignore it forever, or you’ll miss urgent messages! 📬
+!!! Check
+    **Humorous moment:** Treat your DLQ like voicemail, don’t ignore it forever, or you’ll miss urgent messages! 📬
 
 ---
 
@@ -235,4 +168,5 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 
 ---
 
-Congratulations, you’ve mastered AsyncMQ in Esmerald! In the next chapter, we’ll explore **Advanced Patterns** like custom backends, DAG orchestration, and Kubernetes scaling.
+Congratulations, you’ve mastered AsyncMQ in Esmerald!
+In the next chapter, we’ll explore **Advanced Patterns** like custom backends, DAG orchestration, and Kubernetes scaling.
