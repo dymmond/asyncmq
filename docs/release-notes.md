@@ -1,10 +1,12 @@
-# Release 0.1.0 – 2025-05-02
+# Release Notes
 
-Welcome to the **first official release** of **AsyncMQ**! After months of design, development, and dogfooding in production-like environments, we’re thrilled to share this fully-featured, battle-tested async-native task queue with the world.
+## 0.1.0
+
+Welcome to the **first official release** of **AsyncMQ**!
 
 ---
 
-## 🚀 Highlights
+### 🚀 Highlights
 
 * 🎉 A **100% asyncio & AnyIO** foundation—no more thread hacks or callback nightmares.
 * 🔌 A **pluggable backend** system: Redis, Postgres, MongoDB, In-Memory, or your own.
@@ -19,9 +21,9 @@ Welcome to the **first official release** of **AsyncMQ**! After months of design
 
 ---
 
-## ✨ New Features
+### ✨ New Features
 
-### Core APIs
+#### Core APIs
 
 * **`@task` decorator**
 
@@ -57,7 +59,7 @@ Welcome to the **first official release** of **AsyncMQ**! After months of design
   * Rich state machine (WAITING, ACTIVE, COMPLETED, FAILED, DELAYED, EXPIRED).
   * Serialization via `to_dict()`/`from_dict()`, TTL checks, custom backoff strategies, dependencies, and repeat metadata.
 
-### Observability & Configuration
+#### Observability & Configuration
 
 * **Settings** dataclass
 
@@ -71,7 +73,7 @@ Welcome to the **first official release** of **AsyncMQ**! After months of design
 
 * **EventEmitter** hooks for real-time job events, ideal for Prometheus metrics or Slack alerts.
 
-### Developer Experience
+#### Developer Experience
 
 * **CLI**
 
@@ -91,13 +93,13 @@ Welcome to the **first official release** of **AsyncMQ**! After months of design
 
 ---
 
-## 🔄 Breaking Changes
+### 🔄 Breaking Changes
 
 * This is the **initial 0.1.0** release—there are no breaking changes yet! 🎉
 
 ---
 
-## 🎯 Roadmap & Next Steps
+### 🎯 Roadmap & Next Steps
 
 * **Dashboard UI**: real-time job monitoring and management interface.
 * **Plugin Ecosystem**: community-driven extensions for metrics, retries, and custom stores.
