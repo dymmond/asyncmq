@@ -8,26 +8,32 @@ theme:
   language: en
   palette:
     - scheme: "default"
-      primary: "purple"
-      accent: "amber"
+      primary: "lime"
+      accent: "pink"
       media: "(prefers-color-scheme: light)"
       toggle:
             icon: "material/lightbulb"
             name: "Switch to dark mode"
     - scheme: "slate"
       media: "(prefers-color-scheme: dark)"
-      primary: "purple"
+      primary: "lime"
       accent: "amber"
       toggle:
             icon: "material/lightbulb-outline"
             name: "Switch to light mode"
-  favicon: statics/images/favicon.ico
-  logo: statics/images/logo-white.svg
+  favicon: statics/favicon.ico
+  logo: statics/asyncmq-white.png
   features:
     - search.suggest
     - search.highlight
     - content.tabs.link
     - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+    - content.code.select
+    - navigation.indexes
+    - navigation.path
+    - navigation.tabs
 
 repo_name: dymmond/asyncmq
 repo_url: https://github.com/dymmond/asyncmq
@@ -41,11 +47,10 @@ plugins:
       min_length: 50
       max_length: 160
       trim: false
-  - markdownextradata:
-      data: data
 
 nav:
   - Introduction: "index.md"
+  - "installation.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"
