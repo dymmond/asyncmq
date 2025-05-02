@@ -55,8 +55,9 @@ nav:
       - "features/index.md"
       - "features/quickstart.md"
       - "features/core-concepts.md"
-  - Learn:
+  - Tutorial:
       - "learn/index.md"
+      - "learn/start.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"
