@@ -3,8 +3,7 @@
 When using the Postgres backend, AsyncMQ requires certain tables and indexes to be present in the
 database before any jobs can be scheduled or processed.
 
-The `install_or_drop_postgres_backend` function in `asyncmq.core.utils.postgres` handles creating (or dropping)
-these schema elements.
+The `install_or_drop_postgres_backend` function in `asyncmq.core.utils.postgres` handles creating (or dropping) these schema elements.
 
 ## Location
 
