@@ -99,3 +99,19 @@ tasks:
       LILYA_SETTINGS_MODULE: tests.settings.TestSettings
     cmds:
       - hatch run test:coverage {{ .ARGS }}
+
+  #-------------------------------- TESTES ------------------------------
+
+  mq: # Alias to invoke any asyncmq command
+    cmds:
+      - asyncmq {{.cmd}} {{.args}}
+
+  worker:
+    cmds:
+      - asyncmq worker start default --concurrency=10
+    env:
+      CONCURRENCY: 4
+
+  list-jobs:
+    cmds:
+      - asyncmq job list --queue default --state active

@@ -78,16 +78,7 @@ To override these defaults, define a custom settings class in your project. For 
 
 ```python
 # project/settings.py
-from asyncmq.conf.global_settings import Settings
-from asyncmq.backends.redis import RedisBackend
-
-class AsyncMQSettings(Settings):
-    # Use Redis at a custom URL
-    backend = RedisBackend(redis_url="redis://redis:6379/0")
-    # Increase default worker concurrency
-    worker_concurrency = 5
-    # Enable debug mode for verbose logging
-    debug = True
+{!> ../docs_src/installation/custom_settings.py !}
 ```
 
 Then set the `ASYNCMQ_SETTINGS_MODULE` environment variable to point at your settings:
@@ -102,7 +93,9 @@ Now all AsyncMQ CLI commands and API consumers will pick up these overridden val
 
 ## 4. CLI Helpers & Taskfile
 
-AsyncMQ ships with a handy CLI. You can streamline common commands by using a `Taskfile.yaml` ([https://taskfile.dev/](https://taskfile.dev/)):
+AsyncMQ ships with a handy CLI. You can streamline common commands by using a [`Taskfile.yaml`](https://taskfile.dev/))
+or whatever helps you streamline common commands, some still love going vintage (like this author) and still use the `Makefile`
+but the advantage of a `Taskfile` its that is OS agnostic:
 
 ```yaml
 version: '3'
@@ -117,16 +110,12 @@ tasks:
       env:
         CONCURRENCY: 4
 
-  list-jobs:
+  list-active-jobs:
     cmds:
-      - asyncmq job list --queue default
+      - asyncmq job list --queue default --state active
 ```
 
-Run any command via:
-
-```bash
-task mq --cmd=job list --args="--queue default"
-```
+You can add as many commands as you see fit.
 
 ---
 
@@ -143,15 +132,20 @@ You should see:
 ```text
 Usage: asyncmq [OPTIONS] COMMAND [ARGS]...
 
+  AsyncMQ CLI
+
 Options:
   --help  Show this message and exit.
 
 Commands:
-  queue       Manage queues (create, list, pause, resume)
-  job         Inspect and retry jobs
-  worker      Start a worker process to process jobs
-  flow        Manage flows (DAGs)
-  info        Show version and configuration info
+  info    Provides information about the AsyncMQ installation and...
+  job     Manages AsyncMQ jobs within queues.
+  queue   Manages AsyncMQ queues.
+  worker  Manages AsyncMQ worker processes.
 ```
 
-Next up: **Quickstart**—let’s enqueue your first job!
+You can also do `asyncmq` directly in the command line and you should see something like this:
+
+<img src="https://res.cloudinary.com/dymmond/image/upload/v1746168744/asyncmq/docs/cpnmhbed53jnlrriciof.png" alt="AsyncMQ CLI Help"/>
+
+Next up: **[Quickstart](./quickstart.md)**. Let’s enqueue your first job!

@@ -60,8 +60,8 @@ def _print_worker_help() -> None:
 
 @worker_app.command("start")
 @click.argument("queue")
-@click.option("--concurrency", default=1, help="Number of concurrent workers.")
-def start_worker_cli(queue: str, concurrency: int):
+@click.option("--concurrency", required=False, help="Number of concurrent workers.")
+def start_worker_cli(queue: str, concurrency: int | None = None):
     """
     Starts an AsyncMQ worker process for a specified queue.
 
@@ -78,6 +78,10 @@ def start_worker_cli(queue: str, concurrency: int):
     # Ensure the queue name is not empty.
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
+
+    concurrency = concurrency or settings.worker_concurrency
+    if isinstance(concurrency, str):
+        concurrency = int(concurrency)
 
     # Print the worker banner with configuration details.
     print_worker_banner(queue, concurrency, settings.backend.__class__.__name__, __version__)

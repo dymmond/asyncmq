@@ -51,6 +51,7 @@ plugins:
 nav:
   - Introduction: "index.md"
   - "installation.md"
+  - "quickstart.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"
