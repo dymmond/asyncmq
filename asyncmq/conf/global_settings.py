@@ -77,7 +77,7 @@ class Settings:
     sandbox_ctx: str | None = "fork"
 
     # How many jobs to run in parallel per worker process.
-    worker_concurrency: int = 10
+    worker_concurrency: int = 1
 
     # Rate-limit configuration for RateLimiter. A dictionary where keys are
     # queue names and values are dictionaries specifying rate limit parameters

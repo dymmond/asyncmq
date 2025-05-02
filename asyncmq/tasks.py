@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 import anyio
 
+from asyncmq import settings
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
@@ -72,8 +73,8 @@ def task(
         task_id = f"{module}.{name}"
 
         async def enqueue_task(
-            backend: BaseBackend,
             *args: Any,
+            backend: BaseBackend | None = None,
             delay: float = 0,
             priority: int = 5,
             depends_on: list[str] | None = None,
@@ -119,6 +120,8 @@ def task(
                 repeat_every=repeat_every,
             )
             # If the job has dependencies, add them to the backend.
+            backend = backend or settings.backend
+
             if job.depends_on:
                 await backend.add_dependencies(queue, job.to_dict())
 
