@@ -57,7 +57,8 @@ nav:
       - "features/core-concepts.md"
   - Tutorial:
       - "learn/index.md"
-      - "learn/start.md"
+      - "learn/integration.md"
+      - "learn/advanced-patterns.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"
