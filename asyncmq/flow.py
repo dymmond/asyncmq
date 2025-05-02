@@ -35,7 +35,7 @@ class FlowProducer:
         # Use the provided backend instance or fall back to the configured default.
         self.backend: BaseBackend = backend or settings.backend
         # Assign the dependency adder function.
-        self._add_dependencies: _AddDependenciesCallable = add_dependencies
+        self._add_dependencies: _AddDependenciesCallable = add_dependencies  # type: ignore
 
     async def add_flow(self, queue: str, jobs: list[Job]) -> list[str]:
         """

@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
@@ -90,7 +90,7 @@ class RedisBackend(BaseBackend):
         """
         # Connect to the Redis instance using the provided URL.
         # decode_responses=True ensures Redis returns strings instead of bytes.
-        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)
+        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
         # Initialize the RedisJobStore for persistent job data storage.
         self.job_store: RedisJobStore = RedisJobStore(redis_url)
         # Register the Lua POP_SCRIPT for atomic dequeue operations.
@@ -226,7 +226,7 @@ class RedisBackend(BaseBackend):
             await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.ACTIVE})
             # Add the job ID and the current time to the active jobs Hash.
             # This hash tracks jobs currently being processed.
-            await self.redis.hset(self._active_key(queue_name), payload["id"], time.time())
+            await self.redis.hset(self._active_key(queue_name), payload["id"], time.time())  # type: ignore
             # Return the dequeued job payload as a dictionary.
             return payload
         # If the script returned nil (no jobs in the waiting queue).
@@ -417,7 +417,7 @@ class RedisBackend(BaseBackend):
             job["result"] = result  # Add or update the result field.
             await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
 
-    async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
+    async def get_job_state(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
         Asynchronously retrieves the current status string of a specific job
         from the job store.
@@ -433,7 +433,7 @@ class RedisBackend(BaseBackend):
         # Load the job data from the job store.
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
         # Return the status field if the job is found, otherwise None.
-        return job.get("status") if job else None
+        return cast(dict[str, Any], job.get("status")) if job else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
         """
@@ -972,7 +972,7 @@ class RedisBackend(BaseBackend):
         queue_name: str,
         job_dicts: list[dict[str, Any]],
         dependency_links: list[tuple[str, str]],
-    ) -> list[str]:
+    ) -> Any:
         """
         Atomically enqueues multiple jobs to the waiting queue and registers
         their parent-child dependencies using the pre-registered `FLOW_SCRIPT`
@@ -1058,7 +1058,7 @@ class RedisBackend(BaseBackend):
         key: str = f"queue:{queue_name}:heartbeats"
         # Store the timestamp (converted to string by Redis) associated with
         # the job_id in the heartbeats Hash using HSET.
-        await self.redis.hset(key, job_id, timestamp)
+        await self.redis.hset(key, job_id, timestamp)  # type: ignore
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
@@ -1231,7 +1231,7 @@ class RedisBackend(BaseBackend):
         # Add the modified (paused) job definition back to the Sorted Set with the same score.
         await self.redis.zadd(key, {json.dumps(job_def_paused): next_run})
 
-    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Asynchronously un-pauses a repeatable job definition in Redis, computes
         its next scheduled run time, and updates the definition in the Sorted Set.
@@ -1295,7 +1295,7 @@ class RedisBackend(BaseBackend):
         # Mark cancelled by adding the job ID to a Redis Set.
         await self.redis.sadd(f"queue:{queue_name}:cancelled", job_id)
 
-    async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
+    async def is_job_cancelled(self, queue_name: str, job_id: str) -> Any:
         """
         Asynchronously checks if a specific job has been marked as cancelled
         in the Redis cancelled Set.

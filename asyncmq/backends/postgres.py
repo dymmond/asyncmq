@@ -6,7 +6,7 @@ except ImportError:
 import json
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 # Import specific types for hints
 from asyncpg import Pool, Record
@@ -148,7 +148,7 @@ class PostgresBackend(BaseBackend):
                 # If a row was returned (a job was dequeued).
                 if row:
                     # Deserialize and return the job payload.
-                    return json.loads(row["data"])
+                    return cast(dict[str, Any], json.loads(row["data"]))
                 # Return None if no waiting job was found.
                 return None
 
@@ -349,7 +349,7 @@ class PostgresBackend(BaseBackend):
                 json.dumps(job_def),
             )
 
-    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Un-pause a repeatable, recompute next_run, and return the new timestamp.
         """
@@ -475,7 +475,7 @@ class PostgresBackend(BaseBackend):
         # Load the job data from the job store.
         job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
         # Return the status field if the job is found, otherwise None.
-        return job.get("status") if job else None
+        return cast(str, job.get("status")) if job else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
         """

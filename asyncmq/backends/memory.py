@@ -235,7 +235,7 @@ class InMemoryBackend(BaseBackend):
             if raw in self.repeatables.get(queue_name, {}):
                 self.repeatables[queue_name][raw]["paused"] = True
 
-    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Un-pause the repeatable and return its newly computed next_run timestamp.
         """
@@ -803,14 +803,3 @@ class InMemoryBackend(BaseBackend):
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)
-
-        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
-            match state:
-                case "waiting":
-                    return list(self.queues.get(queue, []))
-                case "delayed":
-                    return [j for _, j in self.delayed.get(queue, [])]
-                case "failed":
-                    return list(self.dlqs.get(queue, []))
-                case _:
-                    return []  # Memory backend may not track active/completed

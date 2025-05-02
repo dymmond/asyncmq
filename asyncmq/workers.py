@@ -1,7 +1,7 @@
 import inspect
 import time
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 from anyio import CapacityLimiter
@@ -16,7 +16,6 @@ from asyncmq.jobs import Job
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
-# Type checking import for Queue, only active during type checking
 if TYPE_CHECKING:
     from asyncmq.queues import Queue
 
@@ -181,8 +180,8 @@ async def handle_job(
         if settings.sandbox_enabled:
             # If sandboxing is enabled, run the handler in a separate thread
             # using the sandbox execution function.
-            result = await anyio.to_thread.run_sync(
-                sandbox.run_handler,
+            result = await anyio.to_thread.run_sync(  # noqa
+                cast(Any, sandbox.run_handler),
                 job.task_id,
                 tuple(job.args),  # sandbox expects tuple args
                 job.kwargs,

@@ -89,6 +89,7 @@ dependencies = [
     "ipdb",
     "ptpython",
     "twine",
+    "types-croniter"
 ]
 
 [project.optional-dependencies]

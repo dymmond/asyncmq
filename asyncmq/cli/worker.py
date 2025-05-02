@@ -64,7 +64,7 @@ def _print_worker_help() -> None:
 @worker_app.command("start")
 @click.argument("queue")
 @click.option("--concurrency", required=False, help="Number of concurrent workers.")
-def start_worker_cli(queue: str, concurrency: int | None = None):
+def start_worker_cli(queue: str, concurrency: int | str | None = None) -> None:
     """
     Starts an AsyncMQ worker process for a specified queue.
 
@@ -106,7 +106,7 @@ def start_worker_cli(queue: str, concurrency: int | None = None):
         raise click.Abort() from e
 
 
-async def signal_handler(scope: anyio.CancelScope):
+async def signal_handler(scope: anyio.CancelScope) -> None:
     """Listens for signals and cancels the task group."""
     with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
         async for signum in signals:

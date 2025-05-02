@@ -343,10 +343,10 @@ class Queue:
         return await self.backend.get_due_delayed(self.name)
 
     async def list_delayed(self) -> bool:
-        return await self.backend.list_delayed(self.name)
+        return await self.backend.list_delayed(self.name)  # type: ignore
 
     async def remove_delayed(self, job_id: str) -> bool:
-        return await self.backend.remove_delayed(self.name, job_id)
+        return await self.backend.remove_delayed(self.name, job_id)  # type: ignore
 
     async def list_repeatables(self) -> list[RepeatableInfo]:
         return await self.backend.list_repeatables(self.name)
@@ -367,7 +367,7 @@ class Queue:
         """
         Get counts of waiting, delayed, failed for this queue.
         """
-        return await self.backend.queue_stats(self.name)
+        return await self.backend.queue_stats(self.name)  # type: ignore
 
     async def list_jobs(self, state: str) -> list[dict[str, Any]]:
         return await self.backend.list_jobs(self.name, state)
