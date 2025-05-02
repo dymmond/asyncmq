@@ -86,7 +86,7 @@ backend load. You now have two configuration options:
 
 #### Latency vs. Scan Frequency Tradeoff
 
-| scan\_interval | Approx. Max Delay | Backend Calls/sec |
+| scan_interval | Approx. Max Delay | Backend Calls/sec |
 | -------------: | --------------- | ----------------- |
 |           0.1s | ~0.1s           | 10× baseline      |
 |           1.0s | ~1.0s           | 1× baseline       |

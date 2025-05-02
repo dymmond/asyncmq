@@ -142,7 +142,7 @@ queue.start()
 ## 5. Inspecting & Utilities
 
 * **`queue.enqueue(payload)`** / **`enqueue_delayed`**: low-level methods.
-* **`queue.delay(payload, run_at)`**: alias for enqueue + enqueue\_delayed.
+* **`queue.delay(payload, run_at)`**: alias for enqueue + enqueue_delayed.
 * **`queue.get_due_delayed()`**, **`list_delayed()`**, **`remove_delayed(job_id)`**: manage delayed set.
 * **`list_repeatables()`**, **`pause_repeatable()`**, **`resume_repeatable()`**: introspect repeatables.
 * **`cancel_job(job_id)`**, **`is_job_cancelled(job_id)`**: cancel or check cancellations.

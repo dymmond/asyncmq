@@ -127,7 +127,7 @@ def compute_next_run(job_def: dict[str, Any]) -> float: ...
 * **Missing Keys**: Definitions must include either `cron` or `every`—or they silently never run.
 * **Time Zones**: `croniter` uses system local time; if your app crosses DST boundaries, cron triggers adjust accordingly.
 * **Long-Running Jobs**: If your scheduled job takes longer than its interval, you may see overlap—consider guarding with job-level locks.
-* **Scheduler Crash**: Exceptions inside the scheduler loop can kill it—wrap body in `try/except` or let run\_worker’s gather propagate cancellation.
+* **Scheduler Crash**: Exceptions inside the scheduler loop can kill it—wrap body in `try/except` or let run_worker’s gather propagate cancellation.
 
 **FAQ:** *What if I need a one-off job at a specific timestamp?*
 Use `queue.add(..., delay=timestamp - time.time())` or leverage your backend’s `enqueue_delayed` directly.

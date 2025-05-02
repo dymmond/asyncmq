@@ -43,7 +43,7 @@ Welcome to the **first official release** of **AsyncMQ**!
 
 * **`run_worker` orchestrator**
 
-  * Combines **ConcurrencyLimiter**, **RateLimiter**, **delayed\_job\_scanner**, and **repeatable\_scheduler** into a single async entrypoint.
+  * Combines **ConcurrencyLimiter**, **RateLimiter**, **delayed_job_scanner**, and **repeatable_scheduler** into a single async entrypoint.
 
 * **`repeatable_scheduler`**
 
@@ -95,7 +95,7 @@ Welcome to the **first official release** of **AsyncMQ**!
 
 ### 🔄 Breaking Changes
 
-* This is the **initial 0.1.0** release—there are no breaking changes yet! 🎉
+* This is the **initial 0.1.0** release. There are no breaking changes yet! 🎉
 
 ---
 

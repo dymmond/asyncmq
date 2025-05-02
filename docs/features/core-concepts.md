@@ -60,7 +60,7 @@ stats = await queue.queue_stats()
 ```
 
 * **pause()/resume()** flip a backend flag (`pause_queue`/`resume_queue`) preventing `dequeue()` from returning jobs.
-* **queue\_stats()** aggregates counts of jobs per state.
+* **queue_stats()** aggregates counts of jobs per state.
 
 ### 1.3. Running Workers via Code
 
@@ -171,7 +171,7 @@ you to extend to your own store and backend if required.
 
 ### 4.1. Implementing Custom Backends
 
-Subclass `asyncmq.backends.base.BaseBackend` and implement all abstract methods: enqueue, dequeue, ack, move\_to\_dlq, enqueue\_delayed, get\_due\_delayed, remove\_delayed, update\_job\_state, save\_job\_result, get\_job\_state, add\_dependencies, resolve\_dependency, pause\_queue, resume\_queue, and the repeatable methods.
+Subclass `asyncmq.backends.base.BaseBackend` and implement all abstract methods: enqueue, dequeue, ack, move_to_dlq, enqueue_delayed, get_due_delayed, remove_delayed, update_job_state, save_job_result, get_job_state, add_dependencies, resolve_dependency, pause_queue, resume_queue, and the repeatable methods.
 
 > **Why this separation?** Enables adapting AsyncMQ to cloud queues, message brokers, or other persistence layers without touching core logic.
 
