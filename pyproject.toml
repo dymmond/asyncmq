@@ -45,7 +45,26 @@ dependencies = [
   "redis>=5.2.1",
   "monkay>=0.4.1"
 ]
-keywords = ["asyncmq", "broker"]
+keywords = [
+  "asyncio",
+  "anyio",
+  "task-queue",
+  "background-jobs",
+  "job-scheduler",
+  "rate-limiter",
+  "dead-letter-queue",
+  "cron",
+  "microservices",
+  "fastapi",
+  "esmerald",
+  "redis",
+  "postgresql",
+  "mongodb",
+  "celery-alternative",
+  "concurrency",
+  "parallelism",
+  "retry-policy",
+]
 
 [project.urls]
 Homepage = "https://github.com/dymmond/asyncmq"
