@@ -212,6 +212,11 @@ class Settings:
     Can be None if no rate limiting is configured. Defaults to None.
     """
 
+    scan_interval: float = 1.0
+    """
+    The frequency (in seconds) at which the scheduler scans for delayed jobs.
+    """
+
     @property
     def logging_config(self) -> "LoggingConfig" | None:
         """

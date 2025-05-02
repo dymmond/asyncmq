@@ -33,6 +33,7 @@ class Queue:
         concurrency: int = 3,
         rate_limit: int | None = None,
         rate_interval: float = 1.0,
+        scan_interval: float | None = None,
     ) -> None:
         """
         Intializes a Queue instance.
@@ -52,6 +53,9 @@ class Queue:
                         - If 0, job processing is effectively blocked.
             rate_interval: The time window in seconds over which the `rate_limit`
                            applies. Defaults to 1.0 second.
+            scan_interval: How often (seconds) to poll delayed and repeatable jobs.
+                           Overrides global `settings.scan_interval` if provided.
+                           Defaults to `settings.scan_interval`.
         """
         self.name: str = name
         # Use the provided backend or fall back to the default configured backend.
@@ -61,6 +65,8 @@ class Queue:
         self.concurrency: int = concurrency
         self.rate_limit: int | None = rate_limit
         self.rate_interval: float = rate_interval
+        self.scan_interval: float = scan_interval or settings.scan_interval
+
 
     async def add(
         self,
@@ -292,6 +298,7 @@ class Queue:
             concurrency=self.concurrency,
             rate_limit=self.rate_limit,
             rate_interval=self.rate_interval,
+            scan_interval=self.scan_interval,
             repeatables=self._repeatables,
         )
 
