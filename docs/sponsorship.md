@@ -2,9 +2,6 @@
 
 Do you like **AsyncMQ** and would like to help AsyncMQ, other user and the author?
 
-## 🐦 Follow AsyncMQ on Twitter
-
-
 ## ⭐ Star **AsyncMQ** on GitHub
 
 Giving a star to AsyncMQ is very simple and helps promoting the work across the developers around the world.

@@ -48,6 +48,7 @@ async def run_worker(
     rate_limit: int | None = None,
     rate_interval: float = 1.0,
     repeatables: list[Any] | None = None,
+    scan_interval: float | None = None,
 ) -> None:
     """
     Launches and manages a worker process responsible for consuming and
@@ -84,9 +85,12 @@ async def run_worker(
                      their configured `repeat_every` interval. The specific
                      structure of the dictionaries is expected by the
                      `repeatable_scheduler`. Defaults to None.
+        scan_interval: How often to poll for delayed and repeatable jobs.
+                       If None, uses settings.scan_interval.
     """
     # Use the provided backend or fall back to the default configured backend.
     backend = backend or settings.backend
+    scan_interval = scan_interval or settings.scan_interval
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 
@@ -123,7 +127,7 @@ async def run_worker(
     # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
     tasks: list[Any] = [
         process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),
-        delayed_job_scanner(queue_name, backend, interval=0.1),
+        delayed_job_scanner(queue_name, backend, interval=scan_interval),
     ]
 
     # If repeatable job definitions are provided, add the repeatable scheduler task.
@@ -133,7 +137,7 @@ async def run_worker(
         from asyncmq.schedulers import repeatable_scheduler
 
         # Add the repeatable scheduler task to the list of tasks to run.
-        tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=0.1))
+        tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=scan_interval))
 
     # Use asyncio.gather to run all the created tasks concurrently.
     # This function will wait for all tasks to complete (which, for these

@@ -1,304 +1,134 @@
+---
+hide:
+  - navigation
+---
+
 # AsyncMQ
 
-![PyPI](https://img.shields.io/pypi/v/asyncmq?label=PyPI) ![License](https://img.shields.io/pypi/l/asyncmq?label=License) ![Python Versions](https://img.shields.io/pypi/pyversions/asyncmq?label=Python%203.8%2B) ![Docs](https://img.shields.io/badge/docs-asyncmq.dymmond.com-blue)
+<p align="center">
+  <a href="https://asyncmq.dymmond.com"><img src="https://res.cloudinary.com/dymmond/image/upload/v1746002620/asyncmq/oq2qhgqdlra7rudxaqhl.png" alt="AsyncMQ Logo"></a>
+</p>
 
-> **AsyncMQ** is a native Python, **asyncio**-first task queue inspired by BullMQ.  
-> It offers multi-backend support, robust scheduling, retries, and more—all with an idiomatic async/await API.
+<p align="center">
+  <span>⚡ Supercharge your async applications with tasks so fast, you’ll think you’re bending time itself. ⚡</span>
+</p>
 
----
-
-## 🔍 Overview
-
-AsyncMQ provides:
-
-- **Immediate & Delayed Jobs**: `add(..., delay=<seconds>)` schedules now or later  
-- **Repeatable Tasks**: `add_repeatable(..., every=<sec> | cron="* * * * *")`  
-- **Retries & Backoff**: `retries=<int>`, `backoff=<float>` (exponential base)  
-- **TTL & DLQ**: `ttl=<seconds>`, expired or failed jobs can be moved to DLQ  
-- **Priorities & Rate Limiting**: `priority=<int>`, `rate_limit=<jobs>`, `rate_interval=<sec>`  
-- **Stalled-Job Recovery**: automatic scan & requeue of stuck jobs  
-- **Sandboxed Execution**: handlers run in isolated subprocesses  
-- **Flows & Dependencies**: `FlowProducer.add_flow(queue, jobs: list[Job])` for DAGs  
-- **Multi-Backend**: `RedisBackend`, `PostgresBackend`, `MongoBackend`, `InMemoryBackend`  
-- **Rich CLI**: `asyncmq queue|job|worker|info` commands  
+<p align="center">
+  <a href="https://github.com/dymmond/asyncmq/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" target="_blank">
+    <img src="https://github.com/dymmond/asyncmq/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" alt="Test Suite">
+  </a>
+  <a href="https://pypi.org/project/asyncmq" target="_blank">
+    <img src="https://img.shields.io/pypi/v/asyncmq?color=%2334D058&label=pypi%20package" alt="Package version">
+  </a>
+  <a href="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" target="_blank">
+    <img src="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" alt="Supported Python versions">
+  </a>
+</p>
 
 ---
 
-## ⚙️ Installation
+Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexible**, and **lightning-fast** background processing to your Python stack. Whether you're building microservices, handling high-throughput data pipelines, or just want reliable delayed jobs, AsyncMQ has your back.
 
-Requires Python **3.8+**.
+## 🚀 Why Choose AsyncMQ?
 
-```bash
-pip install asyncmq
-```
+1. **Asyncio & AnyIO-Native**
+   No more wrestling with threads or callbacks—AsyncMQ is built on `asyncio` and `anyio`, so your tasks are non-blocking and integrate seamlessly into modern async frameworks like FastAPI and Esmerald.
 
-Or install latest from GitHub:
+2. **Multi-Backend Flexibility**
+   From the blistering speed of Redis to the ACID guarantees of Postgres, or the schema-less power of MongoDB, AsyncMQ supports multiple backends out of the box—and you can write your own by implementing `BaseBackend`.
 
-```shell
-pip install git+https://github.com/dymmond/asyncmq.git
-```
+3. **Advanced Scheduling**
 
----
+   * **Delayed Jobs**: Fire off tasks in the future with precise delays.
+   * **Repeatable & Cron**: Create heartbeat jobs or cron-like schedules with a single line.
+   * **Scan & Scheduler**: Smart polling intervals and cron logic keep your timings accurate without burning CPU cycles.
 
-🚀 Quickstart
+4. **Robust Error Handling**
 
-1️⃣ Register Tasks (tasks.py)
+   * **Retries & Backoff**: Exponential or custom backoff strategies to gracefully handle failures.
+   * **Dead Letter Queue (DLQ)**: Automatically route permanently failed tasks for later inspection and reprocessing.
 
-```python
-from asyncmq.tasks import task
+5. **Observability & Event Hooks**
+   Tap into lifecycle events (`job:started`, `job:completed`, `job:failed`, `job:progress`) to power real-time dashboards, metrics, or custom alerts.
 
-@task(queue="emails", retries=2, ttl=3600)
-async def send_email(recipient: str, subject: str, body: str) -> None:
-    """
-    Send an email; exceptions trigger retries.
-    """
-    await smtp.send(recipient, subject, body)
-```
+6. **Rate Limiting & Concurrency Control**
+   Fine-tune throughput with token-bucket rate limiting and capacity limiters. Scale your worker concurrency without overloading downstream systems.
 
-2️⃣ Create a Queue (app.py)
+7. **Sandboxed Execution**
+   Run untrusted or CPU-bound tasks in isolated subprocesses with timeouts to protect your main workers from rogue code or infinite loops.
 
-```python
-import anyio
-from asyncmq.queues import Queue
-from asyncmq.backends.redis import RedisBackend
+8. **Flow/DAG Orchestration**
+   Create complex task graphs with dependencies using `FlowProducer`. Enqueue entire pipelines atomically or fall back to safe sequential logic.
 
-async def main():
-    queue = Queue(
-        name="emails",
-        backend=RedisBackend(redis_url="redis://localhost:6379"),
-        concurrency=5,
-        rate_limit=10,
-        rate_interval=1.0,
-    )
-    # Enqueue or run worker...
+9. **CLI & Dev Experience**
+   A feature-rich CLI for managing queues, jobs, and workers—intuitive commands, JSON output support, and built-in help for every scenario.
 
-anyio.run(main)
-```
-
-> Note: Omitting backend defaults to RedisBackend(redis_url="redis://localhost").
-
-
-
-3️⃣ Enqueue Jobs (enqueue.py)
-
-```python
-import anyio
-from asyncmq.queues import Queue
-
-async def main():
-    q = Queue("emails")  # default Redis
-
-    # Immediate job
-    job_id = await q.add(
-        task_id="tasks.send_email",
-        args=["user@example.com", "Hi", "Hello!"],
-        retries=1,
-        ttl=600,
-        backoff=2.0,
-        priority=3,
-    )
-
-    # Delayed job (delay in seconds)
-    delay_id = await q.add(
-        task_id="tasks.send_email",
-        args=["user@example.com", "Reminder", "Don't forget!"],
-        delay=30.0,
-    )
-
-    print(job_id, delay_id)
-
-anyio.run(main)
-```
-
-4️⃣ Add Repeatable Tasks
-
-```python
-from asyncmq.queues import Queue
-
-q = Queue("jobs")
-# Every 5 minutes
-q.add_repeatable(
-    task_id="tasks.cleanup",
-    every=300.0,
-    args=["/tmp"],
-    retries=0,
-)
-
-# Cron at midnight
-q.add_repeatable(
-    task_id="tasks.daily_backup",
-    cron="0 0 * * *",
-)
-```
-
-5️⃣ Enqueue Bulk Jobs
-
-```python
-jobs = [
-    {"task_id": "tasks.send_email", "args": ["a@example.com", "A", "..."]},
-    {"task_id": "tasks.send_email", "args": ["b@example.com", "B", "..."]},
-]
-available_ids = await q.add_bulk(jobs)
-```
-
-6️⃣ Start Workers
-
-```shell
-asyncmq worker start emails --concurrency 5
-```
-
-Or in code:
-
-```python
-# app.py
-q.start()  # synchronous; blocks
-```
+10. **Seamless ASGI Integration**
+    Out-of-the-box compatibility with FastAPI, Esmerald, or any ASGI application. Manage workers within your app’s lifecycle events.
 
 ---
 
-📋 API Reference
+## ⚡ Core Features at a Glance
 
-```python
-class Queue:
-    def __init__(
-        self,
-        name: str,
-        backend: BaseBackend | None = None,
-        concurrency: int = 3,
-        rate_limit: int | None = None,
-        rate_interval: float = 1.0,
-    )
-    async def add(
-        self,
-        task_id: str,
-        args: list[Any] | None = None,
-        kwargs: dict[str, Any] | None = None,
-        retries: int = 0,
-        ttl: int | None = None,
-        backoff: float | None = None,
-        priority: int = 5,
-        delay: float | None = None,
-    ) -> str
-    async def add_bulk(self, jobs: list[dict[str, Any]]) -> list[str]
-    def add_repeatable(
-        self,
-        task_id: str,
-        every: float | str | None = None,
-        cron: str | None = None,
-        args: list[Any] | None = None,
-        kwargs: dict[str, Any] | None = None,
-        retries: int = 0,
-        ttl: int | None = None,
-        priority: int = 5,
-    ) -> None
-    async def pause(self) -> None
-    async def resume(self) -> None
-    async def clean(self, state: str, older_than: float | None = None) -> None
-    async def queue_stats(self) -> dict[str, int]
-    async def list_jobs(self, state: str) -> list[dict[str, Any]]
-    async def run(self) -> None
-    def start(self) -> None
-```
+| Category               | Highlights                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| **Task Definition**    | `@task` decorator, `.enqueue()`, progress callbacks, TTL, retries, dependencies, repeats  |
+| **Queue API**          | `add()`, `add_bulk()`, `add_repeatable()`, `pause()`, `resume()`, `clean()`, stats        |
+| **Worker Engine**      | `process_job()`, capacity & rate limiters, sandbox, event emitter, DLQ handling           |
+| **Scheduling**         | `delayed_job_scanner`, `repeatable_scheduler`, cron vs interval support                   |
+| **Flow Orchestration** | `FlowProducer.add_flow()`, atomic backend support, fallback mode for dependency wiring    |
+| **Configuration**      | Central `Settings` dataclass, env var override, dynamic tuning of concurrency & intervals |
+| **Observability**      | LoggingConfig protocol, structured logs, event subscriptions, metrics integration         |
+| **CLI Management**     | `asyncmq queue`, `asyncmq job`, `asyncmq worker`, `asyncmq info` commands                 |
 
 ---
 
-🖥 CLI Reference
+## 🎬 Quickstart
 
-### Queue Commands
+1. **Install**
 
-```shell
-asyncmq queue list
-asyncmq queue info <queue>
-asyncmq queue pause <queue>
-asyncmq queue resume <queue>
-asyncmq queue list-delayed <queue>
-asyncmq queue remove-delayed <queue> <job_id>
-asyncmq queue list-repeatables <queue>
-asyncmq queue pause-repeatable <queue> '<job_def_json>'
-asyncmq queue resume-repeatable <queue> '<job_def_json>'
-```
+   ```bash
+   pip install asyncmq
+   ```
+2. **Configure**
 
-### Job Commands
+   Override the default settings `from asyncmq.conf import Settings` and create your own, then make it global.
 
-```shell
-asyncmq job list --queue <queue> --state <state>
-asyncmq job inspect <job_id> --queue <queue>
-asyncmq job retry <job_id> --queue <queue>
-asyncmq job remove <job_id> --queue <queue>
-asyncmq job cancel-job <queue> <job_id>
+   ```bash
+   export ASYNCMQ_SETTINGS_MODULE=myapp.settings.Settings
+   ```
+3. **Define a Task**
 
-Worker Commands
+   ```python
+   from asyncmq.tasks import task
 
-asyncmq worker start <queue> --concurrency <number>
-```
+   @task(queue="emails", retries=2, ttl=120)
+   async def send_welcome(email: str):
+       # Imagine real email-sending logic here
+       print(f"📧 Sent welcome to {email}")
+   ```
+4. **Enqueue & Run**
 
-Info Commands
+   ```python
+   import anyio
+   from asyncmq.queues import Queue
 
-```python
-asyncmq info version
-asyncmq info backend
-```
+   async def main():
+       q = Queue("emails")
+       await send_welcome.enqueue(q.backend, "alice@example.com", delay=10)
+   anyio.run(main)
+   ```
+5. **Start Workers**
 
----
-
-🔧 Flows & Dependencies
-
-```python
-from asyncmq.flow import FlowProducer
-from asyncmq.jobs import Job
-import anyio
-
-async def example():
-    flow = FlowProducer()
-    a = Job(task_id="tasks.A", args=[1])
-    b = Job(task_id="tasks.B", args=[2], depends_on=[a.id])
-    c = Job(task_id="tasks.C", args=[3], depends_on=[b.id])
-    ids = await flow.add_flow("pipeline", [a, b, c])
-    print(ids)
-
-anyio.run(example)
-```
+   ```bash
+   asyncmq worker start emails --concurrency 5
+   ```
 
 ---
 
-🛠 Configuration
+AsyncMQ is more than just a task queue, it’s the swiss army knife of async background processing.
+Dive into the **Learn** section to master every feature, or jump into the **Features** docs for quick reference.
 
-Override defaults in code:
+Ready to bend time?
 
-```python
-from asyncmq.conf import settings
-from asyncmq.backends.postgres import PostgresBackend
-
-settings.backend = PostgresBackend(dsn="postgres://...")
-```
-
-Or via environment:
-
-```shell
-export ASYNCMQ_SETTINGS_MODULE=path.to.your_settings
-```
----
-
-🧪 Testing
-
-```shell
-pytest
-```
-
----
-
-🤝 Contributing
-
-Please see CONTRIBUTING.md. We welcome issues and PRs.
-
-
----
-
-📜 License
-
-Released under the BSD 3-Clause License. See LICENSE.
-
-
----
-
-Made with 🐍 & 🚀 by the AsyncMQ community
+**Get started today** and experience async tasking at warp speed! 🎉

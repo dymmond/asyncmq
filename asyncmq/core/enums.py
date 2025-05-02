@@ -33,6 +33,8 @@ class State(StrEnum):
     """The job is scheduled to run at a future time."""
     EXPIRED = "expired"
     """The job's time-to-live (TTL) has been exceeded before processing completed."""
+    QUEUED = "queued"
+    """The job has been queued."""
 
     def __str__(self) -> str:
         """

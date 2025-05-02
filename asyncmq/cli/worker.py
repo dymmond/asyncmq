@@ -1,3 +1,5 @@
+import signal
+
 import anyio
 import click
 from rich.console import Console
@@ -10,6 +12,7 @@ from asyncmq.cli.utils import (
     print_worker_banner,
 )
 from asyncmq.conf import settings
+from asyncmq.logging import logger
 from asyncmq.runners import start_worker
 
 console = Console()
@@ -60,8 +63,8 @@ def _print_worker_help() -> None:
 
 @worker_app.command("start")
 @click.argument("queue")
-@click.option("--concurrency", default=1, help="Number of concurrent workers.")
-def start_worker_cli(queue: str, concurrency: int):
+@click.option("--concurrency", required=False, help="Number of concurrent workers.")
+def start_worker_cli(queue: str, concurrency: int | None = None):
     """
     Starts an AsyncMQ worker process for a specified queue.
 
@@ -79,14 +82,21 @@ def start_worker_cli(queue: str, concurrency: int):
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
 
+    concurrency = concurrency or settings.worker_concurrency
+    if isinstance(concurrency, str):
+        concurrency = int(concurrency)
+
     # Print the worker banner with configuration details.
     print_worker_banner(queue, concurrency, settings.backend.__class__.__name__, __version__)
+    logger_level = getattr(settings, "logging_level", "info")
+    log = getattr(logger, logger_level.lower())
 
     try:
         # Start the worker using anyio's run function.
         # The lambda function wraps the start_worker call to be compatible with anyio.run.
+        log(f"Starting worker for queue '{queue}' with concurrency {concurrency}")
         anyio.run(lambda: start_worker(queue_name=queue, concurrency=concurrency))
-    except KeyboardInterrupt:
+    except anyio.get_cancelled_exc_class():
         # Handle KeyboardInterrupt (Ctrl+C) for graceful shutdown.
         console.print("[yellow]Worker shutdown requested (Ctrl+C). Exiting...[/yellow]")
     except Exception as e:
@@ -94,3 +104,14 @@ def start_worker_cli(queue: str, concurrency: int):
         console.print(f"[red]Worker crashed: {e}[/red]")
         # Abort the Click process with an error.
         raise click.Abort() from e
+
+async def signal_handler(scope: anyio.CancelScope):
+    """Listens for signals and cancels the task group."""
+    with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
+        async for signum in signals:
+            if signum == signal.SIGINT:
+                console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C).[/yellow]")
+            else:
+                console.print(f"\n[yellow]Received signal {signum}.[/yellow]")
+            scope.cancel() # Cancel the task group to initiate shutdown
+            return # Exit the signal handler task

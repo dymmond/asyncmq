@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 import anyio
 
+from asyncmq import settings
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
@@ -72,7 +73,7 @@ def task(
         task_id = f"{module}.{name}"
 
         async def enqueue_task(
-            backend: BaseBackend,
+            backend: BaseBackend | None = None,
             *args: Any,
             delay: float = 0,
             priority: int = 5,
@@ -119,6 +120,8 @@ def task(
                 repeat_every=repeat_every,
             )
             # If the job has dependencies, add them to the backend.
+            backend = backend or settings.backend
+
             if job.depends_on:
                 await backend.add_dependencies(queue, job.to_dict())
 
@@ -190,6 +193,7 @@ def task(
         # Attach helper methods/attributes to the wrapped function.
         # Type ignored because these attributes are dynamically added.
         wrapper.enqueue = enqueue_task  # type: ignore
+        wrapper.delay = enqueue_task # type: ignore
         wrapper.task_id = task_id  # type: ignore
         wrapper._is_asyncmq_task = True  # type: ignore
 

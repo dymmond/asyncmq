@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .backends.memory import InMemoryBackend
     from .backends.redis import RedisBackend
     from .conf import settings
+    from .conf.global_settings import Settings
     from .jobs import Job
     from .queues import Queue
     from .stores.base import BaseJobStore
@@ -36,6 +37,7 @@ __all__ = [
     "Job",
     "Queue",
     "RedisBackend",
+    "Settings",
     "settings",
     "task",
     "Worker",
