@@ -321,6 +321,15 @@ class Queue:
         """
         await self.backend.enqueue_delayed(self.name, payload, run_at)
 
+    async def delay(self, payload: dict[str, Any], run_at: float | None = None) -> None:
+        """
+        The same of enqueue with enqueue_delayed combined in one place.
+        """
+        if not run_at:
+            await self.enqueue(payload)
+        else:
+            await self.enqueue_delayed(payload, run_at)
+
     async def get_due_delayed(self) -> list[dict[str, Any]]:
         """
         Pop & return any jobs whose run_at ≤ now.

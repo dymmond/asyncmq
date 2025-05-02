@@ -17,10 +17,10 @@ Apply the `@task` decorator to an async function, which does **not** automatical
 ```
 
 !!! Warning
-    Calling say_hello("World") executes the function immediately, without enqueuing.
-    To schedule a background job, you must use say_hello.enqueue(...).
+    Calling `say_hello("World")` executes the function immediately, without enqueuing.
+    To schedule a background job, you must use `say_hello.enqueue(...)`.
 
-## 2. Enqueue a Job
+## 2. Enqueue a Job (delay)
 
 Use the generated `enqueue` helper on your task. All optional parameters have sensible defaults:
 

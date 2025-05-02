@@ -20,7 +20,8 @@ Add to your Poetry project:
 poetry add asyncmq
 ```
 
-> Tip: Pin to a minor version for stability, e.g., `asyncmq~=0.3.2`.
+!!! Tip
+    Pin to a minor version for stability, e.g., `asyncmq~=0.3.2`.
 
 ---
 
