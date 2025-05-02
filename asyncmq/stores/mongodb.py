@@ -80,7 +80,7 @@ class MongoDBStore(BaseJobStore):
             upsert=True,
         )
 
-    async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+    async def load(self, queue_name: str, job_id: str) -> Any:
         """
         Loads a job document from the MongoDB collection by its ID and queue name.
 
@@ -105,7 +105,7 @@ class MongoDBStore(BaseJobStore):
         # Delete a single document matching the queue name and job ID.
         await self.collection.delete_one({"queue_name": queue_name, "job_id": job_id})
 
-    async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+    async def all_jobs(self, queue_name: str) -> Any:
         """
         Retrieves all job documents for a specific queue.
 
@@ -120,7 +120,7 @@ class MongoDBStore(BaseJobStore):
         # Convert the asynchronous cursor results to a list. length=None fetches all.
         return await cursor.to_list(length=None)
 
-    async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
+    async def jobs_by_status(self, queue_name: str, status: str) -> Any:
         """
         Retrieves job documents for a specific queue and status.
 

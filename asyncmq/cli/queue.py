@@ -257,7 +257,7 @@ def cli_list_delayed(queue: str) -> None:
     q = Queue(queue)
     # Call the queue's list_delayed method asynchronously using anyio.run
     # and store the returned list of DelayedInfo dataclass instances.
-    jobs: list[DelayedInfo] = anyio.run(q.list_delayed)
+    jobs: list[DelayedInfo] = anyio.run(q.list_delayed)  # type: ignore
 
     # Create a Rich Table to display the delayed job information.
     table = Table(show_header=True, header_style="bold magenta")
@@ -305,7 +305,7 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
     q = Queue(queue)
     # Call the queue's remove_delayed method asynchronously using anyio.run,
     # passing the job ID. The method returns True if the job was removed, False otherwise.
-    ok = anyio.run(q.remove_delayed, job_id)
+    ok = anyio.run(q.remove_delayed, job_id)  # type: ignore
 
     # Check the boolean result returned by remove_delayed.
     if ok:

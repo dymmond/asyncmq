@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
 
@@ -24,7 +24,7 @@ class RedisJobStore(BaseJobStore):
                        "redis://localhost".
         """
         # Connect to the Redis instance.
-        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)
+        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
 
     def _key(self, queue_name: str, job_id: str) -> str:
         """
@@ -96,7 +96,7 @@ class RedisJobStore(BaseJobStore):
         # Retrieve the raw JSON string from Redis using the job's key.
         raw: str | None = await self.redis.get(self._key(queue_name, job_id))
         # Parse the JSON string into a dictionary if it exists, otherwise return None.
-        return json.loads(raw) if raw else None
+        return cast(dict[str, Any], json.loads(raw)) if raw else None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
         """

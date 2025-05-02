@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 import anyio
 
@@ -319,7 +319,7 @@ class MongoDBBackend(BaseBackend):
             # Load the job data from the MongoDB store.
             job = await self.store.load(queue_name, job_id)
             # Return the 'status' field if the job is found, otherwise None.
-            return job.get("status") if job else None
+            return cast(str, job.get("status")) if job else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
         """
@@ -861,7 +861,7 @@ class MongoDBBackend(BaseBackend):
             if rec:
                 rec["paused"] = True  # Mark the repeatable job as paused.
 
-    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Asynchronously un-pauses a repeatable job definition in memory, computes
         its next scheduled run time, and updates the definition in memory.

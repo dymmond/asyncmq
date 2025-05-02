@@ -34,7 +34,7 @@ async def install_or_drop_postgres_backend(
     if not connection_string and not settings.asyncmq_postgres_backend_url:
         raise ValueError("Either 'connection_string' or 'settings.asyncmq_postgres_backend_url' must be " "provided.")
 
-    pool_options: dict[str, Any] | None = pool_options or settings.asyncmq_postgres_pool_options or {}
+    pool_options: dict[str, Any] | None = pool_options or settings.asyncmq_postgres_pool_options or {}  # type: ignore
     dsn = connection_string or settings.asyncmq_postgres_backend_url
     if not drop:
         schema = f"""

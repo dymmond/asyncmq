@@ -204,7 +204,7 @@ class Job:
                     return 0.0
 
         # If backoff is none of the expected types, return 0 delay.
-        return 0.0
+        return 0.0  # type: ignore
 
     def to_dict(self) -> dict[str, Any]:
         """

@@ -9,7 +9,7 @@ from asyncmq.conf import settings
 from asyncmq.tasks import TASK_REGISTRY
 
 
-def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: mp.Queue):
+def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: mp.Queue) -> None:
     """
     Entry point for the worker process.
 

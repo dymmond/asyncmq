@@ -191,7 +191,7 @@ async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: BaseBack
     # Delegate the bulk enqueue operation to the backend.
     # NOTE: The original code passes 'queue' twice. Assuming the backend
     # method expects it this way based on the original logic.
-    await backend.bulk_enqueue(queue, queue, jobs)
+    await backend.bulk_enqueue(queue, jobs)
 
 
 async def purge_jobs(
@@ -261,7 +261,7 @@ class Lock:
         # Store the underlying backend-specific lock object.
         self._lock: Any = lock_obj
 
-    async def acquire(self) -> bool:
+    async def acquire(self) -> Any:
         """
         Asynchronously attempts to acquire the distributed lock.
 
@@ -274,7 +274,7 @@ class Lock:
         # Delegate the acquire call to the backend's lock object.
         return await self._lock.acquire()
 
-    async def release(self) -> bool:
+    async def release(self) -> Any:
         """
         Asynchronously attempts to release the distributed lock.
 

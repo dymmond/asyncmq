@@ -8,7 +8,7 @@ from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import handle_job, process_job
 
 
-async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | None = None):
+async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | None = None) -> None:
     """
     A single worker that keeps dequeuing and processing jobs.
     """
@@ -21,7 +21,7 @@ async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | No
         await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
 
 
-async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBackend | None = None):
+async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBackend | None = None) -> None:
     """
     Start multiple workers for the same queue.
     """
@@ -117,7 +117,7 @@ async def run_worker(
         rate_limiter: Any | None = _BlockAll()
     elif rate_limit is None:
         # If rate_limit is None, no rate limiting is applied.
-        rate_limiter: Any | None = None
+        rate_limiter: Any | None = None  # type: ignore
     else:
         # If rate_limit is a positive integer, initialize the standard RateLimiter.
         rate_limiter = RateLimiter(rate_limit, rate_interval)
@@ -126,7 +126,7 @@ async def run_worker(
     # 1. The main process_job task that pulls jobs from the queue and handles them.
     # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
     tasks: list[Any] = [
-        process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),
+        process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),  # type: ignore
         delayed_job_scanner(queue_name, backend, interval=scan_interval),
     ]
 

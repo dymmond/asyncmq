@@ -64,7 +64,7 @@ def _print_worker_help() -> None:
 @worker_app.command("start")
 @click.argument("queue")
 @click.option("--concurrency", required=False, help="Number of concurrent workers.")
-def start_worker_cli(queue: str, concurrency: int | None = None):
+def start_worker_cli(queue: str, concurrency: int | str | None = None) -> None:
     """
     Starts an AsyncMQ worker process for a specified queue.
 
@@ -105,7 +105,8 @@ def start_worker_cli(queue: str, concurrency: int | None = None):
         # Abort the Click process with an error.
         raise click.Abort() from e
 
-async def signal_handler(scope: anyio.CancelScope):
+
+async def signal_handler(scope: anyio.CancelScope) -> None:
     """Listens for signals and cancels the task group."""
     with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
         async for signum in signals:
@@ -113,5 +114,5 @@ async def signal_handler(scope: anyio.CancelScope):
                 console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C).[/yellow]")
             else:
                 console.print(f"\n[yellow]Received signal {signum}.[/yellow]")
-            scope.cancel() # Cancel the task group to initiate shutdown
-            return # Exit the signal handler task
+            scope.cancel()  # Cancel the task group to initiate shutdown
+            return  # Exit the signal handler task

@@ -95,7 +95,7 @@ async def repeatable_scheduler(
                 # Check if the current time is on or after the next scheduled time
                 if now >= next_run:
                     # Create a Job object with the defined data
-                    job = Job(**job_data)
+                    job = Job(**job_data)  # type: ignore
                     # Enqueue the job using the backend
                     await backend.enqueue(queue_name, job.to_dict())
                     # Calculate the next scheduled run time for this cron job
@@ -113,7 +113,7 @@ async def repeatable_scheduler(
                 # Check if the required interval has passed since the last run
                 if now - last_run >= every:
                     # Create a Job object with the defined data
-                    job = Job(**job_data)
+                    job = Job(**job_data)  # type: ignore
 
                     # Enqueue the job using the backend
                     await backend.enqueue(queue_name, job.to_dict())
@@ -136,7 +136,7 @@ async def repeatable_scheduler(
         await anyio.sleep(time_to_sleep)
 
 
-def compute_next_run(job_def: dict[str, Any]) -> float:
+def compute_next_run(job_def: dict[str, Any]) -> Any:
     """
     Given a repeatable job definition dict with either:
       - job_def["cron"]: a cron string

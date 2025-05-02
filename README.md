@@ -1,8 +1,3 @@
----
-hide:
-  - navigation
----
-
 # AsyncMQ
 
 <p align="center">
@@ -65,6 +60,32 @@ Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexib
 
 10. **Seamless ASGI Integration**
     Out-of-the-box compatibility with FastAPI, Esmerald, or any ASGI application. Manage workers within your app’s lifecycle events.
+
+---
+
+## Comparison with Other Python Task Queues
+
+| Feature                    | **AsyncMQ**                      | Celery        | RQ         | Dramatiq     | Huey       |
+| -------------------------- | -------------------------------- | ------------- | ---------- | ------------ | ---------- |
+| **AsyncIO Native**         | ✅                                | ❌             | ❌          | ✅            | ❌          |
+| **Pluggable Backends**     | ✅ Redis, Postgres, Mongo, In-Mem | RabbitMQ only | Redis only | Redis only   | Redis only |
+| **Rate Limiting**          | ✅ built-in                       | ❌             | ❌          | ✅ via addon  | ❌          |
+| **Cron & Repeatable Jobs** | ✅ interval & cron expressions    | ✅             | ✅          | ✅            | ✅          |
+| **Progress Reporting**     | ✅ event hooks                    | ✅ callbacks   | ❌          | ✅ hooks      | ❌          |
+| **Dead Letter Queue**      | ✅                                | ✅             | ❌          | ✅            | ✅          |
+| **Flow / DAG Support**     | ✅ `FlowProducer`                 | ✅ chords      | ❌          | ✅ extensions | ❌          |
+| **ASGI-Friendly**          | ✅ FastAPI/Esmerald integration   | ❌             | ❌          | ❌            | ❌          |
+| **CLI Management**         | ✅ rich, JSON-friendly            | ✅             | ✅          | ✅            | ✅          |
+
+---
+
+### Where **AsyncMQ** Shines
+
+* **True AsyncIO & AnyIO integration**: zero thread hacks, full non-blocking background tasks.
+* **Backend flexibility**: swap Redis, Postgres, MongoDB, or In-Memory with a single setting.
+* **Built-in rate limiting & concurrency control**: protect downstream services out-of-the-box.
+* **Event-driven hooks**: subscribe to `job:started`, `completed`, `failed`, `progress`, etc., for metrics and alerts.
+* **ASGI integration**: manage workers within FastAPI or Esmerald lifecycles—no extra wrappers needed.
 
 ---
 

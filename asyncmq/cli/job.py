@@ -167,7 +167,7 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
     q = Queue(queue)
     # Call the queue's cancel_job method asynchronously using anyio.run,
     # passing the job ID.
-    anyio.run(q.cancel_job, job_id)
+    anyio.run(q.cancel_job, job_id)  # type: ignore
     # Print a confirmation message with a no-entry emoji and the job ID.
     console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")
 

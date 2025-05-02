@@ -4,7 +4,7 @@ except ImportError:
     raise ImportError("Please install asyncpg: `pip install asyncpg`") from None
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from asyncmq.conf import settings
 from asyncmq.stores.base import BaseJobStore
@@ -132,7 +132,7 @@ class PostgresJobStore(BaseJobStore):
             # If a row was found, return the data column (which is JSONB and decoded by asyncpg).
             # Otherwise, return None.
             if row:
-                return json.loads(row["data"])  # Note: asyncpg decodes JSONB automatically
+                return cast(dict[str, Any], json.loads(row["data"]))
             return None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
