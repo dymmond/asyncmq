@@ -830,18 +830,22 @@ class RedisBackend(BaseBackend):
             A dictionary containing the counts for "waiting", "delayed", and
             "failed" jobs.
         """
-        # Get raw counts from Redis sorted sets using ZCARD.
-        raw_waiting: int = await self.redis.zcard(self._waiting_key(queue_name))
-        delayed: int = await self.redis.zcard(self._delayed_key(queue_name))
-        failed: int = await self.redis.zcard(self._dlq_key(queue_name))
+        now = time.time()
 
-        # Calculate the effective waiting count by excluding failed jobs.
-        # Ensure the result is not negative.
-        waiting: int = raw_waiting - failed
-        if waiting < 0:
-            waiting = 0
+        # Use your existing key helpers so they stay in sync
+        waiting_key = self._waiting_key(queue_name)
+        delayed_key = self._delayed_key(queue_name)
+        dlq_key = self._dlq_key(queue_name)
 
-        # Return a dictionary containing the calculated statistics.
+        # waiting: count all entries in the sorted set for ready jobs
+        waiting = await self.redis.zcard(waiting_key)
+
+        # delayed: count entries whose score (run_at) is in the future
+        delayed = await self.redis.zcount(delayed_key, now, float("+inf"))
+
+        # failed: count all entries in the DLQ sorted set
+        failed = await self.redis.zcard(dlq_key)
+
         return {
             "waiting": waiting,
             "delayed": delayed,

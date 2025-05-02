@@ -193,7 +193,7 @@ def task(
         # Attach helper methods/attributes to the wrapped function.
         # Type ignored because these attributes are dynamically added.
         wrapper.enqueue = enqueue_task  # type: ignore
-        wrapper.delay = enqueue_task # type: ignore
+        wrapper.delay = enqueue_task  # type: ignore
         wrapper.task_id = task_id  # type: ignore
         wrapper._is_asyncmq_task = True  # type: ignore
 

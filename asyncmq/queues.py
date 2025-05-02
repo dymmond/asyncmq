@@ -67,7 +67,6 @@ class Queue:
         self.rate_interval: float = rate_interval
         self.scan_interval: float = scan_interval or settings.scan_interval
 
-
     async def add(
         self,
         task_id: str,

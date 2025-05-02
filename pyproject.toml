@@ -112,7 +112,7 @@ clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
 lint = "ruff check --fix --line-length 99  asyncmq tests {args}"
-format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
+format = "hatch fmt -- --exclude docs_src && hatch fmt --check -- --exclude docs_src && hatch run test:check_types"
 
 [tool.hatch.envs.docs]
 dependencies = [
@@ -200,6 +200,7 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = [
     "motor.*",
+    "asyncpg.*",
 ]
 ignore_missing_imports = true
 ignore_errors = true
