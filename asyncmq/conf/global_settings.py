@@ -202,16 +202,6 @@ class Settings:
     depending on the worker implementation and job types. Defaults to 1.
     """
 
-    rate_limit_config: dict[str, dict[str, int]] | None = None
-    """
-    Configuration for rate limiting specific queues.
-
-    A dictionary where keys are queue names and values are dictionaries
-    defining rate limit parameters (e.g., "max_calls", "period") for that
-    queue. Allows controlling the processing rate of individual queues.
-    Can be None if no rate limiting is configured. Defaults to None.
-    """
-
     scan_interval: float = 1.0
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.

@@ -59,10 +59,10 @@ docker-compose up -d
 ```
 
 The command its straightforward and if you wonder *"but how does AsyncMQ knows about which backend to run?"* type of thing,
-that is because **AsyncMQ** has the concept of [settings](./settings.md) where **you can override** the backend to run
+that is because **AsyncMQ** has the concept of [settings](features/settings.md) where **you can override** the backend to run
 the one at your choice and using the `ASYNCMQ_SETTINGS_MODULE` to start your application.
 
-You can read more about the `ASYNCMQ_SETINGS_MODULE` in the [settings](./settings.md) section for more details.
+You can read more about the `ASYNCMQ_SETINGS_MODULE` in the [settings](features/settings.md) section for more details.
 
 ---
 

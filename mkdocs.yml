@@ -55,6 +55,8 @@ nav:
       - "features/index.md"
       - "features/quickstart.md"
       - "features/core-concepts.md"
+      - "features/settings.md"
+      - "features/logging.md"
   - Tutorial:
       - "learn/index.md"
       - "learn/integration.md"
