@@ -14,8 +14,8 @@ async def not_found(request: Request, exc: Exception):
 
 routes = [
     RoutePath("/", home.dashboard_home, methods=["GET"], name="dashboard"),
+    RoutePath("/queues/{name}/jobs", jobs.queue_jobs, methods=["GET"], name="queue-jobs"),
     RoutePath("/queues", queues.queue_list, methods=["GET"], name="queues"),
-    RoutePath("/jobs", jobs.queue_jobs, methods=["GET"], name="jobs"),
 ]
 
 app = Lilya(debug=settings.debug, routes=routes, exception_handlers={404: not_found})
