@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<h3 class="text-lg font-semibold mb-4">Dead Letter Queue: <span class="text-red-600">{{ queue }}</span></h3>
+
+<div class="overflow-x-auto">
+    <table class="min-w-full bg-white shadow rounded">
+        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
+            <tr>
+                <th class="px-6 py-3">Job ID</th>
+                <th class="px-6 py-3">Error</th>
+                <th class="px-6 py-3">Created At</th>
+            </tr>
+        </thead>
+        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
+            {% for job in jobs %}
+            <tr>
+                <td class="px-6 py-4 font-medium">{{ job.id }}</td>
+                <td class="px-6 py-4">
+                    <span class="inline-block px-2 py-1 text-xs font-medium text-red-800 bg-red-100 rounded">{{ job.error }}</span>
+                </td>
+                <td class="px-6 py-4">{{ job.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

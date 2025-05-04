@@ -6,20 +6,19 @@ from lilya.routing import Include
 from asyncmq.contrib.dashboard.app import app
 
 dash_app = Lilya(
-    routes=[
-        Include(path="/", app=app)
-    ],
+    routes=[Include(path="/", app=app)],
     middleware=[
-            DefineMiddleware(
-                CORSMiddleware,
-                allow_origins=["*"],
-                allow_methods=["*"],
-                allow_headers=["*"],
-                allow_credentials=True,
-            )
-        ],
+        DefineMiddleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            allow_credentials=True,
+        )
+    ],
 )
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("serve:dash_app", host="0.0.0.0", port=8000, reload=True)

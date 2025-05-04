@@ -4,20 +4,21 @@ from lilya.responses import HTMLResponse
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.engine import templates
 
-dummy_queues = [
-    {"name": "default", "waiting": 12, "active": 3, "completed": 100},
-    {"name": "emails", "waiting": 7, "active": 1, "completed": 55},
+# Dummy active workers data
+worker_list = [
+    {"id": "worker-a1", "queue": "default", "concurrency": 3, "heartbeat": "2024-05-04 11:30"},
+    {"id": "worker-b2", "queue": "emails", "concurrency": 2, "heartbeat": "2024-05-04 11:31"},
 ]
 
 
-async def queue_list(request: Request) -> HTMLResponse:
+async def workers_view(request: Request) -> HTMLResponse:
     return templates.get_template_response(
         request,
-        "queues.html",
+        "workers.html",
         {
             "request": request,
-            "title": "Queues",
-            "queues": dummy_queues,
+            "title": "Active Workers",
+            "workers": worker_list,
             "header_text": settings.dashboard_config.header_title,
             "favicon": settings.dashboard_config.favicon,
         },

@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<h3 class="text-lg font-semibold mb-4">Repeatable Jobs for Queue: <span class="text-blue-600">{{ queue }}</span></h3>
+
+<div class="overflow-x-auto">
+    <table class="min-w-full bg-white shadow rounded">
+        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
+            <tr>
+                <th class="px-6 py-3">Task</th>
+                <th class="px-6 py-3">Schedule</th>
+                <th class="px-6 py-3">Last Run</th>
+            </tr>
+        </thead>
+        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
+            {% for r in repeatables %}
+            <tr>
+                <td class="px-6 py-4 font-medium">{{ r.task }}</td>
+                <td class="px-6 py-4">
+                    {% if r.cron %}
+                        <span class="inline-block px-2 py-1 text-xs font-medium text-indigo-800 bg-indigo-100 rounded">Cron: {{ r.cron }}</span>
+                    {% elif r.interval %}
+                        <span class="inline-block px-2 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded">Every {{ r.interval }}</span>
+                    {% endif %}
+                </td>
+                <td class="px-6 py-4">{{ r.last_run }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

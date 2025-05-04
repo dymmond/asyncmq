@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<h3 class="text-lg font-semibold mb-4">System Metrics</h3>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div class="bg-white shadow rounded p-4">
+        <h4 class="text-sm font-semibold text-gray-600">Throughput</h4>
+        <p class="text-2xl text-blue-700 mt-2">{{ metrics.throughput }}</p>
+    </div>
+    <div class="bg-white shadow rounded p-4">
+        <h4 class="text-sm font-semibold text-gray-600">Avg Duration</h4>
+        <p class="text-2xl text-purple-700 mt-2">{{ metrics.avg_duration }}</p>
+    </div>
+    <div class="bg-white shadow rounded p-4">
+        <h4 class="text-sm font-semibold text-gray-600">Retries</h4>
+        <p class="text-2xl text-yellow-700 mt-2">{{ metrics.retries }}</p>
+    </div>
+    <div class="bg-white shadow rounded p-4">
+        <h4 class="text-sm font-semibold text-gray-600">Failures</h4>
+        <p class="text-2xl text-red-700 mt-2">{{ metrics.failures }}</p>
+    </div>
+</div>
+{% endblock %}

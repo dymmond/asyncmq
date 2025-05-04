@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<h3 class="text-lg font-semibold mb-4">Active Workers</h3>
+
+<div class="overflow-x-auto">
+    <table class="min-w-full bg-white shadow rounded">
+        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
+            <tr>
+                <th class="px-6 py-3">Worker ID</th>
+                <th class="px-6 py-3">Queue</th>
+                <th class="px-6 py-3">Concurrency</th>
+                <th class="px-6 py-3">Last Heartbeat</th>
+            </tr>
+        </thead>
+        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
+            {% for w in workers %}
+            <tr>
+                <td class="px-6 py-4 font-medium">{{ w.id }}</td>
+                <td class="px-6 py-4">{{ w.queue }}</td>
+                <td class="px-6 py-4">{{ w.concurrency }}</td>
+                <td class="px-6 py-4">{{ w.heartbeat }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
