@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
+from asyncmq.core.utils.dashboard import DashboardConfig
 
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig
@@ -206,6 +207,10 @@ class Settings:
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.
     """
+
+    @property
+    def dashboard_config(self) -> DashboardConfig | None:
+        return DashboardConfig()
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:
