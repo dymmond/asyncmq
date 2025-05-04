@@ -79,6 +79,12 @@ tasks:
 
   # --------------------------- TEST ------------------------------------
 
+  dashboard:
+    desc: Run BE for admin
+    cmds:
+      - cd asyncmq/contrib/dashboard && python -m serve
+
+
   test:
     desc: Runs the suite tests
     env:

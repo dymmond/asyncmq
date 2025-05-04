@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - AsyncMQ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white p-4 space-y-6">
+            <h1 class="text-2xl font-bold">AsyncMQ</h1>
+            <nav class="space-y-2">
+                <a href="/" class="block px-3 py-2 rounded hover:bg-gray-700">Dashboard</a>
+                <a href="/queues" class="block px-3 py-2 rounded hover:bg-gray-700">Queues</a>
+            </nav>
+        </div>
+
+        <!-- Main content -->
+        <div class="flex-1 p-6">
+            <header class="mb-6">
+                <h2 class="text-xl font-semibold text-gray-800">{{ title }}</h2>
+            </header>
+            <main>
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+</body>
+</html>

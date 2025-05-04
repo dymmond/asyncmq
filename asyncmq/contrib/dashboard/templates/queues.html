@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="overflow-x-auto">
+    <table class="min-w-full bg-white shadow rounded">
+        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
+            <tr>
+                <th class="px-6 py-3">Queue</th>
+                <th class="px-6 py-3">Waiting</th>
+                <th class="px-6 py-3">Active</th>
+                <th class="px-6 py-3">Completed</th>
+            </tr>
+        </thead>
+        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
+            {% for queue in queues %}
+            <tr>
+                <td class="px-6 py-4 font-medium">{{ queue.name }}</td>
+                <td class="px-6 py-4">{{ queue.waiting }}</td>
+                <td class="px-6 py-4">{{ queue.active }}</td>
+                <td class="px-6 py-4">{{ queue.completed }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
