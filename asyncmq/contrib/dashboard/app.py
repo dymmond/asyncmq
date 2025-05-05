@@ -45,7 +45,7 @@ routes = [
     # Metrics overview
     RoutePath("/metrics", metrics.MetricsController, methods=["GET"], name="metrics"),
     # New SSE endpoint for real-time updates
-    RoutePath("/events", sse.SSEController, methods=["GET"]),
+    RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),
 ]
 
 app = Lilya(

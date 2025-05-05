@@ -1,24 +1,50 @@
 {% extends "layout.html" %}
-
 {% block content %}
-<h3 class="text-lg font-semibold mb-4">System Metrics</h3>
+  <h1 class="text-2xl font-bold mb-4">Metrics</h1>
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-    <div class="bg-white shadow rounded p-4">
-        <h4 class="text-sm font-semibold text-gray-600">Throughput</h4>
-        <p class="text-2xl text-blue-700 mt-2">{{ metrics.throughput }}</p>
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Throughput</h2>
+      <div id="throughput" class="text-3xl font-bold">
+        {{ metrics.throughput }}
+      </div>
     </div>
-    <div class="bg-white shadow rounded p-4">
-        <h4 class="text-sm font-semibold text-gray-600">Avg Duration</h4>
-        <p class="text-2xl text-purple-700 mt-2">{{ metrics.avg_duration }}</p>
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Avg Duration</h2>
+      <div id="avg-duration" class="text-3xl font-bold">
+        {{ metrics.avg_duration or "—" }}
+      </div>
     </div>
-    <div class="bg-white shadow rounded p-4">
-        <h4 class="text-sm font-semibold text-gray-600">Retries</h4>
-        <p class="text-2xl text-yellow-700 mt-2">{{ metrics.retries }}</p>
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Retries</h2>
+      <div id="retries" class="text-3xl font-bold">
+        {{ metrics.retries }}
+      </div>
     </div>
-    <div class="bg-white shadow rounded p-4">
-        <h4 class="text-sm font-semibold text-gray-600">Failures</h4>
-        <p class="text-2xl text-red-700 mt-2">{{ metrics.failures }}</p>
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Failures</h2>
+      <div id="failures" class="text-3xl font-bold">
+        {{ metrics.failures }}
+      </div>
     </div>
-</div>
+  </div>
+
+  <script>
+    // Subscribe to SSE for metrics updates
+    const source = new EventSource('/events');
+
+    source.addEventListener('metrics', e => {
+      try {
+        const m = JSON.parse(e.data);
+        document.getElementById('throughput').textContent   = m.throughput;
+        document.getElementById('avg-duration').textContent = m.avg_duration ?? '—';
+        document.getElementById('retries').textContent      = m.retries;
+        document.getElementById('failures').textContent     = m.failures;
+      } catch (err) {
+        console.error('Failed to parse metrics event:', err);
+      }
+    });
+
+    source.onerror = () => console.warn('SSE error on metrics – will retry');
+  </script>
 {% endblock %}

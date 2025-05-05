@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
   <h1 class="text-2xl font-bold mb-4">Queues</h1>
-  <table class="min-w-full bg-white mb-4">
+  <table id="queues-table" class="min-w-full bg-white mb-4">
     <thead>
       <tr>
         <th>Name</th>
@@ -16,14 +16,14 @@
     </thead>
     <tbody>
       {% for queue in queues %}
-      <tr>
+      <tr data-queue="{{ queue.name }}">
         <td>{{ queue.name }}</td>
-        <td>{{ "Yes" if queue.paused else "No" }}</td>
-        <td>{{ queue.waiting }}</td>
-        <td>{{ queue.active }}</td>
-        <td>{{ queue.delayed }}</td>
-        <td>{{ queue.failed }}</td>
-        <td>{{ queue.completed }}</td>
+        <td class="paused">{{ "Yes" if queue.paused else "No" }}</td>
+        <td class="waiting">{{ queue.waiting }}</td>
+        <td class="active">{{ queue.active }}</td>
+        <td class="delayed">{{ queue.delayed }}</td>
+        <td class="failed">{{ queue.failed }}</td>
+        <td class="completed">{{ queue.completed }}</td>
         <td>
           <a href="/queues/{{ queue.name }}" class="text-blue-600 hover:underline">
             View
@@ -32,11 +32,50 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="8" class="text-center italic text-gray-600">
-          No queues found.
-        </td>
+        <td colspan="8" class="text-center italic text-gray-600">No queues found.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+
+  <script>
+    // Open SSE connection
+    const source = new EventSource('/events');
+
+    // Update overview cards (if you have them on this page)
+    source.addEventListener('overview', e => {
+      try {
+        const data = JSON.parse(e.data);
+        document.getElementById('total-queues').textContent  = data.total_queues;
+        document.getElementById('total-jobs').textContent    = data.total_jobs;
+        document.getElementById('total-workers').textContent = data.total_workers;
+      } catch {
+        /* ignore */
+      }
+    });
+
+    // Update queue rows in place
+    source.addEventListener('queues', e => {
+      try {
+        const rows = JSON.parse(e.data);
+        rows.forEach(q => {
+          const tr = document.querySelector(`tr[data-queue="${queue.name}"]`);
+          if (tr) {
+            tr.querySelector('.paused').textContent    = queue.paused ? 'Yes' : 'No';
+            tr.querySelector('.waiting').textContent   = queue.waiting;
+            tr.querySelector('.active').textContent    = queue.active;
+            tr.querySelector('.delayed').textContent   = queue.delayed;
+            tr.querySelector('.failed').textContent    = queue.failed;
+            tr.querySelector('.completed').textContent = queue.completed;
+          } else {
+            // new queue appeared? append a row (optional)
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    });
+
+    source.onerror = () => console.warn('SSE connection error – retrying…');
+  </script>
 {% endblock %}

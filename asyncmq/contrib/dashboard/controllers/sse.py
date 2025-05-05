@@ -21,7 +21,8 @@ class SSEController(Controller):
 
         async def event_generator() -> None:
             while True:
-                # 1) compute total queues
+
+                # DASHBOARD
                 queues = await backend.list_queues()  # noqa
                 total_queues = len(queues)
 
@@ -43,6 +44,41 @@ class SSEController(Controller):
 
                 # send a named event 'overview'
                 yield f"event: overview\ndata: {json.dumps(payload)}\n\n"  # noqa
+
+                # QUEUES
+                rows = []
+                for q in queues:
+                    paused = False
+                    if hasattr(backend, "is_queue_paused"):
+                        paused = await backend.is_queue_paused(q)
+
+                    counts = {}
+                    for state in ("waiting", "active", "delayed", "failed", "completed"):
+                        counts[state] = len(await backend.list_jobs(q, state))
+
+                    rows.append({
+                        "name": q,
+                        "paused": paused,
+                        "waiting": counts["waiting"],
+                        "active": counts["active"],
+                        "delayed": counts["delayed"],
+                        "failed": counts["failed"],
+                        "completed": counts["completed"],
+                    })
+                yield f"event: queues\ndata: {json.dumps(rows)}\n\n" # noqa
+
+                # METRICS
+                sum_counts = {
+                    state: sum(r[state] for r in rows)
+                    for state in ("waiting", "active", "delayed", "failed", "completed")
+                }
+                metrics = {
+                    "throughput": sum_counts["completed"],  # total completed
+                    "avg_duration": None,
+                    "retries": sum_counts["failed"],  # treat failures as retries
+                    "failures": sum_counts["failed"],
+                }
+                yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n" # noqa
 
                 # pause before the next update
                 await anyio.sleep(5)
