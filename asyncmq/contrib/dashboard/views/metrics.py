@@ -5,7 +5,6 @@ from lilya.templating.controllers import TemplateController
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
-from asyncmq.core.enums import State
 
 
 class MetricsController(DashboardMixin, TemplateController):
@@ -17,24 +16,29 @@ class MetricsController(DashboardMixin, TemplateController):
 
         # 2. Fetch all queues
         backend = settings.backend
-        queue_names: list[str] = await backend.list_queues()
-        total_queues: int = len(queue_names)
+        queues: list[str] = await backend.list_queues()
 
-        # 3. Aggregate job counts across all queues
-        total_waiting = total_active = total_completed = total_failed = 0
-        for q in queue_names:
-            total_waiting += len(await backend.list_jobs(q, State.WAITING))
-            total_active += len(await backend.list_jobs(q, State.ACTIVE))
-            total_completed += len(await backend.list_jobs(q, State.COMPLETED))
-            total_failed += len(await backend.list_jobs(q, State.FAILED))
+        # initialize counters
+        counts = {
+            "waiting": 0,
+            "active": 0,
+            "completed": 0,
+            "failed": 0,
+            "delayed": 0,
+        }
 
-        # 4. Assemble metrics dict
-        metrics: dict[str, Any] = {
-            "total_queues": total_queues,
-            "waiting": total_waiting,
-            "active": total_active,
-            "completed": total_completed,
-            "failed": total_failed,
+        # sum up each state across all queues
+        for queue in queues:
+            for state in counts:
+                jobs = await backend.list_jobs(queue, state)
+                counts[state] += len(jobs)
+
+        # build the metrics payload for the template
+        metrics = {
+            "throughput": counts["completed"],
+            "avg_duration": None,  # TODO: compute from timestamps
+            "retries": counts["failed"],
+            "failures": counts["failed"],
         }
 
         # 5. Inject and render

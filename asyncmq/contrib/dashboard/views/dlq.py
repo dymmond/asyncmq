@@ -1,25 +1,40 @@
+import json
+from datetime import datetime
 from typing import Any
 
 from lilya.requests import Request
+from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
-from asyncmq.core.enums import State
 
 
-class DQLController(DashboardMixin, TemplateController):
+class DLQController(DashboardMixin, TemplateController):
     template_name = "dlqs/dlq.html"
 
-    async def get_jobs(self, queue_name: str) -> list[dict]:
-        jobs: list[dict[str, Any]] = await settings.backend.list_jobs(queue_name, State.FAILED)
-        return jobs
-
     async def get(self, request: Request) -> Any:
-        queue = request.path_params.get("name", "default")
-        context = await super().get_context_data(request)
+        queue = request.path_params.get("name")
+        backend = settings.backend
 
-        jobs = await self.get_jobs(queue)
+        failed = await backend.list_jobs(queue, "failed")
+        jobs = []
+
+        for job in failed:
+            ts = job.get("timestamp") or job.get("created_at") or 0
+            try:
+                created = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                created = "N/A"
+
+            jobs.append({
+                "id": job.get("id"),
+                "args": json.dumps(job.get("args", [])),
+                "kwargs": json.dumps(job.get("kwargs", {})),
+                "created": created,
+            })
+
+        context = await super().get_context_data(request)
         context.update(
             {
                 "title": f"Dead Letter Queue – {queue}",
@@ -29,3 +44,17 @@ class DQLController(DashboardMixin, TemplateController):
         )
 
         return await self.render_template(request, context=context)
+
+    async def post(self, request: Request) -> Any:
+        queue = request.path_params.get("name")
+        backend = settings.backend
+        form = await request.form()
+        action = form.get("action")
+        job_id = form.get("job_id")
+
+        if action == "retry":
+            await backend.retry_job(queue, job_id)
+        elif action == "remove":
+            await backend.remove_job(queue, job_id)
+
+        return RedirectResponse(f"/queues/{queue}/dlq")

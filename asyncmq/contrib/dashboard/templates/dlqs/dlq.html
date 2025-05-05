@@ -1,28 +1,52 @@
 {% extends "layout.html" %}
-
 {% block content %}
-<h3 class="text-lg font-semibold mb-4">Dead Letter Queue: <span class="text-red-600">{{ queue }}</span></h3>
+  <h1 class="text-2xl font-bold mb-4">
+    Dead-Letter Queue for “{{ queue }}”
+  </h1>
 
-<div class="overflow-x-auto">
-    <table class="min-w-full bg-white shadow rounded">
-        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
-            <tr>
-                <th class="px-6 py-3">Job ID</th>
-                <th class="px-6 py-3">Error</th>
-                <th class="px-6 py-3">Created At</th>
-            </tr>
-        </thead>
-        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
-            {% for job in jobs %}
-            <tr>
-                <td class="px-6 py-4 font-medium">{{ job.id }}</td>
-                <td class="px-6 py-4">
-                    <span class="inline-block px-2 py-1 text-xs font-medium text-red-800 bg-red-100 rounded">{{ job.error }}</span>
-                </td>
-                <td class="px-6 py-4">{{ job.created_at }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+  <table class="min-w-full bg-white mb-4">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Args</th>
+        <th>Kwargs</th>
+        <th>Failed At</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.id }}</td>
+        <td><pre>{{ job.args }}</pre></td>
+        <td><pre>{{ job.kwargs }}</pre></td>
+        <td>{{ job.created }}</td>
+        <td>
+          <form method="post" class="inline">
+            <input type="hidden" name="job_id" value="{{ job.id }}">
+            <button name="action" value="retry"
+                    class="px-2 py-1 bg-green-600 text-white rounded">
+              Retry
+            </button>
+            <button name="action" value="remove"
+                    class="px-2 py-1 bg-red-600 text-white rounded">
+              Delete
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5" class="italic text-gray-600">
+          No failed jobs.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <a href="/queues/{{ queue }}"
+     class="text-blue-600 hover:underline">
+    Back to Queue Details
+  </a>
 {% endblock %}

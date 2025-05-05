@@ -543,6 +543,14 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
+    async def remove_job(self, queue_name: str, job_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    async def retry_job(self, queue_name: str, job_id: str) -> bool:
+        ...
+
+    @abstractmethod
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously checks if a specific job has been marked as cancelled.

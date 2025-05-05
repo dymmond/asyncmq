@@ -1,28 +1,42 @@
 {% extends "layout.html" %}
-
 {% block content %}
-<div class="overflow-x-auto">
-    <table class="min-w-full bg-white shadow rounded">
-        <thead class="bg-gray-100 text-left text-sm font-semibold text-gray-700">
-            <tr>
-                <th class="px-6 py-3">Queue</th>
-                <th class="px-6 py-3">Waiting</th>
-                <th class="px-6 py-3">Active</th>
-                <th class="px-6 py-3">Completed</th>
-                <th class="px-6 py-3">Failed</th>
-            </tr>
-        </thead>
-        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
-            {% for queue in queues %}
-            <tr>
-                <td class="px-6 py-4 font-medium">{{ queue.name }}</td>
-                <td class="px-6 py-4">{{ queue.waiting }}</td>
-                <td class="px-6 py-4">{{ queue.active }}</td>
-                <td class="px-6 py-4">{{ queue.completed }}</td>
-                <td class="px-6 py-4">{{ queue.failed }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+  <h1 class="text-2xl font-bold mb-4">Queues</h1>
+  <table class="min-w-full bg-white mb-4">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Paused?</th>
+        <th>Waiting</th>
+        <th>Active</th>
+        <th>Delayed</th>
+        <th>Failed</th>
+        <th>Completed</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for queue in queues %}
+      <tr>
+        <td>{{ queue.name }}</td>
+        <td>{{ "Yes" if queue.paused else "No" }}</td>
+        <td>{{ queue.waiting }}</td>
+        <td>{{ queue.active }}</td>
+        <td>{{ queue.delayed }}</td>
+        <td>{{ queue.failed }}</td>
+        <td>{{ queue.completed }}</td>
+        <td>
+          <a href="/queues/{{ queue.name }}" class="text-blue-600 hover:underline">
+            View
+          </a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="text-center italic text-gray-600">
+          No queues found.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endblock %}
