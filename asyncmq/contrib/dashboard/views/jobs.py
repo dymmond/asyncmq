@@ -19,7 +19,7 @@ class QueueJobController(DashboardMixin, TemplateController):
         queue = request.path_params.get("name")
         backend = settings.backend
 
-        # filters & pagination from query-params
+        # filters & pagination
         state = request.query_params.get("state", "waiting")
         try:
             page = int(request.query_params.get("page", 1))
@@ -34,7 +34,7 @@ class QueueJobController(DashboardMixin, TemplateController):
         end = start + size
         page_jobs = all_jobs[start:end]
 
-        # format each job for display
+        # format each job
         jobs = []
         for job in page_jobs:
             ts = job.get("timestamp") or job.get("created_at") or 0
@@ -71,15 +71,26 @@ class QueueJobController(DashboardMixin, TemplateController):
         backend = settings.backend
         form = await request.form()
         action = form.get("action")
-        job_id = form.get("job_id")
-        state = form.get("state", "waiting")
 
-        if action == "retry":
-            await backend.retry_job(queue, job_id)
-        elif action == "remove":
-            await backend.remove_job(queue, job_id)
-        elif action == "cancel":
-            await backend.cancel_job(queue, job_id)
+        if hasattr(form, "getlist"):
+            job_ids = form.getlist("job_id")
+        else:
+            # fallback if single value or a comma-delimited string
+            raw = form.get("job_id") or ""
+            job_ids = raw.split(",") if "," in raw else [raw]
+
+        for job_id in job_ids:
+            if not job_id:
+                continue
+            if action == "retry":
+                await backend.retry_job(queue, job_id)
+            elif action == "remove":
+                await backend.remove_job(queue, job_id)
+            elif action == "cancel":
+                await backend.cancel_job(queue, job_id)
+
+            # Redirect back to this page, preserving state & pagination
+        state = form.get("state", "waiting")
 
         # back to the same list/state
         return RedirectResponse(f"/queues/{queue}/jobs?state={state}")

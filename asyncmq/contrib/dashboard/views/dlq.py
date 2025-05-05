@@ -50,11 +50,19 @@ class DLQController(DashboardMixin, TemplateController):
         backend = settings.backend
         form = await request.form()
         action = form.get("action")
-        job_id = form.get("job_id")
 
-        if action == "retry":
-            await backend.retry_job(queue, job_id)
-        elif action == "remove":
-            await backend.remove_job(queue, job_id)
+        if hasattr(form, "getlist"):
+            job_ids = form.getlist("job_id")
+        else:
+            raw = form.get("job_id") or ""
+            job_ids = raw.split(",") if "," in raw else [raw]
+
+        for job_id in job_ids:
+            if not job_id:
+                continue
+            if action == "retry":
+                await backend.retry_job(queue, job_id)
+            elif action == "remove":
+                await backend.remove_job(queue, job_id)
 
         return RedirectResponse(f"/queues/{queue}/dlq")

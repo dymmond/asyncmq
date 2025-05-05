@@ -4,49 +4,57 @@
     Dead-Letter Queue for “{{ queue }}”
   </h1>
 
-  <table class="min-w-full bg-white mb-4">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Args</th>
-        <th>Kwargs</th>
-        <th>Failed At</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in jobs %}
-      <tr>
-        <td>{{ job.id }}</td>
-        <td><pre>{{ job.args }}</pre></td>
-        <td><pre>{{ job.kwargs }}</pre></td>
-        <td>{{ job.created }}</td>
-        <td>
-          <form method="post" class="inline">
-            <input type="hidden" name="job_id" value="{{ job.id }}">
-            <button name="action" value="retry"
-                    class="px-2 py-1 bg-green-600 text-white rounded">
-              Retry
-            </button>
-            <button name="action" value="remove"
-                    class="px-2 py-1 bg-red-600 text-white rounded">
-              Delete
-            </button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="5" class="italic text-gray-600">
-          No failed jobs.
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <form method="post">
+    <div class="flex space-x-2 mb-2">
+      <button name="action" value="retry"
+              class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+        Retry Selected
+      </button>
+      <button name="action" value="remove"
+              class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+        Delete Selected
+      </button>
+    </div>
+
+    <table class="min-w-full bg-white mb-4">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all-dlq"></th>
+          <th>ID</th>
+          <th>Args</th>
+          <th>Kwargs</th>
+          <th>Failed At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td><input type="checkbox" name="job_id" value="{{ job.id }}"></td>
+          <td>{{ job.id }}</td>
+          <td><pre>{{ job.args }}</pre></td>
+          <td><pre>{{ job.kwargs }}</pre></td>
+          <td>{{ job.created }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="italic text-gray-600">No failed jobs.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
 
   <a href="/queues/{{ queue }}"
      class="text-blue-600 hover:underline">
-    Back to Queue Details
+    ← Back to Queue Details
   </a>
+
+  <script>
+    // Toggle all checkboxes in DLQ
+    document.getElementById('select-all-dlq')?.addEventListener('change', function(e) {
+      document.querySelectorAll('input[name="job_id"]').forEach(cb => {
+        cb.checked = e.target.checked;
+      });
+    });
+  </script>
 {% endblock %}

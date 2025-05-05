@@ -4,56 +4,58 @@
     Jobs in Queue “{{ queue }}” ({{ state }})
   </h1>
 
-  <table class="min-w-full bg-white mb-4">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Args</th>
-        <th>Kwargs</th>
-        <th>Created</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in jobs %}
-      <tr>
-        <td>{{ job.id }}</td>
-        <td><pre>{{ job.args }}</pre></td>
-        <td><pre>{{ job.kwargs }}</pre></td>
-        <td>{{ job.created }}</td>
-        <td>
-          <form method="post" class="inline">
-            <input type="hidden" name="job_id" value="{{ job.id }}">
-            <input type="hidden" name="state" value="{{ state }}">
-            <button name="action" value="retry"
-                    class="px-2 py-1 bg-green-600 text-white rounded">
-              Retry
-            </button>
-            <button name="action" value="remove"
-                    class="px-2 py-1 bg-red-600 text-white rounded">
-              Delete
-            </button>
-            <button name="action" value="cancel"
-                    class="px-2 py-1 bg-yellow-600 text-white rounded">
-              Cancel
-            </button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="5" class="italic text-gray-600">
-          No jobs found in this state.
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <form method="post">
+    <div class="flex space-x-2 mb-2">
+      <button name="action" value="retry"
+              class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+        Retry Selected
+      </button>
+      <button name="action" value="remove"
+              class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+        Delete Selected
+      </button>
+      <button name="action" value="cancel"
+              class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">
+        Cancel Selected
+      </button>
+    </div>
+
+    <table class="min-w-full bg-white mb-4">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all"></th>
+          <th>ID</th>
+          <th>Args</th>
+          <th>Kwargs</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td><input type="checkbox" name="job_id" value="{{ job.id }}"></td>
+          <td>{{ job.id }}</td>
+          <td><pre>{{ job.args }}</pre></td>
+          <td><pre>{{ job.kwargs }}</pre></td>
+          <td>{{ job.created }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="italic text-gray-600">
+            No jobs found in this state.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
 
   <nav class="flex justify-between items-center">
     {% if page > 1 %}
       <a href="?state={{ state }}&page={{ page-1 }}&size={{ size }}"
-         class="px-4 py-2 bg-gray-200 rounded">Previous</a>
+         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+        Previous
+      </a>
     {% else %}
       <span></span>
     {% endif %}
@@ -62,9 +64,20 @@
 
     {% if page < total_pages %}
       <a href="?state={{ state }}&page={{ page+1 }}&size={{ size }}"
-         class="px-4 py-2 bg-gray-200 rounded">Next</a>
+         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+        Next
+      </a>
     {% else %}
       <span></span>
     {% endif %}
   </nav>
+
+  <script>
+    // Toggle all checkboxes
+    document.getElementById('select-all')?.addEventListener('change', function(e) {
+      document.querySelectorAll('input[name="job_id"]').forEach(cb => {
+        cb.checked = e.target.checked;
+      });
+    });
+  </script>
 {% endblock %}
