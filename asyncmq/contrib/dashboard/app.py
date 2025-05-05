@@ -8,6 +8,7 @@ from lilya.routing import RoutePath
 from lilya.templating.controllers import templates  # noqa
 
 from asyncmq.conf import settings
+from asyncmq.contrib.dashboard.controllers import sse
 from asyncmq.contrib.dashboard.views import (
     dlq,
     home,
@@ -49,6 +50,9 @@ routes = [
 
     # Metrics overview
     RoutePath("/metrics", metrics.MetricsController, methods=["GET"], name="metrics"),
+
+    # New SSE endpoint for real-time updates
+    RoutePath("/events", sse.SSEController, methods=["GET"]),
 ]
 
 app = Lilya(

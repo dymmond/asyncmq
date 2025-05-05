@@ -1,18 +1,46 @@
 {% extends "layout.html" %}
-
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    <div class="bg-white shadow rounded p-4">
-        <h3 class="text-lg font-semibold">Total Queues</h3>
-        <p class="text-2xl mt-2 text-blue-600">{{ total_queues }}</p>
+  <h1 class="text-2xl font-bold mb-4">Dashboard Overview</h1>
+
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Total Queues</h2>
+      <div id="total-queues" class="text-3xl font-bold">
+        {{ total_queues }}
+      </div>
     </div>
-    <div class="bg-white shadow rounded p-4">
-        <h3 class="text-lg font-semibold">Total Jobs</h3>
-        <p class="text-2xl mt-2 text-green-600">{{ total_jobs }}</p>
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Total Jobs</h2>
+      <div id="total-jobs" class="text-3xl font-bold">
+        {{ total_jobs }}
+      </div>
     </div>
-    <div class="bg-white shadow rounded p-4">
-        <h3 class="text-lg font-semibold">Active Workers</h3>
-        <p class="text-2xl mt-2 text-purple-600">{{ total_workers }}</p>
+    <div class="p-4 bg-white rounded shadow">
+      <h2>Total Workers</h2>
+      <div id="total-workers" class="text-3xl font-bold">
+        {{ total_workers }}
+      </div>
     </div>
-</div>
+  </div>
+
+  <script>
+
+    // Subscribe to SSE endpoint
+    const source = new EventSource('/events');
+
+    source.addEventListener('overview', e => {
+      try {
+        const data = JSON.parse(e.data);
+        document.getElementById('total-queues').textContent  = data.total_queues;
+        document.getElementById('total-jobs').textContent    = data.total_jobs;
+        document.getElementById('total-workers').textContent = data.total_workers;
+      } catch (err) {
+        console.error('Failed to parse SSE data:', err);
+      }
+    });
+
+    source.onerror = err => {
+      console.warn('SSE connection error:', err);
+    };
+  </script>
 {% endblock %}
