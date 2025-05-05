@@ -45,7 +45,13 @@ class QueueController(DashboardMixin, TemplateController):
     async def get(self, request: Request) -> Any:
         context = await super().get_context_data(request)
         queues = await self.get_queues()
-        context.update({"title": "Queues", "queues": queues})
+        context.update(
+            {
+                "title": "Queues",
+                "queues": queues,
+                "active_page": "queues",
+            }
+        )
         return await self.render_template(request, context=context)
 
 
@@ -77,6 +83,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
                 "title": f"Queue '{q}'",
                 "paused": paused,
                 "counts": counts,
+                "active_page": "queues",
             }
         )
 

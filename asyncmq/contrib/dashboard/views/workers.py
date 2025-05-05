@@ -40,6 +40,7 @@ class WorkerController(DashboardMixin, TemplateController):
             {
                 "title": "Active Workers",
                 "workers": workers,
+                "active_page": "workers",
             }
         )
         return await self.render_template(request, context=context)

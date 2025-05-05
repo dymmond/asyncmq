@@ -36,10 +36,11 @@ class DashboardController(DashboardMixin, TemplateController):
         context = await super().get_context_data(request)
         context.update(
             {
-                "title": "Dashboard",
+                "title": "Overview",
                 "total_queues": total_queues,
                 "total_jobs": total_jobs,
                 "total_workers": total_workers,
+                "active_page": "dashboard",
             }
         )
 

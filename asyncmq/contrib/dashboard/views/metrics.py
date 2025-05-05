@@ -46,6 +46,7 @@ class MetricsController(DashboardMixin, TemplateController):
             {
                 "title": "System Metrics",
                 "metrics": metrics,
+                "active_page": "metrics",
             }
         )
         return await self.render_template(request, context=context)
