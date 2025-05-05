@@ -11,7 +11,9 @@ class DashboardController(DashboardMixin, TemplateController):
     """
     Home page controller: shows total queues, total jobs, and total workers.
     """
+
     template_name = "index.html"
+
     async def get(self, request: Request) -> Any:
         backend = settings.backend
 
@@ -35,10 +37,10 @@ class DashboardController(DashboardMixin, TemplateController):
         context.update(
             {
                 "title": "Dashboard",
-                "total_queues" : total_queues,
+                "total_queues": total_queues,
                 "total_jobs": total_jobs,
-                "total_workers" : total_workers,
+                "total_workers": total_workers,
             }
         )
 
-        return await  self.render_template(request, context=context)
+        return await self.render_template(request, context=context)

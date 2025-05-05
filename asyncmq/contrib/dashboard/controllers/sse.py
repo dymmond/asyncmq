@@ -2,6 +2,7 @@ import json
 
 import anyio
 from lilya.controllers import Controller
+from lilya.requests import Request
 from lilya.responses import StreamingResponse
 
 from asyncmq.conf import settings
@@ -14,13 +15,14 @@ class SSEController(Controller):
       { total_queues, total_jobs, total_workers }
     every 5 seconds.
     """
-    async def get(self, request):
+
+    async def get(self, request: Request) -> StreamingResponse:
         backend = settings.backend
 
-        async def event_generator():
+        async def event_generator() -> None:
             while True:
                 # 1) compute total queues
-                queues = await backend.list_queues() # noqa
+                queues = await backend.list_queues()  # noqa
                 total_queues = len(queues)
 
                 # 2) compute total jobs across states
@@ -40,9 +42,9 @@ class SSEController(Controller):
                 }
 
                 # send a named event 'overview'
-                yield f"event: overview\ndata: {json.dumps(payload)}\n\n"
+                yield f"event: overview\ndata: {json.dumps(payload)}\n\n"  # noqa
 
                 # pause before the next update
                 await anyio.sleep(5)
 
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+        return StreamingResponse(event_generator(), media_type="text/event-stream")  # type: ignore

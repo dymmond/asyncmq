@@ -43,12 +43,14 @@ class QueueJobController(DashboardMixin, TemplateController):
             except Exception:
                 created = "N/A"
 
-            jobs.append({
-                "id": job.get("id"),
-                "args": json.dumps(job.get("args", [])),
-                "kwargs": json.dumps(job.get("kwargs", {})),
-                "created": created,
-            })
+            jobs.append(
+                {
+                    "id": job.get("id"),
+                    "args": json.dumps(job.get("args", [])),
+                    "kwargs": json.dumps(job.get("kwargs", {})),
+                    "created": created,
+                }
+            )
 
         total_pages = (total + size - 1) // size
 

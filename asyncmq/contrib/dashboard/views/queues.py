@@ -29,15 +29,17 @@ class QueueController(DashboardMixin, TemplateController):
                 jobs = await settings.backend.list_jobs(q, state)
                 counts[state] = len(jobs)
 
-            rows.append({
-                "name": q,
-                "paused": paused,
-                "waiting": counts["waiting"],
-                "active": counts["active"],
-                "delayed": counts["delayed"],
-                "failed": counts["failed"],
-                "completed": counts["completed"],
-            })
+            rows.append(
+                {
+                    "name": q,
+                    "paused": paused,
+                    "waiting": counts["waiting"],
+                    "active": counts["active"],
+                    "delayed": counts["delayed"],
+                    "failed": counts["failed"],
+                    "completed": counts["completed"],
+                }
+            )
         return rows
 
     async def get(self, request: Request) -> Any:
@@ -51,9 +53,10 @@ class QueueDetailController(DashboardMixin, TemplateController):
     """
     Shows detailed info for a single queue, and allows pause/resume.
     """
+
     template_name = "queues/info.html"
 
-    async def get(self, request: Request):
+    async def get(self, request: Request) -> Any:
         backend = settings.backend
         q = request.path_params["name"]
 
@@ -69,15 +72,17 @@ class QueueDetailController(DashboardMixin, TemplateController):
             counts[state] = len(jobs)
 
         context = await super().get_context_data(request)
-        context.update({
-            "title": f"Queue '{q}'",
-            "paused": paused,
-            "counts": counts,
-        })
+        context.update(
+            {
+                "title": f"Queue '{q}'",
+                "paused": paused,
+                "counts": counts,
+            }
+        )
 
         return await self.render_template(request, context=context)
 
-    async def post(self, request: Request):
+    async def post(self, request: Request) -> Any:
         """
         Handles form POSTs from the pause/resume buttons.
         """

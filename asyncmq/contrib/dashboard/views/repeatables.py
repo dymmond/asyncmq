@@ -26,19 +26,19 @@ class RepeatablesController(DashboardMixin, TemplateController):
 
             # human‐friendly next‐run timestamp
             try:
-                next_run = datetime.fromtimestamp(repeatable.next_run).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
+                next_run = datetime.fromtimestamp(repeatable.next_run).strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 next_run = "—"
 
-            rows.append({
-                "task_id": task_id,
-                "every": every,
-                "cron": cron,
-                "next_run": next_run,
-                "paused": repeatable.paused,
-            })
+            rows.append(
+                {
+                    "task_id": task_id,
+                    "every": every,
+                    "cron": cron,
+                    "next_run": next_run,
+                    "paused": repeatable.paused,
+                }
+            )
 
         return rows
 
