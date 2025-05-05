@@ -12,7 +12,6 @@ from typing import Any, cast
 from asyncpg import Pool, Record
 
 from asyncmq.backends.base import (
-    HEARTBEAT_TTL,
     BaseBackend,
     DelayedInfo,
     RepeatableInfo,
@@ -1046,12 +1045,20 @@ class PostgresBackend(BaseBackend):
         conn = await asyncpg.connect(self.dsn)
         await conn.execute(
             f"""
-            INSERT INTO {settings.postgres_workers_heartbeat_table_name}(worker_id, queues, concurrency, heartbeat)
-            VALUES ($1, $2, $3, $4) ON CONFLICT (worker_id)
-            DO UPDATE SET queues = EXCLUDED.queues,
-                               concurrency = EXCLUDED.concurrency,
-                               heartbeat = EXCLUDED.heartbeat;
-            """, worker_id, queue, concurrency, timestamp)
+                    INSERT INTO {settings.postgres_workers_heartbeat_table_name}
+                      (worker_id, queues, concurrency, heartbeat)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (worker_id)
+                    DO UPDATE SET
+                      queues      = EXCLUDED.queues,
+                      concurrency = EXCLUDED.concurrency,
+                      heartbeat   = EXCLUDED.heartbeat;
+                    """,
+            worker_id,
+            [queue],  # wrap in list to match text[] type
+            concurrency,
+            timestamp,
+        )
         await conn.close()
 
     async def deregister_worker(self, worker_id):
@@ -1060,7 +1067,7 @@ class PostgresBackend(BaseBackend):
         await conn.close()
 
     async def list_workers(self) -> list[WorkerInfo]:
-        cutoff = time.time() - HEARTBEAT_TTL
+        cutoff = time.time() - settings.heartbeat_ttl
         conn = await asyncpg.connect(self.dsn)
         rows = await conn.fetch(f"""
                                 SELECT worker_id, queues, concurrency, heartbeat

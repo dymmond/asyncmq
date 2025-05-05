@@ -5,12 +5,12 @@ from typing import Any
 import anyio
 
 from asyncmq.backends.base import (
-    HEARTBEAT_TTL,
     BaseBackend,
     DelayedInfo,
     RepeatableInfo,
     WorkerInfo,
 )
+from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -835,5 +835,5 @@ class InMemoryBackend(BaseBackend):
         return [
             info
             for info in self._worker_registry.values()
-            if now - info.heartbeat <= HEARTBEAT_TTL
+            if now - info.heartbeat <= settings.heartbeat_ttl
         ]

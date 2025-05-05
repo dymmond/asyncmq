@@ -5,7 +5,8 @@ from typing import Any, cast
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
-from asyncmq.backends.base import HEARTBEAT_TTL, BaseBackend, RepeatableInfo, WorkerInfo
+from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
+from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -1332,7 +1333,7 @@ class RedisBackend(BaseBackend):
         # HSET the timestamp
         await self.redis.hset(key, worker_id, timestamp)
         # Reset TTL so the whole hash expires if no updates
-        await self.redis.expire(key, HEARTBEAT_TTL)
+        await self.redis.expire(key, settings.heartbeat_ttl)
 
     async def deregister_worker(self, worker_id: str) -> None:
         """
@@ -1345,21 +1346,24 @@ class RedisBackend(BaseBackend):
     async def list_workers(self) -> list[WorkerInfo]:
         """
         Scan all "queue:{queue}:heartbeats" hashes and return
-        only entries with timestamp ≥ now - HEARTBEAT_TTL.
+        only entries with timestamp ≥ now - settings.heartbeat_ttl.
         """
         infos: list[WorkerInfo] = []
         now = time.time()
 
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
             # full_key is bytes; decode to string
-            key_str = full_key.decode()
-            _, queue_name, _ = key_str.split(":", 2)
+            if isinstance(full_key, bytes):
+                key_str = full_key.decode()
+            else:
+                key_str = full_key
 
+            _, queue_name, _ = key_str.split(":", 2)
             # fetch all worker_id→timestamp mappings
             heartbeats = await self.redis.hgetall(full_key)
             for worker_id, ts_str in heartbeats.items():
                 ts = float(ts_str)
-                if now - ts <= HEARTBEAT_TTL:
+                if now - ts <= settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,
@@ -1368,5 +1372,4 @@ class RedisBackend(BaseBackend):
                             heartbeat=ts,
                         )
                     )
-
         return infos

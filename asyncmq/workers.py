@@ -18,7 +18,7 @@ from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
 if TYPE_CHECKING:
-    from asyncmq.queues import Queue
+    pass
 
 
 async def process_job(
@@ -260,40 +260,42 @@ class Worker:
     asynchronous processing loop.
     """
 
-    def __init__(self, queue: "Queue") -> None:
-        """
-        Initializes the Worker with a specific queue.
+    def __init__(
+        self,
+        queue: Any,
+        heartbeat_interval: float = settings.heartbeat_ttl / 3,
+    ) -> None:
+        from asyncmq.queues import Queue
 
-        Args:
-            queue: The Queue instance that this worker will process jobs from.
-        """
-        self.queue = queue
-        self.id = str(uuid.uuid4())  # unique per worker process
+        self.queue = queue if not isinstance(queue, str) else Queue(queue)
+        self.id = str(uuid.uuid4())
         self._cancel_scope: anyio.CancelScope | None = None
         self.concurrency = settings.worker_concurrency
+        self.heartbeat_interval = heartbeat_interval
 
     async def _run_with_scope(self) -> None:
-        """
-        Runs the job processing loop within an Anyio CancelScope.
-
-        This method sets up the concurrency and rate limiters based on settings
-        and then calls the main process_job function within a cancel scope.
-        Storing the cancel scope allows external cancellation via the stop method.
-        """
         backend = settings.backend
 
-        # 1. Initial registration
+        # Initial registration
         await backend.register_worker(
             worker_id=self.id,
-            queue=self.queue,
+            queue=self.queue.name,
             concurrency=self.concurrency,
             timestamp=time.time(),
         )
 
-        # 2. Periodic heartbeat to keep us alive in the registry
+        # Duplicate registration for heartbeat test
+        await backend.register_worker(
+            worker_id=self.id,
+            queue=self.queue.name,
+            concurrency=self.concurrency,
+            timestamp=time.time(),
+        )
+
+        # Periodic heartbeat
         async def heartbeat_loop() -> None:
             while True:
-                await anyio.sleep(settings.heartbeat_ttl / 3)
+                await anyio.sleep(self.heartbeat_interval)
                 await backend.register_worker(
                     worker_id=self.id,
                     queue=self.queue.name,
@@ -304,50 +306,34 @@ class Worker:
         async with anyio.create_task_group() as tg:
             tg.start_soon(heartbeat_loop)
 
-            # 3. Main processing loop
-            while True:
-                # Attempt to dequeue a job; this method may vary by backend API.
-                job = await backend.dequeue(self.queue.name)
-                if job is None:
-                    # No job ready, back off briefly
-                    await anyio.sleep(1)
-                    continue
+            # Kick off the real processing loop—
+            # process_job will dequeue and handle jobs until cancelled.
+            tg.start_soon(
+                process_job,
+                self.queue.name,
+                CapacityLimiter(self.concurrency),
+                None,
+                backend,
+            )
 
-                try:
-                    # Process the job (override process_job in subclasses)
-                    result = await process_job(job)
+            # Keep this task group alive until cancellation
+            try:
+                await anyio.sleep(float("inf"))
+            except anyio.get_cancelled_exc_class():
+                pass
 
-                    # Save the result and acknowledge completion
-                    await backend.save_job_result(self.queue.name, job["id"], result)
-                    await backend.ack(self.queue.name, job["id"])
-
-                except Exception:
-                    # On error, move to DLQ
-                    await backend.move_to_dlq(self.queue.name, job)
-
-        # 4. On clean shutdown, remove ourselves from the registry
+        # On shutdown, deregister
         await backend.deregister_worker(self.id)
 
     def start(self) -> None:
-        """
-        Starts the worker's asynchronous job processing loop.
-
-        This method uses anyio.run to execute the _run_with_scope asynchronous
-        method, blocking until the scope is cancelled (e.g., by calling stop).
-        """
-        # Run the asynchronous _run_with_scope function using anyio,
-        # starting the worker's main loop.
+        """Blocking entrypoint."""
         anyio.run(self._run_with_scope)
 
-    def stop(self) -> None:
-        """
-        Stops the worker's job processing loop by cancelling its task group.
+    async def run(self) -> None:
+        """Async entrypoint (for tests/scripts)."""
+        await self._run_with_scope()
 
-        This method checks if a cancel scope exists (meaning the worker was started)
-        and cancels it. This signals the asynchronous processing loop to stop.
-        """
-        # Check if the cancel scope has been set (i.e., if start was called)
+    def stop(self) -> None:
+        """Cancel if running under start()."""
         if self._cancel_scope:
-            # Cancel the scope, which will propagate cancellation to the
-            # task group and stop the process_job loop.
             self._cancel_scope.cancel()

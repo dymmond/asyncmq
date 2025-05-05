@@ -15,12 +15,12 @@ except ImportError:
 
 # Import necessary components from asyncmq.
 from asyncmq.backends.base import (
-    HEARTBEAT_TTL,
     BaseBackend,
     DelayedInfo,
     RepeatableInfo,
     WorkerInfo,
 )
+from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -996,7 +996,7 @@ class MongoDBBackend(BaseBackend):
         """
         List all active workers with recent heartbeats.
         """
-        cutoff = time.time() - HEARTBEAT_TTL
+        cutoff = time.time() - settings.heartbeat_ttl
         cursor = self._workers.find({"heartbeat": {"$gte": cutoff}})
         workers = []
         async for doc in cursor:

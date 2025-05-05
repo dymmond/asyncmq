@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-HEARTBEAT_TTL = 30
 
 @dataclass
 class RepeatableInfo:
@@ -581,5 +580,5 @@ class BaseBackend(ABC):
 
     @abstractmethod
     async def list_workers(self) -> list[WorkerInfo]:
-        """Return all workers with heartbeat ≥ now - HEARTBEAT_TTL."""
+        """Return all workers with heartbeat ≥ now - settings.heartbeat_ttl."""
         ...
