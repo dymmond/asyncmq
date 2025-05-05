@@ -1,8 +1,9 @@
-from lilya.requests import Request
-from lilya.responses import HTMLResponse
+from typing import Any
 
-from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.engine import templates
+from lilya.requests import Request
+from lilya.templating.controllers import TemplateController
+
+from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
 
 # Dummy data for jobs in a queue
 dummy_jobs = {
@@ -14,18 +15,18 @@ dummy_jobs = {
 }
 
 
-async def queue_jobs(request: Request) -> HTMLResponse:
-    queue_name = request.path_params.get("name", "default")
-    jobs = dummy_jobs.get(queue_name, [])
-    return templates.get_template_response(
-        request,
-        "jobs.html",
-        {
-            "request": request,
-            "title": f"Jobs in '{queue_name}'",
-            "queue": queue_name,
-            "jobs": jobs,
-            "header_text": settings.dashboard_config.header_title,
-            "favicon": settings.dashboard_config.favicon,
-        },
-    )
+class QueueJobController(DashboardMixin, TemplateController):
+    template_name = "jobs/jobs.html"
+
+    async def get(self, request: Request) -> Any:
+        queue_name = request.path_params.get("name", "default")
+        jobs = dummy_jobs.get(queue_name, [])
+        context = await super().get_context_data(request)
+        context.update(
+            {
+                "title": f"Jobs in '{queue_name}'",
+                "queue": "default",
+                "jobs": jobs,
+            }
+        )
+        return await self.render_template(request, context=context)

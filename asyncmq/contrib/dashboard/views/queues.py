@@ -1,8 +1,9 @@
-from lilya.requests import Request
-from lilya.responses import HTMLResponse
+from typing import Any
 
-from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.engine import templates
+from lilya.requests import Request
+from lilya.templating.controllers import TemplateController
+
+from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
 
 dummy_queues = [
     {"name": "default", "waiting": 12, "active": 3, "completed": 100},
@@ -10,15 +11,15 @@ dummy_queues = [
 ]
 
 
-async def queue_list(request: Request) -> HTMLResponse:
-    return templates.get_template_response(
-        request,
-        "queues.html",
-        {
-            "request": request,
-            "title": "Queues",
-            "queues": dummy_queues,
-            "header_text": settings.dashboard_config.header_title,
-            "favicon": settings.dashboard_config.favicon,
-        },
-    )
+class QueueController(DashboardMixin, TemplateController):
+    template_name = "queues/queues.html"
+
+    async def get(self, request: Request) -> Any:
+        cc = await super().get_context_data(request)
+        cc.update(
+            {
+                "title": "Queues",
+                "queues": dummy_queues,
+            }
+        )
+        return await self.render_template(request, context=cc)

@@ -1,18 +1,19 @@
+from typing import Any
+
 from lilya.requests import Request
-from lilya.responses import HTMLResponse
+from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.engine import templates
+from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
 
 
-async def dashboard_home(request: Request) -> HTMLResponse:
-    return templates.get_template_response(
-        request,
-        "index.html",
-        {
-            "request": request,
-            "title": settings.dashboard_config.title,
-            "favicon": settings.dashboard_config.favicon,
-            "header_text": settings.dashboard_config.header_title,
-        },
-    )
+class DashboardController(DashboardMixin, TemplateController):
+    template_name = "index.html"
+
+    async def get(self, request: Request) -> Any:
+        context = await super().get_context_data(request)
+        context.update(
+            {
+                "title": "Dashboard",
+            }
+        )
+        return await self.render_template(request)

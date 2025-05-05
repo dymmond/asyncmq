@@ -1,8 +1,9 @@
-from lilya.requests import Request
-from lilya.responses import HTMLResponse
+from typing import Any
 
-from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.engine import templates
+from lilya.requests import Request
+from lilya.templating.controllers import TemplateController
+
+from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
 
 # Dummy DLQ jobs
 dlq_jobs = [
@@ -11,17 +12,18 @@ dlq_jobs = [
 ]
 
 
-async def dlq_view(request: Request) -> HTMLResponse:
-    queue = request.path_params.get("name", "default")
-    return templates.get_template_response(
-        request,
-        "dlq.html",
-        {
-            "request": request,
-            "title": f"Dead Letter Queue – {queue}",
-            "queue": queue,
-            "jobs": dlq_jobs,
-            "header_text": settings.dashboard_config.header_title,
-            "favicon": settings.dashboard_config.favicon,
-        },
-    )
+class DQLController(DashboardMixin, TemplateController):
+    template_name = "dlqs/dlq.html"
+
+    async def get(self, request: Request) -> Any:
+        queue = request.path_params.get("name", "default")
+        context = await super().get_context_data(request)
+        context.update(
+            {
+                "title": f"Dead Letter Queue – {queue}",
+                "queue": queue,
+                "jobs": dlq_jobs,
+            }
+        )
+
+        return await self.render_template(request, context=context)

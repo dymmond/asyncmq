@@ -1,8 +1,9 @@
-from lilya.requests import Request
-from lilya.responses import HTMLResponse
+from typing import Any
 
-from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.engine import templates
+from lilya.requests import Request
+from lilya.templating.controllers import TemplateController
+
+from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
 
 # Dummy active workers data
 worker_list = [
@@ -11,15 +12,15 @@ worker_list = [
 ]
 
 
-async def workers_view(request: Request) -> HTMLResponse:
-    return templates.get_template_response(
-        request,
-        "workers.html",
-        {
-            "request": request,
-            "title": "Active Workers",
-            "workers": worker_list,
-            "header_text": settings.dashboard_config.header_title,
-            "favicon": settings.dashboard_config.favicon,
-        },
-    )
+class WorkerController(DashboardMixin, TemplateController):
+    template_name = "workers/workers.html"
+
+    async def get(self, request: Request) -> Any:
+        context = await super().get_context_data(request)
+        context.update(
+            {
+                "title": "Active Workers",
+                "workers": worker_list,
+            }
+        )
+        return await self.render_template(request, context=context)
