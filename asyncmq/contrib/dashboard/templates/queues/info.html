@@ -5,19 +5,19 @@
   <form method="post" class="mb-4">
     {% if paused %}
       <button name="action" value="resume"
-              class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+              class="px-4 py-2 bg-green-600 text-white rounded">
         Resume Queue
       </button>
     {% else %}
       <button name="action" value="pause"
-              class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+              class="px-4 py-2 bg-red-600 text-white rounded">
         Pause Queue
       </button>
     {% endif %}
   </form>
 
   <h2 class="text-xl font-semibold mb-2">Job Counts</h2>
-  <ul class="list-disc pl-6 mb-4">
+  <ul class="list-disc pl-6 mb-6">
     <li>Waiting:   {{ counts.waiting }}</li>
     <li>Active:    {{ counts.active }}</li>
     <li>Delayed:   {{ counts.delayed }}</li>
@@ -25,11 +25,66 @@
     <li>Completed: {{ counts.completed }}</li>
   </ul>
 
+  <h2 class="text-xl font-semibold mb-2">Real-Time Job Counts</h2>
+  <canvas id="queue-chart" class="mb-6" height="100"></canvas>
+
   <h2 class="text-xl font-semibold mb-2">Quick Links</h2>
-  <ul class="list-inside list-disc">
+  <ul class="list-inside list-disc mb-4">
     <li><a href="/queues/{{ queue }}/jobs" class="text-blue-600 hover:underline">All Jobs</a></li>
-    <li><a href="/queues/{{ queue }}/list-delayed" class="text-blue-600 hover:underline">Delayed Jobs</a></li>
     <li><a href="/queues/{{ queue }}/repeatables" class="text-blue-600 hover:underline">Repeatables</a></li>
     <li><a href="/queues/{{ queue }}/dlq" class="text-blue-600 hover:underline">Dead-Letter Queue</a></li>
   </ul>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctxQ = document.getElementById('queue-chart').getContext('2d');
+    const maxPointsQ = 20;
+    const qData = {
+      labels: [],
+      datasets: [
+        { label: 'Waiting',   data: [] },
+        { label: 'Active',    data: [] },
+        { label: 'Delayed',   data: [] },
+        { label: 'Failed',    data: [] },
+        { label: 'Completed', data: [] },
+      ]
+    };
+    const queueChart = new Chart(ctxQ, {
+      type: 'line',
+      data: qData,
+      options: {
+        scales: { x: { display: true }, y: { beginAtZero: true } },
+        animation: { duration: 0 },
+      }
+    });
+
+    const source = new EventSource('/events');
+    source.addEventListener('queues', e => {
+      try {
+        const rows = JSON.parse(e.data);
+        const now = new Date().toLocaleTimeString();
+        // find this queue
+        const q = rows.find(r => r.name === "{{ queue }}");
+        if (!q) return;
+
+        // update data arrays
+        qData.labels.push(now);
+        qData.datasets[0].data.push(q.waiting);
+        qData.datasets[1].data.push(q.active);
+        qData.datasets[2].data.push(q.delayed);
+        qData.datasets[3].data.push(q.failed);
+        qData.datasets[4].data.push(q.completed);
+
+        if (qData.labels.length > maxPointsQ) {
+          qData.labels.shift();
+          qData.datasets.forEach(ds => ds.data.shift());
+        }
+        queueChart.update();
+      } catch (err) {
+        console.error('Queue SSE parse error', err);
+      }
+    });
+
+    source.onerror = () => console.warn('SSE error on queues – retrying');
+  </script>
 {% endblock %}
