@@ -104,6 +104,7 @@ class Settings:
     cancelled when utilizing the Postgres backend. Defaults to
     "asyncmq_cancelled_jobs".
     """
+    postgres_workers_heartbeat_table_name: str = "asyncmq_workers_heartbeat"
 
     asyncmq_postgres_backend_url: str | None = None
     """
@@ -207,6 +208,7 @@ class Settings:
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.
     """
+    heartbeat_ttl: int = 30
 
     @property
     def dashboard_config(self) -> DashboardConfig | None:

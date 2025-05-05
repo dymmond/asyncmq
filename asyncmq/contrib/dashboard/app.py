@@ -1,14 +1,16 @@
+
 from lilya.apps import Lilya
 from lilya.requests import Request
 from lilya.responses import HTMLResponse
 from lilya.routing import RoutePath
+from lilya.templating.controllers import templates
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.views import dlq, home, jobs, metrics, queues, repeatables, workers
 
 
 async def not_found(request: Request, exc: Exception) -> HTMLResponse:
-    return HTMLResponse("Not found", status_code=404)
+    return templates.get_template_response(request, "404.html", context={"title": "Not Found"})
 
 
 routes = [

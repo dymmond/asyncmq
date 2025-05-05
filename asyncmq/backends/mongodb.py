@@ -14,7 +14,13 @@ except ImportError:
     raise ImportError("Please install motor: `pip install motor`") from None
 
 # Import necessary components from asyncmq.
-from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
+from asyncmq.backends.base import (
+    HEARTBEAT_TTL,
+    BaseBackend,
+    DelayedInfo,
+    RepeatableInfo,
+    WorkerInfo,
+)
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -63,6 +69,7 @@ class MongoDBBackend(BaseBackend):
         self.lock: anyio.Lock = anyio.Lock()
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
+        self._workers = self.store.db["worker_heartbeats"]
 
     async def connect(self) -> None:
         """
@@ -958,3 +965,47 @@ class MongoDBBackend(BaseBackend):
 
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
         return await self.store.filter(queue=queue, state=state)
+
+    async def list_queues(self) -> list[str]:
+        """
+        Return all queue names present in the job collection.
+        """
+        # Ensure the store is connected
+        await self.store.connect()
+        # Use MongoDB distinct to get unique queue names
+        queues: list[str] = await self.store.collection.distinct("queue_name")
+        return queues
+
+    async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
+        """
+        Register or update a worker's heartbeat.
+        """
+        await self._workers.update_one(
+            {"_id": worker_id},
+            {"$set": {"queue": queue, "concurrency": concurrency, "heartbeat": timestamp}},
+            upsert=True,
+        )
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove a worker's registry entry.
+        """
+        await self._workers.delete_one({"_id": worker_id})
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        """
+        List all active workers with recent heartbeats.
+        """
+        cutoff = time.time() - HEARTBEAT_TTL
+        cursor = self._workers.find({"heartbeat": {"$gte": cutoff}})
+        workers = []
+        async for doc in cursor:
+            workers.append(
+                WorkerInfo(
+                    id=doc["_id"],
+                    queue=doc.get("queue", ""),
+                    concurrency=doc.get("concurrency", 1),
+                    heartbeat=doc["heartbeat"],
+                )
+            )
+        return workers

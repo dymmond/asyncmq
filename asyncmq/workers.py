@@ -1,6 +1,7 @@
 import inspect
 import time
 import traceback
+import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 import anyio
@@ -267,8 +268,9 @@ class Worker:
             queue: The Queue instance that this worker will process jobs from.
         """
         self.queue = queue
-        # Stores the cancel scope for the worker's run loop to allow stopping
+        self.id = str(uuid.uuid4())  # unique per worker process
         self._cancel_scope: anyio.CancelScope | None = None
+        self.concurrency = settings.worker_concurrency
 
     async def _run_with_scope(self) -> None:
         """
@@ -278,19 +280,53 @@ class Worker:
         and then calls the main process_job function within a cancel scope.
         Storing the cancel scope allows external cancellation via the stop method.
         """
-        # Create a CancelScope for the entire worker's operation
-        with anyio.CancelScope() as scope:
-            # Store the scope so it can be accessed later for cancellation
-            self._cancel_scope = scope
-            # Initialize a CapacityLimiter based on the worker concurrency setting
-            limiter = CapacityLimiter(settings.worker_concurrency)
-            # Initialize a RateLimiter if rate limiting is enabled in settings,
-            # otherwise set it to None.
-            rate_limiter = (
-                RateLimiter(settings.rate_limit, settings.rate_interval) if settings.rate_limit is not None else None
-            )
-            # Start the main job processing loop
-            await process_job(self.queue.name, limiter, rate_limiter)
+        backend = settings.backend
+
+        # 1. Initial registration
+        await backend.register_worker(
+            worker_id=self.id,
+            queue=self.queue,
+            concurrency=self.concurrency,
+            timestamp=time.time(),
+        )
+
+        # 2. Periodic heartbeat to keep us alive in the registry
+        async def heartbeat_loop() -> None:
+            while True:
+                await anyio.sleep(settings.heartbeat_ttl / 3)
+                await backend.register_worker(
+                    worker_id=self.id,
+                    queue=self.queue.name,
+                    concurrency=self.concurrency,
+                    timestamp=time.time(),
+                )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(heartbeat_loop)
+
+            # 3. Main processing loop
+            while True:
+                # Attempt to dequeue a job; this method may vary by backend API.
+                job = await backend.dequeue(self.queue.name)
+                if job is None:
+                    # No job ready, back off briefly
+                    await anyio.sleep(1)
+                    continue
+
+                try:
+                    # Process the job (override process_job in subclasses)
+                    result = await process_job(job)
+
+                    # Save the result and acknowledge completion
+                    await backend.save_job_result(self.queue.name, job["id"], result)
+                    await backend.ack(self.queue.name, job["id"])
+
+                except Exception:
+                    # On error, move to DLQ
+                    await backend.move_to_dlq(self.queue.name, job)
+
+        # 4. On clean shutdown, remove ourselves from the registry
+        await backend.deregister_worker(self.id)
 
     def start(self) -> None:
         """

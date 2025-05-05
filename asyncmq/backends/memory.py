@@ -4,7 +4,13 @@ from typing import Any
 
 import anyio
 
-from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
+from asyncmq.backends.base import (
+    HEARTBEAT_TTL,
+    BaseBackend,
+    DelayedInfo,
+    RepeatableInfo,
+    WorkerInfo,
+)
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -54,6 +60,9 @@ class InMemoryBackend(BaseBackend):
         # Heartbeats & active jobs (existing features)
         self.heartbeats: dict[_JobKey, float] = {}
         self.active_jobs: dict[_JobKey, dict[str, Any]] = {}
+
+        # Workers
+        self._worker_registry: dict[str, WorkerInfo] = {}
 
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
@@ -803,3 +812,28 @@ class InMemoryBackend(BaseBackend):
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)
+
+    async def register_worker(
+        self,
+        worker_id: str,
+        queue: str,
+        concurrency: int,
+        timestamp: float,
+    ) -> None:
+        self._worker_registry[worker_id] = WorkerInfo(
+            id=worker_id,
+            queue=queue,
+            concurrency=concurrency,
+            heartbeat=timestamp,
+        )
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        self._worker_registry.pop(worker_id, None)
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        now = time.time()
+        return [
+            info
+            for info in self._worker_registry.values()
+            if now - info.heartbeat <= HEARTBEAT_TTL
+        ]

@@ -64,6 +64,13 @@ async def install_or_drop_postgres_backend(
           PRIMARY KEY(queue_name, job_id)
         );
 
+        CREATE TABLE IF NOT EXISTS {settings.postgres_workers_heartbeat_table_name} (
+            worker_id TEXT PRIMARY KEY,
+            queues TEXT[],        -- array of queue names
+            concurrency INT,
+            heartbeat DOUBLE PRECISION
+        );
+
         -- Indexes for efficient lookups
         CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_queue_name ON asyncmq_jobs(queue_name);
         CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_status ON asyncmq_jobs(status);
@@ -74,6 +81,7 @@ async def install_or_drop_postgres_backend(
         DROP TABLE IF EXISTS {settings.postgres_jobs_table_name};
         DROP TABLE IF EXISTS {settings.postgres_repeatables_table_name};
         DROP TABLE IF EXISTS {settings.postgres_cancelled_jobs_table_name};
+        DROP TABLE IF EXISTS {settings.postgres_workers_heartbeat_table_name};
         DROP INDEX IF EXISTS idx_asyncmq_jobs_queue_name;
         DROP INDEX IF EXISTS idx_asyncmq_jobs_status;
         DROP INDEX IF EXISTS idx_asyncmq_jobs_delay_until;

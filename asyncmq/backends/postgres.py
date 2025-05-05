@@ -11,7 +11,13 @@ from typing import Any, cast
 # Import specific types for hints
 from asyncpg import Pool, Record
 
-from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
+from asyncmq.backends.base import (
+    HEARTBEAT_TTL,
+    BaseBackend,
+    DelayedInfo,
+    RepeatableInfo,
+    WorkerInfo,
+)
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.logging import logger
@@ -865,7 +871,7 @@ class PostgresBackend(BaseBackend):
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        Lists jobs in a specific queue filtered by job state.
+        lists jobs in a specific queue filtered by job state.
 
         Args:
             queue_name: The name of the queue.
@@ -1031,6 +1037,45 @@ class PostgresBackend(BaseBackend):
         # Call the internal enqueue method to place the job back in the queue
         # Note: The `enqueue` method is assumed to exist elsewhere in this class.
         await self.enqueue(queue_name, job_data)
+
+    async def register_worker(self,
+        worker_id: str,
+        queue: str,
+        concurrency: int,
+        timestamp: float,):
+        conn = await asyncpg.connect(self.dsn)
+        await conn.execute(
+            f"""
+            INSERT INTO {settings.postgres_workers_heartbeat_table_name}(worker_id, queues, concurrency, heartbeat)
+            VALUES ($1, $2, $3, $4) ON CONFLICT (worker_id)
+            DO UPDATE SET queues = EXCLUDED.queues,
+                               concurrency = EXCLUDED.concurrency,
+                               heartbeat = EXCLUDED.heartbeat;
+            """, worker_id, queue, concurrency, timestamp)
+        await conn.close()
+
+    async def deregister_worker(self, worker_id):
+        conn = await asyncpg.connect(self.dsn)
+        await conn.execute(f"DELETE FROM {settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id)
+        await conn.close()
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        cutoff = time.time() - HEARTBEAT_TTL
+        conn = await asyncpg.connect(self.dsn)
+        rows = await conn.fetch(f"""
+                                SELECT worker_id, queues, concurrency, heartbeat
+                                FROM {settings.postgres_workers_heartbeat_table_name}
+                                WHERE heartbeat >= $1
+                                """, cutoff)
+        await conn.close()
+        return [
+            WorkerInfo(
+                id=r["worker_id"],
+                queue=r["queues"],
+                concurrency=r["concurrency"],
+                heartbeat=r["heartbeat"],
+            ) for r in rows
+        ]
 
 
 class PostgresLock:

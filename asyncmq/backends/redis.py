@@ -5,7 +5,7 @@ from typing import Any, cast
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
-from asyncmq.backends.base import BaseBackend, RepeatableInfo
+from asyncmq.backends.base import HEARTBEAT_TTL, BaseBackend, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -854,7 +854,7 @@ class RedisBackend(BaseBackend):
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        Lists jobs in a given queue filtered by a specific state.
+        lists jobs in a given queue filtered by a specific state.
 
         Supported states: waiting, delayed, failed.
 
@@ -1314,3 +1314,59 @@ class RedisBackend(BaseBackend):
         """
         # Check if the job ID is a member of the cancelled Set. sismember returns 1 or 0.
         return await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id)
+
+
+
+    async def register_worker(
+        self,
+        worker_id: str,
+        queue: str,
+        concurrency: int,
+        timestamp: float,
+    ) -> None:
+        """
+        Record or bump this worker's heartbeat in
+        a Redis hash at key "queue:{queue}:heartbeats".
+        """
+        key = f"queue:{queue}:heartbeats"
+        # HSET the timestamp
+        await self.redis.hset(key, worker_id, timestamp)
+        # Reset TTL so the whole hash expires if no updates
+        await self.redis.expire(key, HEARTBEAT_TTL)
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove this worker_id from *all* queue heartbeats hashes.
+        """
+        # Scan for any queue heartbeats key and HDEL the field
+        async for key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            await self.redis.hdel(key, worker_id)
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Scan all "queue:{queue}:heartbeats" hashes and return
+        only entries with timestamp ≥ now - HEARTBEAT_TTL.
+        """
+        infos: list[WorkerInfo] = []
+        now = time.time()
+
+        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            # full_key is bytes; decode to string
+            key_str = full_key.decode()
+            _, queue_name, _ = key_str.split(":", 2)
+
+            # fetch all worker_id→timestamp mappings
+            heartbeats = await self.redis.hgetall(full_key)
+            for worker_id, ts_str in heartbeats.items():
+                ts = float(ts_str)
+                if now - ts <= HEARTBEAT_TTL:
+                    infos.append(
+                        WorkerInfo(
+                            id=worker_id,
+                            queue=queue_name,
+                            concurrency=1,  # each heartbeat represents one slot
+                            heartbeat=ts,
+                        )
+                    )
+
+        return infos
