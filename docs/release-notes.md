@@ -5,6 +5,42 @@ hide:
 
 # Release Notes
 
+## 0.2.0
+
+## Release Notes
+
+### Added
+
+* **Top-Level CLI Commands**
+  Added four new top-level commands to the `asyncmq` CLI (powered by Click & Rich):
+
+  * `list-queues` — list all queues known to the backend
+  * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
+  * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
+  * `deregister-worker <worker_id>` — remove a worker from the registry
+
+### Changed
+
+* **Redis Backend: Store Concurrency**
+
+  * Now `register_worker` stores both `heartbeat` and `concurrency` as a JSON blob in each hash field.
+  * `list_workers` parses that JSON so the returned `WorkerInfo.concurrency` reflects the actual setting.
+
+* **Postgres Backend: `register_worker` Fix**
+
+  * The `queues` column (a `text[]` type) now correctly receives a one-element Python list (`[queue]`) instead of a bare string.
+  * This resolves `DataError: invalid input for query argument $2`.
+
+* **General Pause–Check Safety**
+
+  * `process_job` now guards against backends that don’t implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
+
+### Fixed
+
+* Fixed Redis hash-scan code to handle both `bytes` and `str` keys/values, preventing `.decode()` errors.
+* Ensured Postgres connection pool is wired into both `list_queues` and all worker-heartbeat methods.
+* Cleaned up duplicate fixtures in test modules to prevent event-loop and fixture-resolution errors.
+
 ## 0.1.0
 
 Welcome to the **first official release** of **AsyncMQ**!

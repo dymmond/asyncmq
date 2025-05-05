@@ -1,6 +1,6 @@
 # AsyncMQ CLI
 
-The `asyncmq` CLI is your command-line control center for managing queues, jobs, workers, and configuration,
+The `asyncmq` CLI is your command-line control center for managing queues, jobs, workers, and backend workers,
 all wrapped in a splashy Rich banner and powered by Click.
 
 ---
@@ -16,7 +16,7 @@ pip install asyncmq
 Invoke the CLI with:
 
 ```bash
-asyncmq [group] [command] [options]
+asyncmq [group|command] [subcommand] [options]
 ```
 
 Show global help:
@@ -26,7 +26,7 @@ asyncmq --help
 ```
 
 !!! Tip
-    You can also run it as a module:
+You can also run it as a module:
 
 ```bash
 python -m asyncmq
@@ -46,30 +46,64 @@ This allows you to point the CLI at your own `Settings` dataclass (with custom b
 
 ---
 
+## Top-Level Commands
+
+These commands are invoked directly on the `asyncmq` root without a sub-group.
+
+### `list-queues`
+
+List all queues known to the configured backend.
+
+```bash
+asyncmq list-queues
+```
+
+### `list-workers`
+
+List all registered workers, their queue, concurrency level, and last heartbeat.
+
+```bash
+asyncmq list-workers
+```
+
+### `register-worker <worker_id> <queue> [--concurrency N]`
+
+Register or update a worker's heartbeat and concurrency on a specific queue.
+
+```bash
+asyncmq register-worker worker42 myqueue --concurrency 10
+```
+
+### `deregister-worker <worker_id>`
+
+Deregister (remove) a worker from the registry.
+
+```bash
+asyncmq deregister-worker worker42
+```
+
+---
+
 ## Command Groups Overview
 
-The CLI is organized into four primary groups:
+In addition to the top-level commands above, the CLI is organized into four primary groups:
 
-* **`queue`**: Manage queues (list, pause/resume, inspect delayed & repeatables)
+* **`queue`**: Manage and inspect queues (list, pause/resume, delayed, repeatables)
 * **`job`**: Inspect, list, retry, remove, or cancel individual jobs
 * **`worker`**: Start worker processes to consume queues
-* **`info`**: Display current backend implementation
+* **`info`**: Display current backend implementation and configuration details
 
-Each group supports its own set of subcommands and flags. Run `asyncmq <group> --help` to see usage.
+Run `asyncmq <group> --help` to see usage for each group.
 
 ---
 
 ## `asyncmq info`
 
-Displays the configured backend’s Python import path.
+Displays the configured backend’s Python import path (and settings module).
 
 ```bash
 asyncmq info
 ```
-
-**Output Example:**
-
-<img src="https://res.cloudinary.com/dymmond/image/upload/v1746168744/asyncmq/docs/cpnmhbed53jnlrriciof.png" alt="AsyncMQ CLI Help"/>
 
 No additional flags or subcommands.
 
@@ -155,7 +189,7 @@ asyncmq queue resume-repeatable myqueue '{"task_id":"app.heartbeat","every":60}'
 ```
 
 !!! Warning
-    **JSON Strings** must be wrapped in single quotes in most shells to prevent interpretation.
+**JSON Strings** must be wrapped in single quotes in most shells to prevent interpretation.
 
 ---
 
@@ -224,18 +258,37 @@ asyncmq worker start myqueue --concurrency 5
 
 ## Putting It All Together
 
-* Start a worker for "emails" queue, 3 at a time - `asyncmq worker start emails --concurrency 3`
-* List all queues - `asyncmq queue list`
-* Pause processing on retries - `asyncmq queue pause retries`
-* Inspect a failed job - `asyncmq job inspect abc123 --queue retries`
-* Retry it - `asyncmq job retry abc123 --queue retries`
-* Monitor delayed tasks remaining - `asyncmq queue list-delayed retries`
-* Resume and let it rip again - `asyncmq queue resume retries`
+* Start a worker for "emails" queue, 3 at a time:
 
-!!! Tip
-    Pipe output through your own `jq` or `grep` to integrate AsyncMQ into shell scripts and dashboards!
+```bash
+asyncmq worker start emails --concurrency 3
+```
 
----
+* List all queues:
+
+```bash
+asyncmq list-queues
+```
+
+* Register a new worker heartbeat:
+
+```bash
+asyncmq register-worker worker42 emails --concurrency 3
+```
+
+* List workers:
+
+```bash
+asyncmq list-workers
+```
+
+* Deregister a worker:
+
+```bash
+asyncmq deregister-worker worker42
+```
+
+* Pipe output through your own `jq` or `grep` to integrate AsyncMQ into shell scripts and dashboards!
 
 With this CLI at your fingertips, you can administer queues, recover from failures, and scale workers,
 all without leaving your terminal. Enjoy the power (and the pretty panels)! 🎉
