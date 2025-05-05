@@ -1316,8 +1316,6 @@ class RedisBackend(BaseBackend):
         # Check if the job ID is a member of the cancelled Set. sismember returns 1 or 0.
         return await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id)
 
-
-
     async def register_worker(
         self,
         worker_id: str,
@@ -1326,18 +1324,34 @@ class RedisBackend(BaseBackend):
         timestamp: float,
     ) -> None:
         """
-        Record or bump this worker's heartbeat in
-        a Redis hash at key "queue:{queue}:heartbeats".
+        Record or bump this worker's heartbeat in a Redis hash.
+
+        Records or updates the heartbeat and concurrency for a specific worker
+        within the Redis hash dedicated to heartbeats for the given queue.
+        Sets a TTL on the hash to ensure expiration if not updated.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
         """
+        payload = json.dumps({"heartbeat": timestamp, "concurrency": concurrency})
         key = f"queue:{queue}:heartbeats"
         # HSET the timestamp
-        await self.redis.hset(key, worker_id, timestamp)
+        await self.redis.hset(key, worker_id, payload)
         # Reset TTL so the whole hash expires if no updates
         await self.redis.expire(key, settings.heartbeat_ttl)
 
     async def deregister_worker(self, worker_id: str) -> None:
         """
-        Remove this worker_id from *all* queue heartbeats hashes.
+        Remove this worker_id from all queue heartbeats hashes in Redis.
+
+        Scans all Redis keys matching "queue:*:heartbeats" and removes
+        the field corresponding to the specified worker_id from each hash.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
         """
         # Scan for any queue heartbeats key and HDEL the field
         async for key in self.redis.scan_iter(match="queue:*:heartbeats"):
@@ -1345,8 +1359,14 @@ class RedisBackend(BaseBackend):
 
     async def list_workers(self) -> list[WorkerInfo]:
         """
-        Scan all "queue:{queue}:heartbeats" hashes and return
-        only entries with timestamp ≥ now - settings.heartbeat_ttl.
+        Lists active workers from Redis heartbeat hashes.
+
+        Scans all Redis keys matching "queue:*:heartbeats", retrieves worker
+        information from each hash, and filters entries based on whether
+        their heartbeat is within the configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
         """
         infos: list[WorkerInfo] = []
         now = time.time()
@@ -1359,17 +1379,20 @@ class RedisBackend(BaseBackend):
                 key_str = full_key
 
             _, queue_name, _ = key_str.split(":", 2)
+
             # fetch all worker_id→timestamp mappings
             heartbeats = await self.redis.hgetall(full_key)
-            for worker_id, ts_str in heartbeats.items():
-                ts = float(ts_str)
-                if now - ts <= settings.heartbeat_ttl:
+            for wid, data in heartbeats.items():
+                worker_id = wid.decode() if isinstance(wid, bytes) else wid
+                payload = json.loads(data)
+                timestamp = float(payload.get("heartbeat", 0))
+                if now - timestamp <= settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,
                             queue=queue_name,
-                            concurrency=1,  # each heartbeat represents one slot
-                            heartbeat=ts,
+                            concurrency=payload.get("concurrency"),  # each heartbeat represents one slot
+                            heartbeat=timestamp,
                         )
                     )
         return infos

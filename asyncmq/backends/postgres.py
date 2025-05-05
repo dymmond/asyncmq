@@ -1037,11 +1037,27 @@ class PostgresBackend(BaseBackend):
         # Note: The `enqueue` method is assumed to exist elsewhere in this class.
         await self.enqueue(queue_name, job_data)
 
-    async def register_worker(self,
+    async def register_worker(
+        self,
         worker_id: str,
         queue: str,
         concurrency: int,
-        timestamp: float,):
+        timestamp: float,
+    ) -> None:
+        """
+        Registers or updates a worker's heartbeat in the PostgreSQL backend.
+
+        This function inserts a new worker record or updates an existing one
+        based on the worker_id. It stores the worker's assigned queue(s),
+        concurrency level, and the current heartbeat timestamp.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+                   (Note: Currently stored as a single item list in the DB).
+            concurrency: The maximum number of tasks the worker can process concurrently.
+            timestamp: The timestamp representing the worker's last heartbeat.
+        """
         conn = await asyncpg.connect(self.dsn)
         await conn.execute(
             f"""
@@ -1061,19 +1077,41 @@ class PostgresBackend(BaseBackend):
         )
         await conn.close()
 
-    async def deregister_worker(self, worker_id):
+    async def deregister_worker(self, worker_id: str | int) -> None:
+        """
+        Removes a worker's record from the PostgreSQL backend.
+
+        Deletes the entry for the specified worker_id from the heartbeat table.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
+        """
         conn = await asyncpg.connect(self.dsn)
-        await conn.execute(f"DELETE FROM {settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id)
+        await conn.execute(
+            f"DELETE FROM {settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id
+        )
         await conn.close()
 
     async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Lists active workers from the PostgreSQL backend.
+
+        Retrieves workers whose last heartbeat is within the configured
+        time-to-live (TTL) from the heartbeat table.
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
+        """
         cutoff = time.time() - settings.heartbeat_ttl
         conn = await asyncpg.connect(self.dsn)
-        rows = await conn.fetch(f"""
+        rows = await conn.fetch(
+            f"""
                                 SELECT worker_id, queues, concurrency, heartbeat
                                 FROM {settings.postgres_workers_heartbeat_table_name}
                                 WHERE heartbeat >= $1
-                                """, cutoff)
+                                """,
+            cutoff,
+        )
         await conn.close()
         return [
             WorkerInfo(
@@ -1081,7 +1119,8 @@ class PostgresBackend(BaseBackend):
                 queue=r["queues"],
                 concurrency=r["concurrency"],
                 heartbeat=r["heartbeat"],
-            ) for r in rows
+            )
+            for r in rows
         ]
 
 

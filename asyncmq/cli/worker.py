@@ -1,14 +1,18 @@
 import signal
+import time
 
 import anyio
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from asyncmq import __version__  # noqa
 from asyncmq.cli.utils import (
+    WORKERS_LOGO,
     get_centered_logo,
+    get_print_banner,
     print_worker_banner,
 )
 from asyncmq.conf import settings
@@ -116,3 +120,77 @@ async def signal_handler(scope: anyio.CancelScope) -> None:
                 console.print(f"\n[yellow]Received signal {signum}.[/yellow]")
             scope.cancel()  # Cancel the task group to initiate shutdown
             return  # Exit the signal handler task
+
+
+@worker_app.command("list-workers")
+def list_workers() -> None:
+    """
+    List all currently registered workers.
+
+    Retrieves the list of workers from the backend and displays them
+    in a table, including their ID, queue, concurrency, and last heartbeat timestamp.
+    """
+    get_print_banner(WORKERS_LOGO, title="AsyncMQ List Workers")
+    backend = settings.backend
+    workers = anyio.run(backend.list_workers)
+    table = Table(title="Workers")
+    table.add_column("Worker ID", style="green")
+    table.add_column("Queue", style="magenta")
+    table.add_column("Concurrency", justify="right")
+    table.add_column("Last Heartbeat", style="yellow")
+    for w in workers:
+        heartbeat_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(w.heartbeat))
+        table.add_row(w.id, w.queue, str(w.concurrency), heartbeat_str)
+    console.print(table)
+
+
+@worker_app.command("register-worker")
+@click.argument("worker_id")
+@click.argument("queue")
+@click.option("--concurrency", default=1, help="Concurrency level for the worker.")
+def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
+    """
+    Register or update a worker's heartbeat in the backend.
+
+    This command registers a worker with a specific ID to a given queue
+    and sets its concurrency level. It updates the worker's timestamp
+    in the backend to indicate it is active.
+
+    Args:
+        worker_id: The unique identifier for the worker.
+        queue: The name of the queue the worker will process tasks from.
+        concurrency: The maximum number of tasks the worker can process concurrently.
+                     Defaults to 1.
+    """
+    get_print_banner(WORKERS_LOGO, title="AsyncMQ Register Workers")
+    backend = settings.backend
+    timestamp = time.time()
+    anyio.run(
+        lambda: backend.register_worker(
+            worker_id=worker_id,
+            queue=queue,
+            concurrency=concurrency,
+            timestamp=timestamp,
+        )
+    )
+    console.print(
+        f":white_check_mark: Worker [bold]{worker_id}[/] registered on queue [bold]{queue}[/] with concurrency {concurrency}."
+    )
+
+
+@worker_app.command("deregister-worker")
+@click.argument("worker_id")
+def deregister_worker(worker_id: str) -> None:
+    """
+    Deregister a worker from the backend.
+
+    This command removes a worker's entry from the backend, effectively
+    deregistering it.
+
+    Args:
+        worker_id: The unique identifier of the worker to deregister.
+    """
+    get_print_banner(WORKERS_LOGO, title="AsyncMQ Deregister Workers")
+    backend = settings.backend
+    anyio.run(lambda: backend.deregister_worker(worker_id))
+    console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")

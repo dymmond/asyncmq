@@ -23,23 +23,25 @@ class MetricsController(DashboardMixin, TemplateController):
         # 3. Aggregate job counts across all queues
         total_waiting = total_active = total_completed = total_failed = 0
         for q in queue_names:
-            total_waiting   += len(await backend.list_jobs(q, State.WAITING))
-            total_active    += len(await backend.list_jobs(q, State.ACTIVE))
+            total_waiting += len(await backend.list_jobs(q, State.WAITING))
+            total_active += len(await backend.list_jobs(q, State.ACTIVE))
             total_completed += len(await backend.list_jobs(q, State.COMPLETED))
-            total_failed    += len(await backend.list_jobs(q, State.FAILED))
+            total_failed += len(await backend.list_jobs(q, State.FAILED))
 
         # 4. Assemble metrics dict
         metrics: dict[str, Any] = {
             "total_queues": total_queues,
-            "waiting":      total_waiting,
-            "active":       total_active,
-            "completed":    total_completed,
-            "failed":       total_failed,
+            "waiting": total_waiting,
+            "active": total_active,
+            "completed": total_completed,
+            "failed": total_failed,
         }
 
         # 5. Inject and render
-        context.update({
-            "title":   "System Metrics",
-            "metrics": metrics,
-        })
+        context.update(
+            {
+                "title": "System Metrics",
+                "metrics": metrics,
+            }
+        )
         return await self.render_template(request, context=context)

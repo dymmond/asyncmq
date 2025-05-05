@@ -820,6 +820,18 @@ class InMemoryBackend(BaseBackend):
         concurrency: int,
         timestamp: float,
     ) -> None:
+        """
+        Register or update a worker's heartbeat in the in-memory registry.
+
+        Stores or updates the WorkerInfo for a specific worker in the
+        internal dictionary `_worker_registry`.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
+        """
         self._worker_registry[worker_id] = WorkerInfo(
             id=worker_id,
             queue=queue,
@@ -828,12 +840,27 @@ class InMemoryBackend(BaseBackend):
         )
 
     async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove a worker's entry from the in-memory registry.
+
+        Removes the entry for the specified worker_id from the
+        internal dictionary `_worker_registry`.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
+        """
         self._worker_registry.pop(worker_id, None)
 
     async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Lists active workers from the in-memory registry.
+
+        Iterates through the workers in the internal dictionary `_worker_registry`
+        and returns a list of those whose last heartbeat is within the
+        configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
+        """
         now = time.time()
-        return [
-            info
-            for info in self._worker_registry.values()
-            if now - info.heartbeat <= settings.heartbeat_ttl
-        ]
+        return [info for info in self._worker_registry.values() if now - info.heartbeat <= settings.heartbeat_ttl]

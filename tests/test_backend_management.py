@@ -11,6 +11,7 @@ from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 
+
 # Fixtures for each backend
 @pytest.fixture
 async def memory_backend():

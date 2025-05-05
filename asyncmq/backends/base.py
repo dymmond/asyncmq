@@ -40,10 +40,12 @@ class WorkerInfo:
     """
     Information about a worker (for dashboard display).
     """
+
     id: str
     queue: str
     concurrency: int
     heartbeat: float
+
 
 class BaseBackend(ABC):
     """
@@ -440,7 +442,6 @@ class BaseBackend(ABC):
         """
         ...
 
-
     @abstractmethod
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
@@ -567,9 +568,7 @@ class BaseBackend(ABC):
     async def list_queues(self) -> list[str]: ...
 
     @abstractmethod
-    async def register_worker(
-        self, worker_id: str, queue: str, concurrency: int, timestamp: float
-    ) -> None:
+    async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
         """Register or update a worker’s heartbeat and metadata."""
         ...
 

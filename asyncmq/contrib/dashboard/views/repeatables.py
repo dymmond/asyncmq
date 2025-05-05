@@ -22,26 +22,29 @@ class RepeatablesController(DashboardMixin, TemplateController):
         for info in infos:
             jd = info.job_def
             ts = datetime.fromtimestamp(info.next_run)
-            repeatables.append({
-                "task": jd.get("task") or jd.get("name"),
-                "cron": jd.get("cron"),
-                "interval": jd.get("interval"),
-                "last_run": ts.strftime("%Y-%m-%d %H:%M:%S"),
-            })
+            repeatables.append(
+                {
+                    "task": jd.get("task") or jd.get("name"),
+                    "cron": jd.get("cron"),
+                    "interval": jd.get("interval"),
+                    "last_run": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
 
         return repeatables
-
 
     async def get(self, request: Request) -> Any:
         queue = request.path_params.get("name")
         repeatables = await self.get_repeatables(queue)
 
         context = await super().get_context_data(request)
-        context.update({
-            "title":       f"Repeatables – {queue}",
-            "queue":       queue,
-            "repeatables": repeatables,
-        })
+        context.update(
+            {
+                "title": f"Repeatables – {queue}",
+                "queue": queue,
+                "repeatables": repeatables,
+            }
+        )
 
         # 5. Render
         return await self.render_template(request, context=context)

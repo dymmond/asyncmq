@@ -18,7 +18,6 @@ class QueueJobController(DashboardMixin, TemplateController):
         jobs: list[dict[str, Any]] = await backend.list_jobs(queue_name, state)
         return jobs
 
-
     async def get(self, request: Request) -> Any:
         queue_name = request.path_params.get("name", "default")
         state: State = State(request.query_params.get("state", State.WAITING))

@@ -968,7 +968,13 @@ class MongoDBBackend(BaseBackend):
 
     async def list_queues(self) -> list[str]:
         """
-        Return all queue names present in the job collection.
+        Return all unique queue names present in the job collection in MongoDB.
+
+        Connects to the MongoDB store and retrieves a list of all distinct
+        values in the "queue_name" field across all documents in the job collection.
+
+        Returns:
+            A list of strings, where each string is a unique queue name.
         """
         # Ensure the store is connected
         await self.store.connect()
@@ -978,7 +984,18 @@ class MongoDBBackend(BaseBackend):
 
     async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
         """
-        Register or update a worker's heartbeat.
+        Register or update a worker's heartbeat in the MongoDB backend.
+
+        Inserts a new worker document or updates an existing one in the
+        workers collection based on the worker_id (_id field). It stores
+        the worker's assigned queue, concurrency level, and the current
+        heartbeat timestamp. Uses upsert=True for creation or update.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
         """
         await self._workers.update_one(
             {"_id": worker_id},
@@ -988,13 +1005,25 @@ class MongoDBBackend(BaseBackend):
 
     async def deregister_worker(self, worker_id: str) -> None:
         """
-        Remove a worker's registry entry.
+        Remove a worker's registry entry from the MongoDB backend.
+
+        Deletes the document corresponding to the specified worker_id (_id field)
+        from the workers collection.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
         """
         await self._workers.delete_one({"_id": worker_id})
 
     async def list_workers(self) -> list[WorkerInfo]:
         """
-        List all active workers with recent heartbeats.
+        Lists active workers from the MongoDB backend.
+
+        Retrieves workers from the workers collection whose last heartbeat
+        is within the configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
         """
         cutoff = time.time() - settings.heartbeat_ttl
         cursor = self._workers.find({"heartbeat": {"$gte": cutoff}})
