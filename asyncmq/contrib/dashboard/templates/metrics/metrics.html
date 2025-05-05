@@ -1,30 +1,51 @@
 {% extends "layout.html" %}
 {% block content %}
-  <h1 class="text-2xl font-bold mb-4">Metrics</h1>
+  <h1 class="text-3xl font-semibold mb-6">Metrics</h1>
 
-  <div class="grid grid-cols-4 gap-4 mb-6">
-    <div class="p-4 bg-white rounded shadow">
-      <h2>Throughput</h2>
-      <div id="throughput" class="text-3xl font-bold">{{ metrics.throughput }}</div>
+  <!-- Top Metrics Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <!-- Throughput -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Throughput</h2>
+      <div id="throughput" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.throughput }}
+      </div>
     </div>
-    <div class="p-4 bg-white rounded shadow">
-      <h2>Avg Duration</h2>
-      <div id="avg-duration" class="text-3xl font-bold">{{ metrics.avg_duration or "—" }}</div>
+
+    <!-- Avg Duration -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Avg Duration</h2>
+      <div id="avg-duration" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.avg_duration or "—" }}
+      </div>
     </div>
-    <div class="p-4 bg-white rounded shadow">
-      <h2>Retries</h2>
-      <div id="retries" class="text-3xl font-bold">{{ metrics.retries }}</div>
+
+    <!-- Retries -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Retries</h2>
+      <div id="retries" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.retries }}
+      </div>
     </div>
-    <div class="p-4 bg-white rounded shadow">
-      <h2>Failures</h2>
-      <div id="failures" class="text-3xl font-bold">{{ metrics.failures }}</div>
+
+    <!-- Failures -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Failures</h2>
+      <div id="failures" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.failures }}
+      </div>
     </div>
   </div>
 
-  <h2 class="text-xl font-semibold mb-2">Metrics Over Time</h2>
-  <canvas id="metrics-chart" class="mb-6" height="100"></canvas>
+  <!-- Metrics Over Time Chart -->
+  <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Metrics Over Time</h2>
+    <div class="h-64">
+      <canvas id="metrics-chart" class="w-full h-full"></canvas>
+    </div>
+  </div>
 
-  <!-- Chart.js from CDN -->
+  <!-- Chart.js & SSE Script -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const ctx = document.getElementById('metrics-chart').getContext('2d');
@@ -32,18 +53,35 @@
     const chartData = {
       labels: [],
       datasets: [
-        { label: 'Throughput', data: [] },
-        { label: 'Retries',    data: [] },
-        { label: 'Failures',   data: [] },
-      ]
+        {
+          label: 'Throughput',
+          data: [],
+          borderColor: 'rgba(59,130,246,0.8)',
+          fill: false,
+        },
+        {
+          label: 'Retries',
+          data: [],
+          borderColor: 'rgba(234,179,8,0.8)',
+          fill: false,
+        },
+        {
+          label: 'Failures',
+          data: [],
+          borderColor: 'rgba(239,68,68,0.8)',
+          fill: false,
+        },
+      ],
     };
     const metricsChart = new Chart(ctx, {
       type: 'line',
       data: chartData,
       options: {
+        responsive: true,
+        maintainAspectRatio: false,
         scales: { x: { display: true }, y: { beginAtZero: true } },
         animation: { duration: 0 },
-      }
+      },
     });
 
     const source = new EventSource('/events');
@@ -52,19 +90,19 @@
         const m = JSON.parse(e.data);
         const ts = new Date().toLocaleTimeString();
 
-        // update cards
+        // Update the cards
         document.getElementById('throughput').textContent   = m.throughput;
         document.getElementById('avg-duration').textContent = m.avg_duration ?? '—';
         document.getElementById('retries').textContent      = m.retries;
         document.getElementById('failures').textContent     = m.failures;
 
-        // push to chart
+        // Push new point
         chartData.labels.push(ts);
         chartData.datasets[0].data.push(m.throughput);
         chartData.datasets[1].data.push(m.retries);
         chartData.datasets[2].data.push(m.failures);
 
-        // trim old points
+        // Trim old points
         if (chartData.labels.length > maxPoints) {
           chartData.labels.shift();
           chartData.datasets.forEach(ds => ds.data.shift());
@@ -74,7 +112,6 @@
         console.error('Metrics SSE parse error', err);
       }
     });
-
     source.onerror = () => console.warn('SSE error on metrics – retrying');
   </script>
 {% endblock %}

@@ -1,57 +1,104 @@
 {% extends "layout.html" %}
 {% block content %}
-  <h1 class="text-2xl font-bold mb-4">Queues</h1>
-  <table id="queues-table" class="min-w-full bg-white mb-4">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Paused?</th>
-        <th>Waiting</th>
-        <th>Active</th>
-        <th>Delayed</th>
-        <th>Failed</th>
-        <th>Completed</th>
-        <th>Detail</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for queue in queues %}
-      <tr data-queue="{{ queue.name }}">
-        <td>{{ queue.name }}</td>
-        <td class="paused">{{ "Yes" if queue.paused else "No" }}</td>
-        <td class="waiting">{{ queue.waiting }}</td>
-        <td class="active">{{ queue.active }}</td>
-        <td class="delayed">{{ queue.delayed }}</td>
-        <td class="failed">{{ queue.failed }}</td>
-        <td class="completed">{{ queue.completed }}</td>
-        <td>
-          <a href="/queues/{{ queue.name }}" class="text-blue-600 hover:underline">
-            View
-          </a>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="8" class="text-center italic text-gray-600">No queues found.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <h1 class="text-3xl font-semibold mb-6">Queues</h1>
+
+  <div class="flex flex-col">
+    <div class="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+      <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
+        <div class="shadow ring-1 ring-black ring-opacity-5 overflow-hidden sm:rounded-lg">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th scope="col"
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Paused
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Waiting
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Active
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Delayed
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Failed
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Completed
+                </th>
+                <th scope="col"
+                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              {% for queue in queues %}
+              <tr class="hover:bg-gray-100" data-queue="{{ queue.name }}">
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  {{ queue.name }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                  {{ "Yes" if queue.paused else "No" }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+                  {{ queue.waiting }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+                  {{ queue.active }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+                  {{ queue.delayed }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 text-right">
+                  {{ queue.failed }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 text-right">
+                  {{ queue.completed }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                  <a href="/queues/{{ queue.name }}"
+                     class="text-indigo-600 hover:text-indigo-900">
+                    View
+                  </a>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="8" class="px-6 py-8 text-center text-gray-500 italic">
+                  No queues found.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
-    // Open SSE connection
     const source = new EventSource('/events');
 
-    // Update overview cards (if you have them on this page)
+    // Update overview cards if present
     source.addEventListener('overview', e => {
       try {
         const data = JSON.parse(e.data);
         document.getElementById('total-queues').textContent  = data.total_queues;
         document.getElementById('total-jobs').textContent    = data.total_jobs;
         document.getElementById('total-workers').textContent = data.total_workers;
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     });
 
     // Update queue rows in place
@@ -59,21 +106,17 @@
       try {
         const rows = JSON.parse(e.data);
         rows.forEach(q => {
-          const tr = document.querySelector(`tr[data-queue="${queue.name}"]`);
+          const tr = document.querySelector(`tr[data-queue="${q.name}"]`);
           if (tr) {
-            tr.querySelector('.paused').textContent    = queue.paused ? 'Yes' : 'No';
-            tr.querySelector('.waiting').textContent   = queue.waiting;
-            tr.querySelector('.active').textContent    = queue.active;
-            tr.querySelector('.delayed').textContent   = queue.delayed;
-            tr.querySelector('.failed').textContent    = queue.failed;
-            tr.querySelector('.completed').textContent = queue.completed;
-          } else {
-            // new queue appeared? append a row (optional)
+            tr.querySelector('.paused').textContent    = q.paused ? 'Yes' : 'No';
+            tr.querySelector('.waiting').textContent   = q.waiting;
+            tr.querySelector('.active').textContent    = q.active;
+            tr.querySelector('.delayed').textContent   = q.delayed;
+            tr.querySelector('.failed').textContent    = q.failed;
+            tr.querySelector('.completed').textContent = q.completed;
           }
         });
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     });
 
     source.onerror = () => console.warn('SSE connection error – retrying…');
