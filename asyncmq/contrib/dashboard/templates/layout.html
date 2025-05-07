@@ -6,6 +6,29 @@
   <link rel="icon" href="{{ favicon }}"/>
   <title>AsyncMQ | {{ title }}</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        asyncmq: {
+                            green: "{{ sidebar_bg_colour }}"
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+  <style>
+      .loader {
+        border-top-color: #3490dc;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+</style>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
   <div id="loading-overlay" class="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center hidden">
@@ -14,7 +37,7 @@
 
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
-    <aside class="w-64 bg-[#CBDC38] text-gray-900 flex-shrink-0">
+    <aside class="w-64 bg-asyncmq-green text-gray-900 flex-shrink-0">
       <!-- Brand -->
       <div class="h-16 flex items-center justify-center border-b border-[#B0B735]">
         <span class="text-xl font-bold">{{ header_text }}</span>
