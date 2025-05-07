@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 
 from esmerald import Esmerald, Gateway, get, post
 from pydantic import BaseModel
@@ -51,12 +52,18 @@ async def on_shutdown():
     except asyncio.CancelledError:
         ...
 
+@asynccontextmanager
+async def lifespan(app: Esmerald):
+    # What happens on startup
+    await on_startup()
+    yield
+    await on_shutdown()
+
 # Assemble the app
 app = Esmerald(
     routes=[
         Gateway(handler=signup),
         Gateway(handler=health)
     ],
-    on_startup=[on_startup],
-    on_shutdown=[on_shutdown],
+    lifespan=lifespan
 )
