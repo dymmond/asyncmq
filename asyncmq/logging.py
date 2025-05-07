@@ -74,7 +74,7 @@ class LoggerProxy:
             if not self._logger:
                 enable_logging()
                 # If not bound, raise an error.
-                raise RuntimeError("Logger is not configured yet. Please call setup_logging() first.")
+                return getattr(self._logger, item)
             # If bound, get and return the requested attribute from the real logger.
             return getattr(self._logger, item)
 

@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 from typing import Any, cast
 
-# Import specific types for hints
 from asyncpg import Pool, Record
 
 from asyncmq.backends.base import (
@@ -19,7 +18,6 @@ from asyncmq.backends.base import (
 )
 from asyncmq.conf import monkay
 from asyncmq.core.enums import State
-from asyncmq.logging import logger
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
 
@@ -68,7 +66,6 @@ class PostgresBackend(BaseBackend):
         """
         # Create the connection pool if it doesn't already exist.
         if self.pool is None:
-            logger.info(f"Connecting to Postgres...: {self.dsn}")
             self.pool = await asyncpg.create_pool(dsn=self.dsn, **self.pool_options)
             # Also ensure the associated job store is connected.
             await self.store.connect()
