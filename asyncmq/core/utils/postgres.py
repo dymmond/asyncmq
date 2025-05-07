@@ -72,9 +72,9 @@ async def install_or_drop_postgres_backend(
         );
 
         -- Indexes for efficient lookups
-        CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_queue_name ON asyncmq_jobs(queue_name);
-        CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_status ON asyncmq_jobs(status);
-        CREATE INDEX IF NOT EXISTS idx_asyncmq_jobs_delay_until ON asyncmq_jobs(delay_until);
+        CREATE INDEX IF NOT EXISTS idx_{settings.postgres_jobs_table_name}_queue_name ON {settings.postgres_jobs_table_name}(queue_name);
+        CREATE INDEX IF NOT EXISTS idx_{settings.postgres_jobs_table_name}_status ON {settings.postgres_jobs_table_name}(status);
+        CREATE INDEX IF NOT EXISTS idx_{settings.postgres_jobs_table_name}_delay_until ON {settings.postgres_jobs_table_name}(delay_until);
         """
     else:
         schema = f"""
@@ -82,9 +82,9 @@ async def install_or_drop_postgres_backend(
         DROP TABLE IF EXISTS {settings.postgres_repeatables_table_name};
         DROP TABLE IF EXISTS {settings.postgres_cancelled_jobs_table_name};
         DROP TABLE IF EXISTS {settings.postgres_workers_heartbeat_table_name};
-        DROP INDEX IF EXISTS idx_asyncmq_jobs_queue_name;
-        DROP INDEX IF EXISTS idx_asyncmq_jobs_status;
-        DROP INDEX IF EXISTS idx_asyncmq_jobs_delay_until;
+        DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_queue_name;
+        DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_status;
+        DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_delay_until;
         """
 
     # Create an asyncpg connection pool.
