@@ -41,6 +41,7 @@ class DashboardController(DashboardMixin, TemplateController):
                 "total_jobs": total_jobs,
                 "total_workers": total_workers,
                 "active_page": "dashboard",
+                "page_header": "Dashboard",
             }
         )
 

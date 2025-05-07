@@ -49,6 +49,7 @@ class QueueJobController(DashboardMixin, TemplateController):
                     "args": json.dumps(job.get("args", [])),
                     "kwargs": json.dumps(job.get("kwargs", {})),
                     "created": created,
+                    "page_header": f"Jobs in '{queue}' ({state})",
                 }
             )
 

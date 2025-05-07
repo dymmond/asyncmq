@@ -42,6 +42,7 @@ class DLQController(DashboardMixin, TemplateController):
                 "title": f"Dead Letter Queue – {queue}",
                 "queue": queue,
                 "jobs": jobs,
+                "page_header": f"Dead-Letter Queue for '{queue}'",
             }
         )
 

@@ -1,8 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
-  <h1 class="text-2xl font-bold mb-4">
-    Jobs in Queue “{{ queue }}” ({{ state }})
-  </h1>
+  <h1 class="text-2xl font-bold mb-4">{{ page_header }}</h1>
 
   <form method="post">
     <div class="flex space-x-2 mb-2">

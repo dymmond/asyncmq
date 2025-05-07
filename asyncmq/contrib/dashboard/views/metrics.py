@@ -44,9 +44,10 @@ class MetricsController(DashboardMixin, TemplateController):
         # 5. Inject and render
         context.update(
             {
-                "title": "System Metrics",
+                "title": "Metrics",
                 "metrics": metrics,
                 "active_page": "metrics",
+                "page_header": "System Metrics",
             }
         )
         return await self.render_template(request, context=context)
