@@ -683,35 +683,34 @@ class InMemoryBackend(BaseBackend):
             True if the job was found and removed, False otherwise.
         """
         async with self.lock:
-            removed = False  # Flag to track if the job was removed.
-            # Iterate through the lists representing waiting, delayed, and DLQ jobs.
-            # Note: Creating a list copy of the delayed jobs' payloads for iteration.
-            for lst in (
-                self.queues.get(queue_name, []),
-                [job for _, job in self.delayed.get(queue_name, [])],
-                self.dlqs.get(queue_name, []),
-            ):
-                # Iterate through a copy of the current list to allow modification.
-                for job in list(lst):
-                    # Check if the job ID matches.
-                    if job["id"] == job_id:
-                        try:
-                            # Attempt to remove the job from the original list.
-                            lst.remove(job)
-                            removed = True  # Set flag to True if removal was successful.
-                        except ValueError:
-                            # Handle case where job might have been removed by another operation.
-                            pass
+            removed = False
 
-            # If the job was found and removed from any list.
+            waiting = self.queues.get(queue_name, [])
+            orig_wait = len(waiting)
+            self.queues[queue_name] = [j for j in waiting if j.get("id") != job_id]
+            if len(self.queues[queue_name]) != orig_wait:
+                removed = True
+
+            delayed = self.delayed.get(queue_name, [])
+            orig_delayed = len(delayed)
+            self.delayed[queue_name] = [(ts, j) for ts, j in delayed if j.get("id") != job_id]
+            if len(self.delayed[queue_name]) != orig_delayed:
+                removed = True
+
+            dlq = self.dlqs.get(queue_name, [])
+            orig_dlq = len(dlq)
+            self.dlqs[queue_name] = [j for j in dlq if j.get("id") != job_id]
+            if len(self.dlqs[queue_name]) != orig_dlq:
+                removed = True
+
             if removed:
-                job_key: _JobKey = (queue_name, job_id)
-                # Remove the job's state, result, and progress information.
-                self.job_states.pop(job_key, None)
-                self.job_results.pop(job_key, None)
-                self.job_progress.pop(job_key, None)
-                return True  # Indicate successful removal.
-            return False  # Indicate job was not found.
+                key = (queue_name, job_id)
+                self.job_states.pop(key, None)
+                self.job_results.pop(key, None)
+                self.job_progress.pop(key, None)
+                return True
+
+            return False
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """

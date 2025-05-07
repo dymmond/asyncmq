@@ -1038,3 +1038,33 @@ class MongoDBBackend(BaseBackend):
                 )
             )
         return workers
+
+    async def retry_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Retry a job by moving it from DLQ or failed state back to waiting.
+
+        Loads the job document from storage, updates its status to WAITING,
+        and persists the changes. This makes the job available for processing again.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+        """
+        job = await self.store.load(queue_name, job_id)
+        if job:
+            from asyncmq.core.enums import State
+
+            job["status"] = State.WAITING
+            await self.store.save(queue_name, job_id, job)
+
+    async def remove_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Remove a job completely from storage.
+
+        Deletes the job document with the specified ID from the given queue.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove.
+        """
+        await self.store.delete(queue_name, job_id)

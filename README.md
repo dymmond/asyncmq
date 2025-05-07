@@ -63,6 +63,50 @@ Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexib
 
 ---
 
+## Installation
+
+AsyncMQ requires Python 3.10+ to run and that its because the EOL will be later on only.
+
+You can install in many different ways, the default brings `redis` to use with `RedisBackend`.
+
+```shell
+$ pip install asyncmq
+```
+
+**Postgres**
+
+If you prefer the Postgres backend.
+
+```shell
+$ pip install asyncmq[postgres]
+```
+
+**Mongo DB**
+
+You might want also Mongo DB backend.
+
+```shell
+$ pip install asyncmq[mongo]
+```
+
+**All in one go**
+
+You might want to install everything and see what is the best for you.
+
+```shell
+$ pip install asyncmq[all]
+```
+
+### Dashboard
+
+AsyncMQ comes with a dashboard and that requires some additional setup but nothing special but to install it.
+
+```shell
+$ pip install asyncmq[dashboard]
+```
+
+---
+
 ## Comparison with Other Python Task Queues
 
 | Feature                    | **AsyncMQ**                      | Celery        | RQ         | Dramatiq     | Huey       |

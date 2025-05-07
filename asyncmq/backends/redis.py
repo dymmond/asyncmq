@@ -1266,7 +1266,7 @@ class RedisBackend(BaseBackend):
         await self.redis.zadd(key, {json.dumps(clean_def): next_run})
         return next_run  # Return the newly computed next run timestamp.
 
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously cancels a job, removing it from the waiting and delayed
         queues in Redis and marking it as cancelled in a Redis Set.
@@ -1282,19 +1282,27 @@ class RedisBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to cancel.
         """
-        # Remove from waiting list (Note: Original code uses LREM on a Sorted Set key.
-        # This is likely incorrect and should be ZREM if the waiting queue is a Sorted Set).
-        # Keeping original logic as requested, but highlighting potential issue.
-        await self.redis.lrem(self._waiting_key(queue_name), 0, json.dumps({"id": job_id}))
-        # Remove from delayed zset.
-        # Note: This ZREM call uses a partial payload {"id": job_id} which might not
-        # match the full JSON payload stored in the set member. This could fail to remove
-        # the job if the full payload is used as the member. A better approach would be
-        # to find the full payload by iterating or using a different key structure.
-        # Keeping original logic as requested, but highlighting potential issue.
-        await self.redis.zrem(self._delayed_key(queue_name), json.dumps({"id": job_id}))
-        # Mark cancelled by adding the job ID to a Redis Set.
+        removed = False
+
+        # Remove matching jobs from the waiting sorted set
+        wait_key = self._waiting_key(queue_name)
+        raw_jobs = await self.redis.zrange(wait_key, 0, -1)
+        for raw in raw_jobs:
+            job = json.loads(raw)
+            if job.get("id") == job_id:
+                await self.redis.zrem(wait_key, raw)
+                removed = True
+
+        delayed_key = self._delayed_key(queue_name)
+        raw_jobs = await self.redis.zrange(delayed_key, 0, -1)
+        for raw in raw_jobs:
+            job = json.loads(raw)
+            if job.get("id") == job_id:
+                await self.redis.zrem(delayed_key, raw)
+                removed = True
+
         await self.redis.sadd(f"queue:{queue_name}:cancelled", job_id)
+        return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> Any:
         """
