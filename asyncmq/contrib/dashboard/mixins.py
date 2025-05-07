@@ -17,6 +17,7 @@ class DashboardMixin:
                 "header_text": settings.dashboard_config.header_title,
                 "favicon": settings.dashboard_config.favicon,
                 "url_prefix": settings.dashboard_config.dashboard_url_prefix,
+                "sidebar_bg_colour": settings.dashboard_config.sidebar_bg_colour,
             }
         )
         return context
