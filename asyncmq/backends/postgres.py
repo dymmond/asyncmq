@@ -915,7 +915,7 @@ class PostgresBackend(BaseBackend):
                 f"""
                         UPDATE {settings.postgres_jobs_table_name}
                         SET status = 'waiting'
-                        WHERE id = $1
+                        WHERE job_id = $1
                           AND queue_name = $2
                           AND status = 'failed'
                         """,
@@ -945,7 +945,7 @@ class PostgresBackend(BaseBackend):
             cmd_tag = await conn.execute(
                 f"""
                         DELETE FROM {settings.postgres_jobs_table_name}
-                        WHERE id = $1
+                        WHERE job_id = $1
                           AND queue_name = $2
                         """,
                 job_id,
