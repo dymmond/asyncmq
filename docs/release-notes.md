@@ -17,7 +17,11 @@ hide:
   * `list-queues` — list all queues known to the backend
   * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
   * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
-  * `deregister-worker <worker_id>` — remove a worker from the registry
+  * `deregister-worker <worker_id>` — remove a worker from the registry.
+
+* **Worker Configuration**
+
+  * `Worker` now accepts a `heartbeat_interval: float` parameter (default `HEARTBEAT_TTL/3`) to control how often it re-registers itself in the backend.
 
 ### Changed
 
@@ -25,6 +29,14 @@ hide:
 
   * Now `register_worker` stores both `heartbeat` and `concurrency` as a JSON blob in each hash field.
   * `list_workers` parses that JSON so the returned `WorkerInfo.concurrency` reflects the actual setting.
+
+* **RedisBackend.cancel_job**
+
+  * Now walks the **waiting** and **delayed** sorted sets via `ZRANGE`/`ZREM` instead of using list operations, then marks the job in a Redis `SET`.
+  * Eliminates “WRONGTYPE” errors when cancelling jobs.
+
+* **InMemoryBackend.remove_job**
+  * Expanded to purge a job from **waiting**, **delayed**, **DLQ**, and to clean up its in-memory state (`job_states`, `job_results`, `job_progress`).
 
 * **Postgres Backend: `register_worker` Fix**
 
@@ -40,6 +52,7 @@ hide:
 * Fixed Redis hash-scan code to handle both `bytes` and `str` keys/values, preventing `.decode()` errors.
 * Ensured Postgres connection pool is wired into both `list_queues` and all worker-heartbeat methods.
 * Cleaned up duplicate fixtures in test modules to prevent event-loop and fixture-resolution errors.
+* Worker registration heartbeat tests were previously timing out, now pass reliably thanks to the configurable heartbeat interval.
 
 ## 0.1.0
 

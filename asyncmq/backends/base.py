@@ -531,7 +531,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously cancels a job, removing it from active/waiting/delayed
         queues and marking it so workers will stop processing or skip it.

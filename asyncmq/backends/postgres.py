@@ -377,23 +377,6 @@ class PostgresBackend(BaseBackend):
             )
         return next_ts
 
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
-        """
-        Cancel a job—prevents waiting, delayed, and in-flight execution.
-        Requires a `cancelled_jobs(queue_name TEXT, job_id TEXT PRIMARY KEY)` table.
-        """
-        await self.connect()
-        async with self.pool.acquire() as conn:
-            # Record cancellation
-            await conn.execute(
-                f"""
-                INSERT INTO {settings.postgres_cancelled_jobs_table_name}(queue_name, job_id)
-                VALUES ($1, $2) ON CONFLICT DO NOTHING
-                """,
-                queue_name,
-                job_id,
-            )
-
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
         Check whether a job has been cancelled.
@@ -891,6 +874,25 @@ class PostgresBackend(BaseBackend):
             )
             return [json.loads(row["data"]) for row in rows]
 
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
+        """
+        Cancel a job—prevents waiting, delayed, and in-flight execution.
+        Requires a `cancelled_jobs(queue_name TEXT, job_id TEXT PRIMARY KEY)` table.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                        INSERT INTO {settings.postgres_cancelled_jobs_table_name}
+                          (queue_name, job_id)
+                        VALUES ($1, $2)
+                        ON CONFLICT DO NOTHING
+                        """,
+                queue_name,
+                job_id,
+            )
+        return True
+
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously retries a failed job by updating its status from 'failed'
@@ -907,17 +909,20 @@ class PostgresBackend(BaseBackend):
         # Acquire a connection from the job store's pool.
         # Note: This accesses the pool via the job store, which differs from
         # other methods using `self.pool.acquire()`.
-        async with self.store.pool.acquire() as conn:
-            # Execute an UPDATE statement to change the status of the specific
-            # failed job to 'waiting'.
-            updated_command_tag: str = await conn.execute(
-                f"UPDATE {settings.postgres_jobs_table_name} SET status='waiting' WHERE id=$1 AND queue_name=$2 AND status='failed'",
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                        UPDATE {settings.postgres_jobs_table_name}
+                        SET status = 'waiting'
+                        WHERE id = $1
+                          AND queue_name = $2
+                          AND status = 'failed'
+                        """,
                 job_id,
                 queue_name,
             )
-            # The execute command returns a command tag string like "UPDATE 1"
-            # if one row was updated. Check if exactly one row was updated.
-            return updated_command_tag.endswith("UPDATE 1")
+        return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -935,16 +940,18 @@ class PostgresBackend(BaseBackend):
         # Acquire a connection from the job store's pool.
         # Note: This accesses the pool via the job store, which differs from
         # other methods using `self.pool.acquire()`.
-        async with self.store.pool.acquire() as conn:
-            # Execute a DELETE statement to remove the specific job.
-            deleted_command_tag: str = await conn.execute(
-                f"DELETE FROM {settings.postgres_jobs_table_name} WHERE id=$1 AND queue_name=$2",
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            cmd_tag = await conn.execute(
+                f"""
+                        DELETE FROM {settings.postgres_jobs_table_name}
+                        WHERE id = $1
+                          AND queue_name = $2
+                        """,
                 job_id,
                 queue_name,
             )
-            # The execute command returns a command tag string like "DELETE 1"
-            # if one row was deleted. Check if exactly one row was deleted.
-            return deleted_command_tag.endswith("DELETE 1")
+        return cast(bool, cmd_tag.endswith("DELETE 1"))
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
