@@ -76,7 +76,7 @@
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const source = new EventSource('/events');
+    const source = new EventSource('{{ url_prefix }}/events');
 
     // Prepare charts
     const wcCtx = document.getElementById('worker-concurrency-chart').getContext('2d');

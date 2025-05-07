@@ -59,19 +59,19 @@
     <h2 class="text-lg font-semibold mb-4">Quick Links</h2>
     <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <li>
-        <a href="/queues/{{ queue }}/jobs"
+        <a href="{{ url_prefix }}/queues/{{ queue }}/jobs"
            class="text-indigo-600 hover:text-indigo-800">
           • All Jobs
         </a>
       </li>
       <li>
-        <a href="/queues/{{ queue }}/repeatables"
+        <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables"
            class="text-indigo-600 hover:text-indigo-800">
           • Repeatables
         </a>
       </li>
       <li>
-        <a href="/queues/{{ queue }}/dlq"
+        <a href="{{ url_prefix }}/queues/{{ queue }}/dlq"
            class="text-indigo-600 hover:text-indigo-800">
           • Dead-Letter Queue
         </a>
@@ -105,7 +105,7 @@
       },
     });
 
-    const source = new EventSource('/events');
+    const source = new EventSource('{{ url_prefix }}/events');
     source.addEventListener('queues', e => {
       try {
         const rows = JSON.parse(e.data);

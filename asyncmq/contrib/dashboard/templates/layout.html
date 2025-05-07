@@ -18,7 +18,7 @@
       </div>
       <!-- Navigation -->
       <nav class="mt-6 px-2 space-y-1">
-        <a href="/"
+        <a href="{{ url_prefix }}"
            class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
              {% if active_page=='dashboard' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
           <!-- Home Icon -->
@@ -30,7 +30,7 @@
           </svg>
           <span class="ml-3">Dashboard</span>
         </a>
-        <a href="/queues"
+        <a href="{{ url_prefix }}/queues"
            class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
              {% if active_page=='queues' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
           <!-- Queues Icon -->
@@ -42,7 +42,7 @@
           </svg>
           <span class="ml-3">Queues</span>
         </a>
-        <a href="/metrics"
+        <a href="{{ url_prefix }}/metrics"
            class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
              {% if active_page=='metrics' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
           <!-- Metrics Icon -->
@@ -54,7 +54,7 @@
           </svg>
           <span class="ml-3">Metrics</span>
         </a>
-        <a href="/workers"
+        <a href="{{ url_prefix }}/workers"
            class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
              {% if active_page=='workers' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
           <!-- Workers Icon -->

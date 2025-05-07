@@ -97,7 +97,7 @@
   <!-- Chart.js & SSE Script -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const source = new EventSource('/events');
+    const source = new EventSource('{{ url_prefix }}/events');
 
     // Overview
     source.addEventListener('overview', e => {

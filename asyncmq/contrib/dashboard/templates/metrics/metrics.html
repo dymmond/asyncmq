@@ -84,7 +84,7 @@
       },
     });
 
-    const source = new EventSource('/events');
+    const source = new EventSource('{{ url_prefix }}/events');
     source.addEventListener('metrics', e => {
       try {
         const m = JSON.parse(e.data);

@@ -9,7 +9,7 @@ from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
 from asyncmq.conf import settings
-from asyncmq.contrib.dashboard.views.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
 class QueueJobController(DashboardMixin, TemplateController):

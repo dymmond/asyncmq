@@ -68,7 +68,7 @@
                   {{ queue.completed }}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                  <a href="/queues/{{ queue.name }}"
+                  <a href="{{ url_prefix }}/queues/{{ queue.name }}"
                      class="text-indigo-600 hover:text-indigo-900">
                     View
                   </a>
@@ -89,7 +89,7 @@
   </div>
 
   <script>
-    const source = new EventSource('/events');
+    const source = new EventSource('{{ url_prefix }}/events');
 
     // Update overview cards if present
     source.addEventListener('overview', e => {

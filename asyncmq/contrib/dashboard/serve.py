@@ -3,7 +3,7 @@ from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
 from lilya.routing import Include
 
-from asyncmq.contrib.dashboard.app import app
+from asyncmq.contrib.dashboard.application import app
 
 dash_app = Lilya(
     routes=[Include(path="/", app=app)],
