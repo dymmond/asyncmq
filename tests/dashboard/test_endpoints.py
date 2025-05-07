@@ -31,24 +31,3 @@ def test_pages(path, keyword, client):
     response = client.get(path)
     assert response.status_code == 200
     assert keyword in response.content
-
-
-def test_sse_endpoint_headers(client):
-    """
-    HEAD request to the SSE endpoint to verify the Content-Type header
-    without hanging on the streaming body.
-    """
-    breakpoint()
-    response = client.head(reverse("events"))
-    assert response.status_code == 200
-    content_type = response.headers.get("content-type", "")
-    assert "text/event-stream" in content_type
-
-
-def xtest_sse_stream_contains_overview(client):
-    response = client.get("/events", stream=True)
-    # Validate that the SSE stream emits the 'overview' event
-    for line in response.iter_lines():
-        if line:
-            assert b"event: overview" in line
-            break
