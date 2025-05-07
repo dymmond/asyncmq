@@ -12,8 +12,7 @@ if TYPE_CHECKING:
 
 monkay: Monkay[None, Settings] = Monkay(
     globals(),
-    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_monkay.settings.Settings"),
-    with_instance=True,
+    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"),
 )
 
 
