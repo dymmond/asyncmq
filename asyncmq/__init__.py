@@ -25,7 +25,7 @@ _monkay: Monkay = Monkay(
         "RedisBackend": ".backends.redis.RedisBackend",
         "Worker": ".workers.Worker",
         "settings": ".conf.settings",
-        "Settings": ".conf.global_settings.Settings",
+        "Settings": ".conf.global_monkay.settings.Settings",
     },
     skip_all_update=True,
     package="asyncmq",

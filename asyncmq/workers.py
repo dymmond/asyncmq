@@ -9,7 +9,7 @@ from anyio import CapacityLimiter
 
 from asyncmq import sandbox
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.exceptions import JobCancelled
@@ -42,10 +42,10 @@ async def process_job(
         rate_limiter: An optional RateLimiter instance to control the rate
                       at which jobs are processed. Defaults to None.
         backend: An optional BaseBackend instance to interact with the queue
-                 storage. Defaults to the backend specified in settings.
+                 storage. Defaults to the backend specified in monkay.settings.
     """
     # Use the provided backend or the one from settings
-    backend = backend or settings.backend
+    backend = backend or monkay.settings.backend
 
     # Create a task group to manage concurrent job handling tasks
     async with anyio.create_task_group() as tg:
@@ -53,7 +53,7 @@ async def process_job(
             # Pause support: Check if the queue is currently paused
             if await backend.is_queue_paused(queue_name):
                 # If paused, wait for a bit before checking again
-                await anyio.sleep(settings.stalled_check_interval)
+                await anyio.sleep(monkay.settings.stalled_check_interval)
                 continue  # Skip to the next iteration
 
             # Attempt to dequeue a raw job from the backend
@@ -126,10 +126,10 @@ async def handle_job(
         queue_name: The name of the queue the job belongs to.
         raw_job: The raw job data as a dictionary.
         backend: An optional BaseBackend instance to interact with the queue
-                 storage. Defaults to the backend specified in settings.
+                 storage. Defaults to the backend specified in monkay.settings.
     """
     # Use the provided backend or the one from settings
-    backend = backend or settings.backend
+    backend = backend or monkay.settings.backend
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(raw_job)
 
@@ -166,7 +166,7 @@ async def handle_job(
         # Emit a job:started event
         await event_emitter.emit("job:started", job.to_dict())
 
-        if settings.enable_stalled_check:
+        if monkay.settings.enable_stalled_check:
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
         # Retrieve task metadata and the handler function from the registry
@@ -178,7 +178,7 @@ async def handle_job(
             raise JobCancelled()
 
         # 4) Execute task (sandbox vs direct): Run the task, potentially in a sandbox
-        if settings.sandbox_enabled:
+        if monkay.settings.sandbox_enabled:
             # If sandboxing is enabled, run the handler in a separate thread
             # using the sandbox execution function.
             result = await anyio.to_thread.run_sync(  # noqa
@@ -186,7 +186,7 @@ async def handle_job(
                 job.task_id,
                 tuple(job.args),  # sandbox expects tuple args
                 job.kwargs,
-                settings.sandbox_default_timeout,
+                monkay.settings.sandbox_default_timeout,
             )
         else:
             # If sandboxing is disabled, run the handler directly.
@@ -263,18 +263,18 @@ class Worker:
     def __init__(
         self,
         queue: Any,
-        heartbeat_interval: float = settings.heartbeat_ttl / 3,
+        heartbeat_interval: float = monkay.settings.heartbeat_ttl,
     ) -> None:
         from asyncmq.queues import Queue
 
         self.queue = queue if not isinstance(queue, str) else Queue(queue)
         self.id = str(uuid.uuid4())
         self._cancel_scope: anyio.CancelScope | None = None
-        self.concurrency = settings.worker_concurrency
+        self.concurrency = monkay.settings.worker_concurrency
         self.heartbeat_interval = heartbeat_interval
 
     async def _run_with_scope(self) -> None:
-        backend = settings.backend
+        backend = monkay.settings.backend
 
         # Initial registration
         await backend.register_worker(

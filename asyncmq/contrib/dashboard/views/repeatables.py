@@ -6,7 +6,7 @@ from typing import Any
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -14,7 +14,7 @@ class RepeatablesController(DashboardMixin, TemplateController):
     template_name = "repeatables/repeatables.html"
 
     async def get_repeatables(self, queue_name: str) -> list[dict[str, Any]]:
-        backend = settings.backend
+        backend = monkay.settings.backend
         repeatables = await backend.list_repeatables(queue_name)
 
         rows: list[dict[str, Any]] = []

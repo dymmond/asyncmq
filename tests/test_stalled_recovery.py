@@ -8,7 +8,7 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.backends.mongodb import MongoDBBackend
 from asyncmq.backends.postgres import PostgresBackend
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.conf import settings as gs
+from asyncmq.conf import monkay as gs
 from asyncmq.core.enums import State
 from asyncmq.core.stalled import stalled_recovery_scheduler
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend

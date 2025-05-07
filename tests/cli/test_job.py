@@ -29,9 +29,9 @@ def test_job_help():
 
 
 def test_job_inspect(monkeypatch):
-    from asyncmq.conf import settings
+    from asyncmq.conf import monkay
 
-    settings.backend = FakeBackend()
+    monkay.settings.backend = FakeBackend()
 
     result = runner.invoke(app, ["job", "inspect", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
@@ -39,9 +39,9 @@ def test_job_inspect(monkeypatch):
 
 
 def test_job_retry(monkeypatch):
-    from asyncmq.conf import settings
+    from asyncmq.conf import monkay
 
-    settings.backend = FakeBackend()
+    monkay.settings.backend = FakeBackend()
 
     result = runner.invoke(app, ["job", "retry", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
@@ -49,9 +49,9 @@ def test_job_retry(monkeypatch):
 
 
 def test_job_remove(monkeypatch):
-    from asyncmq.conf import settings
+    from asyncmq.conf import monkay
 
-    settings.backend = FakeBackend()
+    monkay.settings.backend = FakeBackend()
 
     result = runner.invoke(app, ["job", "remove", "job1", "--queue", "queue1"])
     assert result.exit_code == 0

@@ -1,7 +1,7 @@
 import pytest
 
 from asyncmq.backends.postgres import PostgresBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
 
 pytestmark = pytest.mark.anyio
@@ -26,7 +26,7 @@ async def test_cancel_job_postgres(backend):
     assert result is True
 
     # Verify row in cancelled_jobs
-    cancel_table = settings.postgres_cancelled_jobs_table_name
+    cancel_table = monkay.settings.postgres_cancelled_jobs_table_name
     async with backend.pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""
@@ -41,7 +41,7 @@ async def test_cancel_job_postgres(backend):
 
 
 async def test_retry_job_postgres(backend):
-    jobs_table = settings.postgres_jobs_table_name
+    jobs_table = monkay.settings.postgres_jobs_table_name
     queue, job_id = "q1", "p2"
 
     # Insert a failed job into the real jobs table
@@ -79,7 +79,7 @@ async def test_retry_job_postgres(backend):
 
 
 async def test_remove_job_postgres(backend):
-    jobs_table = settings.postgres_jobs_table_name
+    jobs_table = monkay.settings.postgres_jobs_table_name
     queue, job_id = "q1", "p3"
 
     # Insert a waiting job into the real jobs table

@@ -11,7 +11,7 @@ from rich.text import Text
 
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
 from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.queues import Queue
 
 console = Console()
@@ -83,8 +83,8 @@ def list_queues() -> None:
     implementation supports this functionality (i.e., exposes a `list_queues`
     method).
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Print a banner for the queue listing operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating that the backend is being queried for queues.
@@ -125,8 +125,8 @@ def pause_queue(queue: str) -> None:
         queue: The name of the queue to pause. This argument is required
                and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Call the backend's pause_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
     anyio.run(backend.pause_queue, queue)
@@ -152,8 +152,8 @@ def resume_queue(queue: str) -> None:
         queue: The name of the queue to resume. This argument is required
                and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Call the backend's resume_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
     anyio.run(backend.resume_queue, queue)
@@ -181,8 +181,8 @@ def info_queue(queue: str) -> None:
         queue: The name of the queue to get information about. This argument
                is required and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
 
     # Print a banner for the queue information operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")

@@ -21,9 +21,9 @@ def test_queue_help():
 
 
 def test_queue_list(monkeypatch):
-    from asyncmq.conf import settings
+    from asyncmq.conf import monkay
 
-    settings.backend = FakeBackend()
+    monkay.settings.backend = FakeBackend()
 
     result = runner.invoke(app, ["queue", "list"])
     assert result.exit_code == 0
@@ -31,9 +31,9 @@ def test_queue_list(monkeypatch):
 
 
 def test_queue_info(monkeypatch):
-    from asyncmq.conf import settings
+    from asyncmq.conf import monkay
 
-    settings.backend = FakeBackend()
+    monkay.settings.backend = FakeBackend()
 
     result = runner.invoke(app, ["queue", "info", "queue1"])
     assert result.exit_code == 0

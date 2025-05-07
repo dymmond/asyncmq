@@ -6,7 +6,7 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -15,7 +15,7 @@ class DLQController(DashboardMixin, TemplateController):
 
     async def get(self, request: Request) -> Any:
         queue = request.path_params.get("name")
-        backend = settings.backend
+        backend = monkay.settings.backend
 
         failed = await backend.list_jobs(queue, "failed")
         jobs = []
@@ -50,7 +50,7 @@ class DLQController(DashboardMixin, TemplateController):
 
     async def post(self, request: Request) -> Any:
         queue = request.path_params.get("name")
-        backend = settings.backend
+        backend = monkay.settings.backend
         form = await request.form()
         action = form.get("action")
 

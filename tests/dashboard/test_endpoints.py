@@ -1,4 +1,3 @@
-
 import pytest
 from lilya.apps import Lilya
 from lilya.compat import reverse
@@ -10,9 +9,10 @@ from asyncmq.core.utils.dashboard import DashboardConfig
 
 config = DashboardConfig()
 
+
 @pytest.fixture(scope="session")
 def client():
-    with TestClient(Lilya(routes=[Include(path='/', app=dash_app)])) as client:
+    with TestClient(Lilya(routes=[Include(path="/", app=dash_app)])) as client:
         yield client
 
 
@@ -21,12 +21,16 @@ def test_home_page(client):
     assert response.status_code == 200
     assert config.title.encode() in response.content
 
-@pytest.mark.parametrize("path, keyword", [
-    (reverse("queues"), b"Queues"),
-    (reverse("workers"), b"Workers"),
-    (reverse("repeatables", path_params={"name": "default"}), b"Repeatable Jobs"),
-    (reverse("metrics"), b"Metrics"),
-])
+
+@pytest.mark.parametrize(
+    "path, keyword",
+    [
+        (reverse("queues"), b"Queues"),
+        (reverse("workers"), b"Workers"),
+        (reverse("repeatables", path_params={"name": "default"}), b"Repeatable Jobs"),
+        (reverse("metrics"), b"Metrics"),
+    ],
+)
 def test_pages(path, keyword, client):
     response = client.get(path)
     assert response.status_code == 200

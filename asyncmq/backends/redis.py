@@ -6,7 +6,7 @@ import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
 from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -1349,7 +1349,7 @@ class RedisBackend(BaseBackend):
         # HSET the timestamp
         await self.redis.hset(key, worker_id, payload)
         # Reset TTL so the whole hash expires if no updates
-        await self.redis.expire(key, settings.heartbeat_ttl)
+        await self.redis.expire(key, monkay.settings.heartbeat_ttl)
 
     async def deregister_worker(self, worker_id: str) -> None:
         """
@@ -1394,7 +1394,7 @@ class RedisBackend(BaseBackend):
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid
                 payload = json.loads(data)
                 timestamp = float(payload.get("heartbeat", 0))
-                if now - timestamp <= settings.heartbeat_ttl:
+                if now - timestamp <= monkay.settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,

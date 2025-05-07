@@ -23,7 +23,7 @@ class Settings:
     backends (Postgres, MongoDB), parameters for stalled job recovery,
     sandbox execution settings, worker concurrency limits, and rate limiting
     configurations. It provides a centralized place to manage and access
-    these operational settings.
+    these operational monkay.settings.
     """
 
     debug: bool = False
@@ -217,7 +217,7 @@ class Settings:
     @property
     def logging_config(self) -> "LoggingConfig" | None:
         """
-        Provides the configured logging setup based on current settings.
+        Provides the configured logging setup based on current monkay.settings.
 
         This property dynamically creates and returns an object that adheres
         to the `LoggingConfig` protocol, configured according to the
@@ -230,7 +230,7 @@ class Settings:
             (though the current implementation always returns a config).
         """
         # Import StandardLoggingConfig locally to avoid potential circular imports
-        # if asyncmq.logging depends on asyncmq.conf.settings.
+        # if asyncmq.logging depends on asyncmq.conf.monkay.settings.
         from asyncmq.core.utils.logging import StandardLoggingConfig
 
         # Returns a logging configuration object with the specified level.

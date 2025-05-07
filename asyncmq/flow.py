@@ -1,7 +1,7 @@
 from typing import Awaitable, Callable  # Ensure Any is imported from typing
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.dependencies import add_dependencies
 from asyncmq.jobs import Job
 
@@ -33,7 +33,7 @@ class FlowProducer:
                      `asyncmq.conf.settings` is used.
         """
         # Use the provided backend instance or fall back to the configured default.
-        self.backend: BaseBackend = backend or settings.backend
+        self.backend: BaseBackend = backend or monkay.settings.backend
         # Assign the dependency adder function.
         self._add_dependencies: _AddDependenciesCallable = add_dependencies  # type: ignore
 

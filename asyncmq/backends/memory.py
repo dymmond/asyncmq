@@ -10,7 +10,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -862,4 +862,6 @@ class InMemoryBackend(BaseBackend):
             A list of WorkerInfo objects representing the active workers.
         """
         now = time.time()
-        return [info for info in self._worker_registry.values() if now - info.heartbeat <= settings.heartbeat_ttl]
+        return [
+            info for info in self._worker_registry.values() if now - info.heartbeat <= monkay.settings.heartbeat_ttl
+        ]

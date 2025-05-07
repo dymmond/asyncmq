@@ -1,12 +1,10 @@
-# asyncmq/contrib/dashboard/application.py
-
 from typing import Any
 
 from lilya.apps import Lilya
 from lilya.requests import Request
 from lilya.routing import Include, RoutePath
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.controllers import sse
 from asyncmq.contrib.dashboard.engine import templates  # noqa
 from asyncmq.contrib.dashboard.views import (
@@ -50,7 +48,7 @@ routes = [
 ]
 
 dashboard = Lilya(
-    debug=settings.debug,
-    routes=[Include(path=settings.dashboard_config.dashboard_url_prefix, routes=routes)],
+    debug=monkay.settings.debug,
+    routes=[Include(path=monkay.settings.dashboard_config.dashboard_url_prefix, routes=routes)],
     exception_handlers={404: not_found},
 )

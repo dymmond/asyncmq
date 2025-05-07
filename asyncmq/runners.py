@@ -2,7 +2,7 @@ import asyncio
 from typing import Any
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import handle_job, process_job
@@ -12,7 +12,7 @@ async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | No
     """
     A single worker that keeps dequeuing and processing jobs.
     """
-    backend = backend or settings.backend
+    backend = backend or monkay.settings.backend
 
     while True:
         job = await backend.dequeue(queue_name)
@@ -25,7 +25,7 @@ async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBacke
     """
     Start multiple workers for the same queue.
     """
-    backend = backend or settings.backend
+    backend = backend or monkay.settings.backend
 
     tasks = []
     for worker_id in range(concurrency):
@@ -86,11 +86,11 @@ async def run_worker(
                      structure of the dictionaries is expected by the
                      `repeatable_scheduler`. Defaults to None.
         scan_interval: How often to poll for delayed and repeatable jobs.
-                       If None, uses settings.scan_interval.
+                       If None, uses monkay.settings.scan_interval.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or settings.backend
-    scan_interval = scan_interval or settings.scan_interval
+    backend = backend or monkay.settings.backend
+    scan_interval = scan_interval or monkay.settings.scan_interval
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 

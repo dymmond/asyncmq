@@ -585,5 +585,5 @@ class BaseBackend(ABC):
 
     @abstractmethod
     async def list_workers(self) -> list[WorkerInfo]:
-        """Return all workers with heartbeat ≥ now - settings.heartbeat_ttl."""
+        """Return all workers with heartbeat ≥ now - monkay.settings.heartbeat_ttl."""
         ...

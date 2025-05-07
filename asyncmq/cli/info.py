@@ -5,7 +5,7 @@ from rich.text import Text
 
 from asyncmq import __version__  # noqa
 from asyncmq.cli.utils import INFO_LOGO, get_centered_logo, get_print_banner
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 
 console = Console()
 
@@ -77,10 +77,10 @@ def backend() -> None:
     Displays the currently configured backend for AsyncMQ.
 
     Shows the full import path (module and class name) of the backend
-    implementation being used according to the application settings.
+    implementation being used according to the application monkay.settings.
     """
-    # Get the configured backend instance from settings.
-    backend_instance = settings.backend
+    # Get the configured backend instance from monkay.settings.
+    backend_instance = monkay.settings.backend
     # Get the class name of the backend instance.
     backend_class = backend_instance.__class__.__name__
     # Get the module path where the backend class is defined.

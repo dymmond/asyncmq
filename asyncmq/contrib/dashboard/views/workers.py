@@ -4,7 +4,7 @@ from typing import Any
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -19,7 +19,7 @@ class WorkerController(DashboardMixin, TemplateController):
         # 1. Base context (title, header, favicon)
         context = await super().get_context_data(request)
 
-        backend = settings.backend
+        backend = monkay.settings.backend
         worker_info = await backend.list_workers()
 
         # 3. Normalize into simple dicts for Jinja

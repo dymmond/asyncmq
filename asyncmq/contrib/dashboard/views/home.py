@@ -3,7 +3,7 @@ from typing import Any
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -15,7 +15,7 @@ class DashboardController(DashboardMixin, TemplateController):
     template_name = "index.html"
 
     async def get(self, request: Request) -> Any:
-        backend = settings.backend
+        backend = monkay.settings.backend
 
         # 1) get all queues & count them
         queues = await backend.list_queues()

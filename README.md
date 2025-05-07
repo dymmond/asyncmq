@@ -157,7 +157,7 @@ $ pip install asyncmq[dashboard]
    ```
 2. **Configure**
 
-   Override the default settings `from asyncmq.conf import Settings` and create your own, then make it global.
+   Override the default settings `from asyncmq.conf import monkay` and create your own, then make it global.
 
    ```bash
    export ASYNCMQ_SETTINGS_MODULE=myapp.settings.Settings

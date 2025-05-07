@@ -2,7 +2,7 @@ from typing import Any
 
 from lilya.requests import Request
 
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.engine import templates
 
 
@@ -13,11 +13,11 @@ class DashboardMixin:
         context = {}
         context.update(
             {
-                "title": settings.dashboard_config.title,
-                "header_text": settings.dashboard_config.header_title,
-                "favicon": settings.dashboard_config.favicon,
-                "url_prefix": settings.dashboard_config.dashboard_url_prefix,
-                "sidebar_bg_colour": settings.dashboard_config.sidebar_bg_colour,
+                "title": monkay.settings.dashboard_config.title,
+                "header_text": monkay.settings.dashboard_config.header_title,
+                "favicon": monkay.settings.dashboard_config.favicon,
+                "url_prefix": monkay.settings.dashboard_config.dashboard_url_prefix,
+                "sidebar_bg_colour": monkay.settings.dashboard_config.sidebar_bg_colour,
             }
         )
         return context

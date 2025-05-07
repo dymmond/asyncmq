@@ -4,7 +4,7 @@ from typing import Any
 import anyio
 
 from asyncmq.backends.base import BaseBackend, RepeatableInfo
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
 
@@ -54,18 +54,18 @@ class Queue:
             rate_interval: The time window in seconds over which the `rate_limit`
                            applies. Defaults to 1.0 second.
             scan_interval: How often (seconds) to poll delayed and repeatable jobs.
-                           Overrides global `settings.scan_interval` if provided.
-                           Defaults to `settings.scan_interval`.
+                           Overrides global `monkay.settings.scan_interval` if provided.
+                           Defaults to `monkay.settings.scan_interval`.
         """
         self.name: str = name
         # Use the provided backend or fall back to the default configured backend.
-        self.backend: BaseBackend = backend or settings.backend
+        self.backend: BaseBackend = backend or monkay.settings.backend
         # Internal list to store configurations for repeatable jobs.
         self._repeatables: list[dict[str, Any]] = []
         self.concurrency: int = concurrency
         self.rate_limit: int | None = rate_limit
         self.rate_interval: float = rate_interval
-        self.scan_interval: float = scan_interval or settings.scan_interval
+        self.scan_interval: float = scan_interval or monkay.settings.scan_interval
 
     async def add(
         self,

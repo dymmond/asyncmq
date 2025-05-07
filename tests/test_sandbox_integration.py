@@ -11,7 +11,7 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.backends.mongodb import MongoDBBackend
 from asyncmq.backends.postgres import PostgresBackend
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
@@ -34,7 +34,7 @@ def flaky_task():
     counter["calls"] += 1
     # First call sleeps past timeout
     if counter["calls"] == 1:
-        time.sleep(settings.sandbox_default_timeout + 0.1)
+        time.sleep(monkay.settings.sandbox_default_timeout + 0.1)
     return "recovered"
 
 
@@ -97,8 +97,8 @@ async def test_sandbox_execution_uses_run_handler(backend, monkeypatch):
 
     monkeypatch.setattr(sandbox_module, "run_handler", fake_run_handler)
 
-    settings.sandbox_enabled = True
-    settings.sandbox_default_timeout = 0.1
+    monkay.settings.sandbox_enabled = True
+    monkay.settings.sandbox_default_timeout = 0.1
 
     job_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == simple_task][0]
     job = Job(task_id=job_id, args=[4, 5], kwargs={})
@@ -111,8 +111,8 @@ async def test_sandbox_execution_uses_run_handler(backend, monkeypatch):
 
 async def test_flaky_task_retries_and_recovers_under_sandbox(backend):
     counter["calls"] = 0
-    settings.sandbox_enabled = True
-    settings.sandbox_default_timeout = 0.1
+    monkay.settings.sandbox_enabled = True
+    monkay.settings.sandbox_default_timeout = 0.1
 
     job_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == flaky_task][0]
     job = Job(task_id=job_id, args=[], kwargs={}, max_retries=1, backoff=0)

@@ -1,7 +1,7 @@
 from __future__ import annotations  # Enable postponed evaluation of type hints
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from monkay import Monkay
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 monkay: Monkay[None, Settings] = Monkay(
     globals(),
-    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"),
+    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_monkay.settings.Settings"),
     with_instance=True,
 )
 
@@ -30,7 +30,7 @@ class SettingsForward:
 
     def __getattribute__(self, name: str) -> Any:
         """
-        Intercepts attribute access (e.g., `settings.DEBUG`).
+        Intercepts attribute access (e.g., `monkay.settings.DEBUG`).
 
         This method is called whenever an attribute is accessed on an instance
         of SettingsForward. It retrieves the actual settings object from Monkay
@@ -46,7 +46,7 @@ class SettingsForward:
 
     def __setattr__(self, name: str, value: Any) -> None:
         """
-        Intercepts attribute setting (e.g., `settings.DEBUG = True`).
+        Intercepts attribute setting (e.g., `monkay.settings.DEBUG = True`).
 
         This method is called whenever an attribute is set on an instance
         of SettingsForward. It retrieves the actual settings object from Monkay
