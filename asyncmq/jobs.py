@@ -124,7 +124,7 @@ class Job:
         """
         # Create a Job instance, mapping dictionary keys to constructor arguments.
         job = Job(
-            task_id=data["task_id"],  # Use "task" key for task_id.
+            task_id=data["task"],  # Use "task" key for task_id.
             args=data.get("args", []),
             kwargs=data.get("kwargs", {}),
             retries=data.get("retries", 0),
