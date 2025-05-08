@@ -17,7 +17,6 @@ from asyncmq.cli.utils import (
 )
 from asyncmq.conf import monkay
 from asyncmq.logging import logger
-from asyncmq.runners import start_worker
 
 console = Console()
 
@@ -82,6 +81,8 @@ def start_worker_cli(queue: str, concurrency: int | str | None = None) -> None:
         concurrency: The number of worker instances to run concurrently.
                      Defaults to 1.
     """
+    from asyncmq.runners import start_worker
+
     # Ensure the queue name is not empty.
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
@@ -94,7 +95,6 @@ def start_worker_cli(queue: str, concurrency: int | str | None = None) -> None:
     print_worker_banner(queue, concurrency, monkay.settings.backend.__class__.__name__, __version__)
     logger_level = getattr(monkay.settings, "logging_level", "info")
     log = getattr(logger, logger_level.lower())
-
     try:
         # Start the worker using anyio's run function.
         # The lambda function wraps the start_worker call to be compatible with anyio.run.

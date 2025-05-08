@@ -12,7 +12,6 @@ from rich.text import Text
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
 from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import monkay
-from asyncmq.queues import Queue
 
 console = Console()
 
@@ -251,6 +250,8 @@ def cli_list_delayed(queue: str) -> None:
     Args:
         queue: The name of the queue to list delayed jobs from.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the list delayed jobs operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ List Delayed Jobs")
     # Create a Queue instance for the specified queue name.
@@ -298,6 +299,8 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
         job_id: The unique identifier of the delayed job to remove. Can be
                 a string or an integer depending on how job IDs are managed.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the remove delayed job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Removed Delayed Jobs")
 
@@ -330,6 +333,8 @@ def cli_list_repeatables(queue: str) -> None:
     Args:
         queue: The name of the queue to list repeatable jobs from.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the list repeatable jobs operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ List Repeatable Jobs")
     # Create a Queue instance for the specified queue name.
@@ -383,6 +388,8 @@ def cli_pause_repeatable(queue: str, job_def_json: str | Any) -> None:
                       handling, but is expected to be a string that can be
                       deserialized to a dictionary.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the pause repeatable job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Pause Repeatable Jobs")
     # Create a Queue instance for the specified queue name.
@@ -417,6 +424,8 @@ def cli_resume_repeatable(queue: str, job_def_json: str | Any) -> None:
                       handling, but is expected to be a string that can be
                       deserialized to a dictionary.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the resume repeatable job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Resume Repeatable Jobs")
     # Create a Queue instance for the specified queue name.

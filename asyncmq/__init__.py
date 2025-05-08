@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .tasks import task
     from .workers import Worker
 
-_monkay: Monkay = Monkay(
+monkay: Monkay = Monkay(
     globals(),
     lazy_imports={
         "BaseJobStore": ".stores.base.BaseJobStore",
@@ -43,4 +43,4 @@ __all__ = [
     "Worker",
 ]
 
-_monkay.add_lazy_import("task", ".tasks.task")
+monkay.add_lazy_import("task", ".tasks.task")

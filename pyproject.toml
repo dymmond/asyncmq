@@ -44,6 +44,7 @@ dependencies = [
   "croniter>=6.0.0,<7.0.0",
   "redis>=5.2.1",
   "monkay>=0.4.1"
+
 ]
 keywords = [
   "asyncio",
@@ -89,8 +90,9 @@ dependencies = [
     "ipdb",
     "ptpython",
     "twine",
-    "types-croniter"
+    "types-croniter",
 ]
+
 
 [project.optional-dependencies]
 testing = [

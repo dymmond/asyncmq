@@ -7,7 +7,6 @@ from rich.text import Text
 from asyncmq.backends.base import BaseBackend
 from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner
 from asyncmq.conf import monkay
-from asyncmq.queues import Queue
 
 console = Console()
 
@@ -160,6 +159,8 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
                 required and is passed from the command line. It can be a
                 string or an integer depending on how job IDs are managed.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the cancel job operation.
     get_print_banner(JOBS_LOGO, title="AsyncMQ Cancel Job")
 
@@ -176,6 +177,8 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
 @click.option("--queue", required=True, help="Queue name to filter jobs")
 @click.option("--state", required=True, help="Job state to filter (waiting, active, completed, failed, delayed)")
 def list_jobs(queue: str, state: str) -> None:
+    from asyncmq.queues import Queue
+
     """Lists jobs in a specific queue filtered by job state."""
     get_print_banner(JOBS_LOGO, title="AsyncMQ List Jobs")
     # Create a Queue instance for the specified queue name.

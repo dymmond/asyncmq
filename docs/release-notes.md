@@ -18,6 +18,7 @@ hide:
   * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
   * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
   * `deregister-worker <worker_id>` — remove a worker from the registry.
+  * `AsyncMQGroup` to `cli` ensuring the `ASYNCMQ_SETTINGS_MODULE` is always evaluated beforehand.
 
 * **Worker Configuration**
 
