@@ -101,6 +101,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
                 "counts": counts,
                 "active_page": "queues",
                 "page_header": f"Queue: '{q}' details",
+                "queue": q,
             }
         )
 
