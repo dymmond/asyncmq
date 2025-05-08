@@ -79,7 +79,7 @@ class MyCustomSettings(Settings):
 
     @property
     def dashboard_config(self) -> DashboardConfig:
-        DashboardConfig(
+        return DashboardConfig(
             title="My Queue Monitor",
             header_title="MyApp Queue Dashboard",
             description="Overview of background tasks in MyApp",
