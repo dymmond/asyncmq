@@ -1,6 +1,12 @@
 {% extends "layout.html" %}
 {% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
   <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
+  <a href="{{ url_prefix }}/queues"
+         class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition">
+        ← Back to Queues
+    </a>
+</div>
 
   <div class="grid lg:grid-cols-2 gap-6 mb-6">
     <!-- Controls & Counts Card -->

@@ -1,0 +1,57 @@
+{% if messages %}
+  <div class="space-y-4 w-full">
+    {% for message in messages %}
+      {% set level = message.level %}
+      {% if level == 'success' %}
+        {% set color = 'green' %}
+      {% elif level == 'error' %}
+        {% set color = 'red' %}
+      {% elif level == 'warning' %}
+        {% set color = 'yellow' %}
+      {% else %}
+        {% set color = 'blue' %}
+      {% endif %}
+
+      <div
+        id="flash-{{ loop.index }}"
+        class="
+          relative flex items-start gap-3 p-4 bg-{{ color }}-50
+          border-l-4 border-{{ color }}-500 text-{{ color }}-700
+          shadow transition-opacity duration-200
+        "
+      >
+        <!-- Icon -->
+        <i
+          data-lucide="
+            {% if level == 'success' %}check-circle
+            {% elif level == 'error'   %}x-circle
+            {% elif level == 'warning' %}alert-triangle
+            {% else %}info{% endif %}
+          "
+          class="w-5 h-5 mt-1 flex-shrink-0"
+        ></i>
+
+        <!-- Message Text -->
+        <div class="flex-1 leading-relaxed">
+          {{ message.text }}
+        </div>
+
+        <!-- Dismiss Button -->
+        <button
+          type="button"
+          onclick="
+            const el = document.getElementById('flash-{{ loop.index }}');
+            el.classList.add('opacity-0');
+            setTimeout(() => el.remove(), 200);
+          "
+          class="
+            absolute top-5 right-6 text-xl font-bold leading-none
+            text-{{ color }}-700 hover:text-{{ color }}-900
+            focus:outline-none
+          "
+          aria-label="Dismiss"
+        >&times;</button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

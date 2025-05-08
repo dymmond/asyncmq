@@ -1,0 +1,7 @@
+button {
+  border-radius: 0 !important;
+}
+/* Also cover any anchor-as-button patterns, if you use a .btn class */
+.btn, a.btn {
+  border-radius: 0 !important;
+}

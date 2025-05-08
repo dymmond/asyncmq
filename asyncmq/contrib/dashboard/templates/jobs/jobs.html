@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
   <!-- Header + Pill Tabs -->
-  <div class="mb-6">
+  <div class="flex items-center justify-between mb-6">
     <h1 class="text-3xl font-bold">{{ page_header }}</h1>
     <nav class="mt-4 flex flex-wrap gap-2">
       {% set tabs = [
@@ -26,6 +26,10 @@
         </a>
       {% endfor %}
     </nav>
+    <a href="{{ url_prefix }}/queues/{{ queue }}"
+       class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
+      ← Back to Queue
+    </a>
   </div>
 
   <!-- Job Cards Grid -->

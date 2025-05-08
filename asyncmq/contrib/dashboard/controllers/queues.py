@@ -6,7 +6,8 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import monkay
+from asyncmq.conf import monkay, settings
+from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -57,7 +58,7 @@ class QueueController(DashboardMixin, TemplateController):
 
     async def post(self, request: Request) -> Any:
         """
-        Handles pause/resume form posts (unchanged).
+        Handles pause/resume form posts.
         """
         backend = monkay.settings.backend
         q = request.path_params["name"]
@@ -65,8 +66,10 @@ class QueueController(DashboardMixin, TemplateController):
 
         if action == "pause" and hasattr(backend, "pause_queue"):
             await backend.pause_queue(q)
+            add_message(request, "success", f"Queue '{q}' paused.")
         elif action == "resume" and hasattr(backend, "resume_queue"):
             await backend.resume_queue(q)
+            add_message(request, "success", f"Queue '{q}' resumed.")
 
         return RedirectResponse(f"/queues/{q}/{request.path_params.get('state', 'waiting')}")
 
@@ -100,7 +103,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
                 "paused": paused,
                 "counts": counts,
                 "active_page": "queues",
-                "page_header": f"Queue: '{q}' details",
+                "page_header": f"{q} details",
                 "queue": q,
             }
         )
@@ -117,7 +120,9 @@ class QueueDetailController(DashboardMixin, TemplateController):
 
         if action == "pause" and hasattr(backend, "pause_queue"):
             await backend.pause_queue(q)
+            add_message(request, "success", f"Queue '{q}' paused.")
         elif action == "resume" and hasattr(backend, "resume_queue"):
             await backend.resume_queue(q)
+            add_message(request, "success", f"Queue '{q}' resumed.")
 
-        return RedirectResponse(f"/queues/{q}")
+        return RedirectResponse(f"{settings.dashboard_config.dashboard_url_prefix}/queues/{q}", status_code=303)

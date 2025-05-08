@@ -9,6 +9,7 @@
   <script src="{{ url_for('statics', path='/js/toastify.min.js') }}"></script>
   <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
   <script>
         tailwind.config = {
             theme: {
@@ -35,6 +36,7 @@
 </head>
 <body class="bg-gray-100 font-sans antialiased">
   {% include "shared/loading.html" %}
+  {% include "shared/messages.html" %}
 
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
@@ -119,6 +121,14 @@
 
       // Optional: Show loading on navigation clicks
       document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function (e) {
+          if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
+            document.getElementById("loading-overlay").classList.remove("hidden");
+          }
+        });
+      });
+
+      document.querySelectorAll("button").forEach(link => {
         link.addEventListener("click", function (e) {
           if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
             document.getElementById("loading-overlay").classList.remove("hidden");

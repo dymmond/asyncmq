@@ -70,8 +70,15 @@
           >Dead-Letter</a>
         </div>
 
+        <div class="mt-4 grid gap-2">
+          <a
+              href="{{ url_prefix }}/queues/{{ queue.name }}"
+              class="block text-center px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+            >View Details</a>
+        </div>
+
         <!-- Pause/Resume -->
-        <form method="post" class="mt-4">
+        <form method="post" action="{{ url_prefix}}/queues/{{ queue .name}}" class="mt-4">
           {% if queue.paused %}
             <button
               name="action" value="resume"

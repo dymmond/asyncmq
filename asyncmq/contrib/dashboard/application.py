@@ -6,17 +6,17 @@ from lilya.routing import Include, RoutePath
 from lilya.staticfiles import StaticFiles
 
 from asyncmq.conf import monkay
-from asyncmq.contrib.dashboard.controllers import sse
-from asyncmq.contrib.dashboard.engine import templates  # noqa
-from asyncmq.contrib.dashboard.views import (
+from asyncmq.contrib.dashboard.controllers import (
     dlq,
     home,
     jobs,
     metrics,
     queues,
     repeatables,
+    sse,
     workers,
 )
+from asyncmq.contrib.dashboard.engine import templates  # noqa
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
