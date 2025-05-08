@@ -1,79 +1,72 @@
 {% extends "layout.html" %}
 {% block content %}
-  <h1 class="text-3xl font-semibold mb-6">Workers</h1>
+  <h1 class="text-3xl font-semibold mb-6">Workers Overview</h1>
 
-  <div class="flex flex-col mb-6">
-    <div class="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-      <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-        <div class="shadow ring-1 ring-black ring-opacity-5 overflow-hidden sm:rounded-lg bg-white">
-          <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-              <tr>
-                <th scope="col"
-                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ID
-                </th>
-                <th scope="col"
-                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Queue
-                </th>
-                <th scope="col"
-                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Concurrency
-                </th>
-                <th scope="col"
-                    class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Heartbeat
-                </th>
-              </tr>
-            </thead>
-            <tbody id="worker-rows" class="bg-white divide-y divide-gray-200">
-              {% for worker in workers %}
-              <tr class="hover:bg-gray-100">
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {{ worker.id }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                  {{ worker.queue }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
-                  {{ worker.concurrency }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
-                  {{ worker.heartbeat }}
-                </td>
-              </tr>
-              {% else %}
-              <tr>
-                <td colspan="4" class="px-6 py-8 text-center text-gray-500 italic">
-                  No workers registered
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+  <!-- Workers Table -->
+  <div class="bg-white ring-1 ring-gray-200 shadow overflow-x-auto mb-8">
+    <table class="min-w-full table-auto divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+            ID
+          </th>
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+            Queue
+          </th>
+          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+            Concurrency
+          </th>
+          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+            Last Heartbeat
+          </th>
+        </tr>
+      </thead>
+      <tbody id="worker-rows" class="bg-white divide-y divide-gray-200">
+        {% for w in workers %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+              {{ w.id }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+              {{ w.queue }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+              {{ w.concurrency }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+              <time datetime="{{ w.heartbeat }}">{{ w.heartbeat }}</time>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="4" class="px-6 py-8 text-center text-gray-500 italic">
+              No workers currently registered.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Concurrency by Worker -->
-    <div class="bg-white rounded-lg shadow p-4 h-64">
-      <h2 class="text-lg font-semibold mb-2">Concurrency by Worker</h2>
-      <canvas id="worker-concurrency-chart" class="w-full h-full"></canvas>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col">
+      <h2 class="text-lg font-semibold mb-4">Concurrency by Worker</h2>
+      <div class="flex-1">
+        <canvas id="worker-concurrency-chart" class="w-full h-56"></canvas>
+      </div>
     </div>
-
     <!-- Workers per Queue Pie -->
-    <div class="bg-white rounded-lg shadow p-4 h-64 flex flex-col">
-      <h2 class="text-lg font-semibold mb-2">Workers per Queue</h2>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col">
+      <h2 class="text-lg font-semibold mb-4">Workers per Queue</h2>
       <div class="flex-1 flex items-center justify-center">
         <canvas id="worker-queue-pie-chart" class="w-2/3 h-2/3"></canvas>
       </div>
     </div>
   </div>
 
-  <!-- Chart.js CDN -->
+  <!-- Chart.js & SSE Script -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const source = new EventSource('{{ url_prefix }}/events');
@@ -82,25 +75,9 @@
     const wcCtx = document.getElementById('worker-concurrency-chart').getContext('2d');
     const wqCtx = document.getElementById('worker-queue-pie-chart').getContext('2d');
 
-    const wcData = {
-      labels: [],
-      datasets: [{
-        label: 'Concurrency',
-        data: [],
-        backgroundColor: 'rgba(59,130,246,0.7)'
-      }]
-    };
-    const wqData = {
-      labels: [],
-      datasets: [{
-        data: [],
-        backgroundColor: []
-      }]
-    };
-
     const wcChart = new Chart(wcCtx, {
       type: 'bar',
-      data: wcData,
+      data: { labels: [], datasets: [{ label: 'Concurrency', data: [], backgroundColor: 'rgba(59,130,246,0.7)' }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -112,7 +89,7 @@
 
     const wqChart = new Chart(wqCtx, {
       type: 'doughnut',
-      data: wqData,
+      data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -129,32 +106,32 @@
       tbody.innerHTML = '';
       list.forEach(w => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-100';
+        tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
-          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${w.id}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">${w.id}</td>
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${w.queue}</td>
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">${w.concurrency}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">${new Date(w.heartbeat * 1000).toLocaleTimeString()}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">${new Date(w.heartbeat*1000).toLocaleTimeString()}</td>
         `;
         tbody.appendChild(tr);
       });
 
       // Concurrency chart
-      wcData.labels = list.map(w => w.id);
-      wcData.datasets[0].data = list.map(w => w.concurrency);
+      wcChart.data.labels = list.map(w => w.id);
+      wcChart.data.datasets[0].data = list.map(w => w.concurrency);
       wcChart.update();
 
       // Workers-per-queue pie
       const counts = {};
-      list.forEach(w => counts[w.queue] = (counts[w.queue] || 0) + 1);
-      wqData.labels = Object.keys(counts);
-      wqData.datasets[0].data = Object.values(counts);
-      wqData.datasets[0].backgroundColor = wqData.labels.map(
-        (_, i) => `hsl(${(i * 60) % 360}, 65%, 55%)`
+      list.forEach(w => counts[w.queue] = (counts[w.queue]||0)+1);
+      wqChart.data.labels = Object.keys(counts);
+      wqChart.data.datasets[0].data = Object.values(counts);
+      wqChart.data.datasets[0].backgroundColor = wqChart.data.labels.map((_, i) =>
+        `hsl(${(i*60)%360},65%,55%)`
       );
       wqChart.update();
     });
 
-    source.onerror = () => console.warn('SSE error on workers – retrying');
+    source.onerror = () => console.warn('SSE error on workers – retrying…');
   </script>
 {% endblock %}
