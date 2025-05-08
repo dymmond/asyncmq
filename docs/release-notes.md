@@ -11,42 +11,48 @@ hide:
 
 ### Added
 
+* **Dashboard**
+
+    * Brand new [Dashboard](./dashboard/index.md) where it shows how to integrate with your AsyncMQ. This dahboard is still
+in *beta* mode so any feedback is welcomed.
+
 * **Top-Level CLI Commands**
   Added four new top-level commands to the `asyncmq` CLI (powered by Click & Rich):
 
-  * `list-queues` — list all queues known to the backend
-  * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
-  * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
-  * `deregister-worker <worker_id>` — remove a worker from the registry.
-  * `AsyncMQGroup` to `cli` ensuring the `ASYNCMQ_SETTINGS_MODULE` is always evaluated beforehand.
+    * `list-queues` — list all queues known to the backend
+    * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
+    * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
+    * `deregister-worker <worker_id>` — remove a worker from the registry.
+    * `AsyncMQGroup` to `cli` ensuring the `ASYNCMQ_SETTINGS_MODULE` is always evaluated beforehand.
 
 * **Worker Configuration**
 
-  * `Worker` now accepts a `heartbeat_interval: float` parameter (default `HEARTBEAT_TTL/3`) to control how often it re-registers itself in the backend.
+    * `Worker` now accepts a `heartbeat_interval: float` parameter (default `HEARTBEAT_TTL/3`) to control how often it re-registers itself in the backend.
 
 ### Changed
 
 * **Redis Backend: Store Concurrency**
 
-  * Now `register_worker` stores both `heartbeat` and `concurrency` as a JSON blob in each hash field.
-  * `list_workers` parses that JSON so the returned `WorkerInfo.concurrency` reflects the actual setting.
+    * Now `register_worker` stores both `heartbeat` and `concurrency` as a JSON blob in each hash field.
+    * `list_workers` parses that JSON so the returned `WorkerInfo.concurrency` reflects the actual setting.
 
 * **RedisBackend.cancel_job**
 
-  * Now walks the **waiting** and **delayed** sorted sets via `ZRANGE`/`ZREM` instead of using list operations, then marks the job in a Redis `SET`.
-  * Eliminates “WRONGTYPE” errors when cancelling jobs.
+    * Now walks the **waiting** and **delayed** sorted sets via `ZRANGE`/`ZREM` instead of using list operations, then marks the job in a Redis `SET`.
+    * Eliminates “WRONGTYPE” errors when cancelling jobs.
 
 * **InMemoryBackend.remove_job**
-  * Expanded to purge a job from **waiting**, **delayed**, **DLQ**, and to clean up its in-memory state (`job_states`, `job_results`, `job_progress`).
+
+    * Expanded to purge a job from **waiting**, **delayed**, **DLQ**, and to clean up its in-memory state (`job_states`, `job_results`, `job_progress`).
 
 * **Postgres Backend: `register_worker` Fix**
 
-  * The `queues` column (a `text[]` type) now correctly receives a one-element Python list (`[queue]`) instead of a bare string.
-  * This resolves `DataError: invalid input for query argument $2`.
+    * The `queues` column (a `text[]` type) now correctly receives a one-element Python list (`[queue]`) instead of a bare string.
+    * This resolves `DataError: invalid input for query argument $2`.
 
 * **General Pause–Check Safety**
 
-  * `process_job` now guards against backends that don’t implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
+    * `process_job` now guards against backends that don’t implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
 
 ### Fixed
 
