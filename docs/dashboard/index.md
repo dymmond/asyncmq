@@ -10,6 +10,11 @@ The AsyncMQ Admin Dashboard provides a browser-based interface to monitor and ma
 !!! Note
     This is the first version of the AsyncMQ Admin Dashboard documentation, created to gather user feedback and understand user needs.
 
+You eill need to install the dashboard.
+
+```shell
+pip install asyncmq[dashboard]
+```
 
 ---
 
