@@ -44,6 +44,7 @@ dependencies = [
   "croniter>=6.0.0,<7.0.0",
   "redis>=5.2.1",
   "monkay>=0.4.1"
+
 ]
 keywords = [
   "asyncio",
@@ -89,8 +90,9 @@ dependencies = [
     "ipdb",
     "ptpython",
     "twine",
-    "types-croniter"
+    "types-croniter",
 ]
+
 
 [project.optional-dependencies]
 testing = [
@@ -103,9 +105,13 @@ testing = [
     "pytest-cov>=4.0.0,<5.0.0",
     "pytest-asyncio>=0.26.0",
     "structlog>=25.3.0",
+    "uvicorn>=0.34.2",
+    "httpx"
 ]
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
+dashboard = ["lilya>=0.13.6", "jinja2>=3.1.6"]
+all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[dashboard]"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
@@ -133,7 +139,7 @@ build = "mkdocs build"
 serve = "mkdocs serve --dev-addr localhost:8000"
 
 [tool.hatch.envs.hatch-test]
-features = ["testing", "postgres", "mongo"]
+features = ["testing", "postgres", "mongo", "dashboard"]
 template = "test"
 
 [tool.hatch.envs.hatch-test.env-vars]
@@ -202,6 +208,7 @@ ignore_errors = true
 module = [
     "motor.*",
     "asyncpg.*",
+    "lilya.templating.*"
 ]
 ignore_missing_imports = true
 ignore_errors = true

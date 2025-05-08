@@ -1,0 +1,211 @@
+{% extends "layout.html" %}
+{% block content %}
+  <!-- Page title & filter form -->
+  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-4 lg:space-y-0">
+    <h1 class="text-3xl font-semibold">{{ page_header }}</h1>
+
+    <form method="get" class="flex flex-wrap gap-4">
+      <div>
+        <label for="queue" class="block text-sm font-medium text-gray-700">Queue</label>
+        <select id="queue" name="queue"
+                class="mt-1 block w-full max-w-xs border-gray-300 rounded-md shadow-sm
+                       focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All</option>
+          {% for q in queues %}
+            <option value="{{ q }}" {% if q == selected_queue %}selected{% endif %}>{{ q }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="state" class="block text-sm font-medium text-gray-700">State</label>
+        <select id="state" name="state"
+                class="mt-1 block w-full max-w-xs border-gray-300 rounded-md shadow-sm
+                       focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All</option>
+          {% for s in states %}
+            <option value="{{ s }}" {% if s == selected_state %}selected{% endif %}>
+              {{ s|capitalize }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="self-end">
+        <button type="submit"
+                class="px-4 py-2 bg-indigo-600 text-white rounded-md shadow hover:bg-indigo-700 transition">
+          Apply
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Bulk‐action form -->
+  <form method="post" class="mb-4">
+    <!-- carry pagination & filters -->
+    <input type="hidden" name="queue" value="{{ selected_queue }}">
+    <input type="hidden" name="state" value="{{ selected_state }}">
+    <input type="hidden" name="page"  value="{{ page }}">
+    <input type="hidden" name="size"  value="{{ size }}">
+
+    <div class="flex flex-wrap items-center justify-between mb-2 space-y-2 lg:space-y-0">
+      <div class="flex space-x-2">
+        <button name="action" value="retry"
+                class="px-4 py-2 bg-green-600 text-white rounded-md shadow hover:bg-green-700 transition">
+          Retry Selected
+        </button>
+        <button name="action" value="remove"
+                class="px-4 py-2 bg-red-600 text-white rounded-md shadow hover:bg-red-700 transition">
+          Delete Selected
+        </button>
+        <button name="action" value="cancel"
+                class="px-4 py-2 bg-yellow-500 text-white rounded-md shadow hover:bg-yellow-600 transition">
+          Cancel Selected
+        </button>
+      </div>
+      <!-- we no longer need the standalone Select All label here -->
+    </div>
+
+    <!-- Jobs table -->
+    <div class="overflow-x-auto bg-white ring-1 ring-gray-200 shadow rounded-lg">
+      <table class="min-w-full divide-y divide-gray-200 table-auto">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-3 text-left">
+              <input id="select-all" type="checkbox"
+                     class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              ID
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Queue
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              State
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Time
+            </th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for job in jobs %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-2">
+              <input type="checkbox" name="job_id" value="{{ job.id }}"
+                     class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+            </td>
+            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{ job.id }}</td>
+            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{{ job.queue }}</td>
+            <td class="px-4 py-2 whitespace-nowrap text-sm">
+              <span class="px-2 inline-flex text-xs font-semibold rounded-full
+                {% if job.state == 'completed' %}bg-green-100 text-green-800
+                {% elif job.state == 'failed'    %}bg-red-100   text-red-800
+                {% elif job.state == 'active'    %}bg-yellow-100 text-yellow-800
+                {% elif job.state == 'waiting'   %}bg-blue-100  text-blue-800
+                {% else                           %}bg-gray-100  text-gray-800
+                {% endif %}">
+                {{ job.state | capitalize }}
+              </span>
+            </td>
+            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{{ job.time }}</td>
+            <td class="px-4 py-2 text-center space-x-1">
+              <button type="button"
+                      class="retry-btn inline-flex items-center px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition text-xs"
+                      data-job-id="{{ job.id }}">
+                <i data-lucide="refresh-ccw" class="w-4 h-4 mr-1"></i>Retry
+              </button>
+              <button type="button"
+                      class="remove-btn inline-flex items-center px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition text-xs"
+                      data-job-id="{{ job.id }}">
+                <i data-lucide="trash-2" class="w-4 h-4 mr-1"></i>Delete
+              </button>
+              <button type="button"
+                      class="cancel-btn inline-flex items-center px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition text-xs"
+                      data-job-id="{{ job.id }}">
+                <i data-lucide="x-octagon" class="w-4 h-4 mr-1"></i>Cancel
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="px-4 py-8 text-center text-gray-500 italic">
+              No jobs found.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
+  <!-- Pagination -->
+  <nav class="mt-6 flex items-center justify-between">
+    {% if page > 1 %}
+      <a href="?queue={{ selected_queue }}&state={{ selected_state }}&page={{ page-1 }}&size={{ size }}"
+         class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition">
+        ← Previous
+      </a>
+    {% else %}
+      <span></span>
+    {% endif %}
+
+    <span class="text-sm text-gray-600">
+      Page {{ page }} of {{ total_pages }} ({{ total }} jobs)
+    </span>
+
+    {% if page < total_pages %}
+      <a href="?queue={{ selected_queue }}&state={{ selected_state }}&page={{ page+1 }}&size={{ size }}"
+         class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition">
+        Next →
+      </a>
+    {% else %}
+      <span></span>
+    {% endif %}
+  </nav>
+
+  <!-- Lucide icons + select‐all script -->
+  <script src="https://unpkg.com/lucide/dist/lucide.min.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.replace();
+
+      // Toggle every checkbox named "job_id"
+      const selectAll = document.getElementById('select-all');
+      selectAll?.addEventListener('change', e => {
+        const checked = e.target.checked;
+        document.querySelectorAll('input[name="job_id"]').forEach(cb => {
+          cb.checked = checked;
+        });
+      });
+
+      // Row-level AJAX actions (unchanged)…
+      async function doAction(id, action) {
+        const url = `${window.location.pathname}/${id}/${action}`;
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { Accept: 'application/json' }
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || res.statusText);
+          document.querySelector(`button.${action}-btn[data-job-id="${id}"]`)
+                  ?.closest('tr')?.remove();
+        } catch (err) {
+          alert(`Error ${action} ${id}: ${err.message}`);
+        }
+      }
+      document.querySelectorAll('button.retry-btn').forEach(b =>
+        b.addEventListener('click', () => doAction(b.dataset.jobId, 'retry'))
+      );
+      document.querySelectorAll('button.remove-btn').forEach(b =>
+        b.addEventListener('click', () => doAction(b.dataset.jobId, 'remove'))
+      );
+      document.querySelectorAll('button.cancel-btn').forEach(b =>
+        b.addEventListener('click', () => doAction(b.dataset.jobId, 'cancel'))
+      );
+    });
+  </script>
+{% endblock %}

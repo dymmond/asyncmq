@@ -14,7 +14,13 @@ except ImportError:
     raise ImportError("Please install motor: `pip install motor`") from None
 
 # Import necessary components from asyncmq.
-from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
+from asyncmq.backends.base import (
+    BaseBackend,
+    DelayedInfo,
+    RepeatableInfo,
+    WorkerInfo,
+)
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -63,6 +69,7 @@ class MongoDBBackend(BaseBackend):
         self.lock: anyio.Lock = anyio.Lock()
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
+        self._workers = self.store.db["worker_heartbeats"]
 
     async def connect(self) -> None:
         """
@@ -958,3 +965,106 @@ class MongoDBBackend(BaseBackend):
 
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
         return await self.store.filter(queue=queue, state=state)
+
+    async def list_queues(self) -> list[str]:
+        """
+        Return all unique queue names present in the job collection in MongoDB.
+
+        Connects to the MongoDB store and retrieves a list of all distinct
+        values in the "queue_name" field across all documents in the job collection.
+
+        Returns:
+            A list of strings, where each string is a unique queue name.
+        """
+        # Ensure the store is connected
+        await self.store.connect()
+        # Use MongoDB distinct to get unique queue names
+        queues: list[str] = await self.store.collection.distinct("queue_name")
+        return queues
+
+    async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
+        """
+        Register or update a worker's heartbeat in the MongoDB backend.
+
+        Inserts a new worker document or updates an existing one in the
+        workers collection based on the worker_id (_id field). It stores
+        the worker's assigned queue, concurrency level, and the current
+        heartbeat timestamp. Uses upsert=True for creation or update.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
+        """
+        await self._workers.update_one(
+            {"_id": worker_id},
+            {"$set": {"queue": queue, "concurrency": concurrency, "heartbeat": timestamp}},
+            upsert=True,
+        )
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove a worker's registry entry from the MongoDB backend.
+
+        Deletes the document corresponding to the specified worker_id (_id field)
+        from the workers collection.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
+        """
+        await self._workers.delete_one({"_id": worker_id})
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Lists active workers from the MongoDB backend.
+
+        Retrieves workers from the workers collection whose last heartbeat
+        is within the configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
+        """
+        cutoff = time.time() - monkay.settings.heartbeat_ttl
+        cursor = self._workers.find({"heartbeat": {"$gte": cutoff}})
+        workers = []
+        async for doc in cursor:
+            workers.append(
+                WorkerInfo(
+                    id=doc["_id"],
+                    queue=doc.get("queue", ""),
+                    concurrency=doc.get("concurrency", 1),
+                    heartbeat=doc["heartbeat"],
+                )
+            )
+        return workers
+
+    async def retry_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Retry a job by moving it from DLQ or failed state back to waiting.
+
+        Loads the job document from storage, updates its status to WAITING,
+        and persists the changes. This makes the job available for processing again.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job.
+        """
+        job = await self.store.load(queue_name, job_id)
+        if job:
+            from asyncmq.core.enums import State
+
+            job["status"] = State.WAITING
+            await self.store.save(queue_name, job_id, job)
+
+    async def remove_job(self, queue_name: str, job_id: str) -> None:
+        """
+        Remove a job completely from storage.
+
+        Deletes the job document with the specified ID from the given queue.
+
+        Args:
+            queue_name: The name of the queue the job belongs to.
+            job_id: The unique identifier of the job to remove.
+        """
+        await self.store.delete(queue_name, job_id)

@@ -1,10 +1,9 @@
-from typing import Any
-
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from asyncmq.cli.helpers.groups import AsyncMQGroup
 from asyncmq.cli.info import info_app
 from asyncmq.cli.job import job_app
 from asyncmq.cli.queue import queue_app
@@ -36,12 +35,16 @@ def _print_main_help() -> None:
     console.print(Panel(text, title="AsyncMQ CLI", border_style="cyan"))
 
 
-@click.group(invoke_without_command=True)
+@click.group(cls=AsyncMQGroup, invoke_without_command=True)
 @click.pass_context
-def app(ctx: Any) -> None:
+def app(ctx: click.Context) -> None:
     """AsyncMQ CLI"""
     if ctx.invoked_subcommand is None:
-        _print_main_help()
+        # Assuming _print_main_help is defined elsewhere
+        try:
+            _print_main_help()
+        except NameError:
+            print("Custom main help placeholder.")
         click.echo(ctx.get_help())
 
 

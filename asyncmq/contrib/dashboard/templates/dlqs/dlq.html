@@ -1,0 +1,158 @@
+{% extends "layout.html" %}
+{% block content %}
+  <!-- Page header -->
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-3xl font-semibold">Dead-Letter Queue: {{ queue }}</h1>
+    <a href="{{ url_prefix }}/queues/{{ queue }}"
+       class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
+      ← Back to Queue
+    </a>
+  </div>
+
+  <!-- Bulk-action form starts here -->
+  <form method="post">
+    <input type="hidden" name="page" value="{{ page }}">
+    <input type="hidden" name="size" value="{{ size }}">
+
+    <!-- Select-All + Buttons -->
+    <div class="flex items-center justify-between mb-4">
+      <!-- Select All checkbox -->
+      <label class="inline-flex items-center space-x-2">
+        <input type="checkbox" id="select-all-dlq" class="form-checkbox h-5 w-5 text-indigo-600">
+        <span class="text-sm text-gray-700">Select All</span>
+      </label>
+
+      <!-- Retry / Delete buttons -->
+      <div class="flex space-x-2">
+        <button name="action" value="retry"
+                class="px-4 py-2 bg-green-600 text-white hover:bg-green-700 transition rounded">
+          Retry Selected
+        </button>
+        <button name="action" value="remove"
+                class="px-4 py-2 bg-red-600 text-white hover:bg-red-700 transition rounded">
+          Delete Selected
+        </button>
+      </div>
+    </div>
+
+    <!-- Job‐cards grid (checkboxes now inside the form) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+      {% for job in jobs %}
+        <div class="job-card bg-white shadow border overflow-hidden flex flex-col">
+          <!-- Header + per-job checkbox -->
+          <div class="px-4 py-3 border-b flex items-center justify-between">
+            <h2 class="text-lg font-medium truncate">{{ job.id }}</h2>
+            <input type="checkbox" name="job_id" value="{{ job.id }}"
+                   class="select-dlq form-checkbox h-5 w-5 text-indigo-600">
+          </div>
+          <!-- Payload & failed-at -->
+          <div class="p-4 flex-1 bg-gray-50 text-sm overflow-auto whitespace-pre-wrap">
+            <div>Failed at: {{ job.created }}</div>
+            <div class="mt-2">Args: {{ job.args }}</div>
+            <div>Kwargs: {{ job.kwargs }}</div>
+          </div>
+          <!-- Row-level Retry/Delete (optional—you can keep or remove these) -->
+          <div class="px-4 py-3 border-t bg-white flex justify-end space-x-2">
+            <button
+              type="button"
+              class="retry-btn-dlq px-3 py-1 bg-green-500 text-white hover:bg-green-600 rounded text-sm"
+              data-job-id="{{ job.id }}"
+            >Retry</button>
+            <button
+              type="button"
+              class="remove-btn-dlq px-3 py-1 bg-red-500 text-white hover:bg-red-600 rounded text-sm"
+              data-job-id="{{ job.id }}"
+            >Delete</button>
+          </div>
+        </div>
+      {% else %}
+        <div class="col-span-full text-center text-gray-500 py-12 italic">
+          No failed jobs to display.
+        </div>
+      {% endfor %}
+    </div>
+  </form>
+  <!-- Bulk-action form ends here -->
+
+  <!-- Pagination -->
+  <nav class="mt-4 flex justify-center items-center space-x-4">
+    {% if page > 1 %}
+      <a href="?page={{ page-1 }}"
+         class="px-4 py-2 bg-gray-200 hover:bg-gray-300 transition rounded">
+        ← Previous
+      </a>
+    {% endif %}
+    <span class="text-sm text-gray-600">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="?page={{ page+1 }}"
+         class="px-4 py-2 bg-gray-200 hover:bg-gray-300 transition rounded">
+        Next →
+      </a>
+    {% endif %}
+  </nav>
+
+  <!-- Select-All script -->
+  <script>
+    document.getElementById('select-all-dlq')?.addEventListener('change', function(e) {
+      document.querySelectorAll('input.select-dlq').forEach(cb => {
+        cb.checked = e.target.checked;
+      });
+    });
+  </script>
+
+  <!-- Row-level AJAX + Toaster (optional) -->
+  <script>
+    function showToast(msg, type='success') {
+      const c = document.getElementById('toaster');
+      if (!c) return;
+      const t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = `
+        pointer-events:auto;
+        padding:0.5rem 1rem;
+        border-radius:0.25rem;
+        color:white;
+        font-size:0.875rem;
+        margin-bottom:0.5rem;
+        background:${ type==='success' ? '#22c55e' : '#ef4444' };
+      `;
+      c.append(t);
+      setTimeout(() => t.remove(), 3000);
+    }
+
+    (function(){
+      const prefix = window.location.pathname.replace(/\/dlq\/?$/, '/dlq');
+      async function doAction(id, action) {
+        try {
+          const res = await fetch(`${prefix}/${id}/${action}`, {
+            method:'POST',
+            headers:{Accept:'application/json'}
+          });
+          const j = await res.json();
+          if (!j.ok) {
+            showToast(`${action} failed: ${j.error}`, 'error');
+            return;
+          }
+          showToast(`${action.charAt(0).toUpperCase()+action.slice(1)} ${id}`, 'success');
+          const btn = document.querySelector(`button.${action}-btn-dlq[data-job-id="${id}"]`);
+          btn?.closest('.job-card')?.remove();
+        } catch(e) {
+          showToast(`Error: ${e.message}`, 'error');
+        }
+      }
+
+      document.querySelectorAll('.retry-btn-dlq').forEach(b =>
+        b.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(b.dataset.jobId, 'retry');
+        })
+      );
+      document.querySelectorAll('.remove-btn-dlq').forEach(b =>
+        b.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(b.dataset.jobId, 'remove');
+        })
+      );
+    })();
+  </script>
+{% endblock %}

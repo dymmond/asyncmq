@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
+
+  <!-- Top Metrics Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <!-- Throughput -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Throughput</h2>
+      <div id="throughput" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.throughput }}
+      </div>
+    </div>
+
+    <!-- Avg Duration -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Avg Duration</h2>
+      <div id="avg-duration" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.avg_duration or "—" }}
+      </div>
+    </div>
+
+    <!-- Retries -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Retries</h2>
+      <div id="retries" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.retries }}
+      </div>
+    </div>
+
+    <!-- Failures -->
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Failures</h2>
+      <div id="failures" class="mt-2 text-3xl font-bold text-gray-900">
+        {{ metrics.failures }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Metrics Over Time Chart -->
+  <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Metrics Over Time</h2>
+    <div class="h-64">
+      <canvas id="metrics-chart" class="w-full h-full"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart.js & SSE Script -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById('metrics-chart').getContext('2d');
+    const maxPoints = 20;
+    const chartData = {
+      labels: [],
+      datasets: [
+        {
+          label: 'Throughput',
+          data: [],
+          borderColor: 'rgba(59,130,246,0.8)',
+          fill: false,
+        },
+        {
+          label: 'Retries',
+          data: [],
+          borderColor: 'rgba(234,179,8,0.8)',
+          fill: false,
+        },
+        {
+          label: 'Failures',
+          data: [],
+          borderColor: 'rgba(239,68,68,0.8)',
+          fill: false,
+        },
+      ],
+    };
+    const metricsChart = new Chart(ctx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { display: true }, y: { beginAtZero: true } },
+        animation: { duration: 0 },
+      },
+    });
+
+    const source = new EventSource('{{ url_prefix }}/events');
+    source.addEventListener('metrics', e => {
+      try {
+        const m = JSON.parse(e.data);
+        const ts = new Date().toLocaleTimeString();
+
+        // Update the cards
+        document.getElementById('throughput').textContent   = m.throughput;
+        document.getElementById('avg-duration').textContent = m.avg_duration ?? '—';
+        document.getElementById('retries').textContent      = m.retries;
+        document.getElementById('failures').textContent     = m.failures;
+
+        // Push new point
+        chartData.labels.push(ts);
+        chartData.datasets[0].data.push(m.throughput);
+        chartData.datasets[1].data.push(m.retries);
+        chartData.datasets[2].data.push(m.failures);
+
+        // Trim old points
+        if (chartData.labels.length > maxPoints) {
+          chartData.labels.shift();
+          chartData.datasets.forEach(ds => ds.data.shift());
+        }
+        metricsChart.update();
+      } catch (err) {
+        console.error('Metrics SSE parse error', err);
+      }
+    });
+    source.onerror = () => console.warn('SSE error on metrics – retrying');
+  </script>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block content %}
+  <div class="max-w-lg mx-auto my-8">
+    <h1 class="text-2xl font-semibold mb-6">{{ page_header }}</h1>
+
+    <form method="post" class="space-y-4 bg-white shadow ring-1 ring-gray-200 rounded-lg p-6">
+      <div>
+        <label for="task_id" class="block text-sm font-medium text-gray-700">Task ID</label>
+        <input id="task_id" name="task_id" type="text" required
+               value="{{ job_def.task_id }}"
+               class="mt-1 block w-full border-gray-300 rounded-md shadow-sm
+                      focus:ring-indigo-500 focus:border-indigo-500" />
+      </div>
+
+      <div>
+        <label for="every" class="block text-sm font-medium text-gray-700">Every (seconds)</label>
+        <input id="every" name="every" type="number" min="1"
+               value="{{ job_def.every or '' }}"
+               class="mt-1 block w-full border-gray-300 rounded-md shadow-sm
+                      focus:ring-indigo-500 focus:border-indigo-500" />
+      </div>
+
+      <div>
+        <label for="cron" class="block text-sm font-medium text-gray-700">Cron expression</label>
+        <input id="cron" name="cron" type="text"
+               value="{{ job_def.cron or '' }}"
+               class="mt-1 block w-full border-gray-300 rounded-md shadow-sm
+                      focus:ring-indigo-500 focus:border-indigo-500" />
+        <p class="mt-1 text-xs text-gray-500">Either “Every” or “Cron” is required.</p>
+      </div>
+
+      <div class="flex justify-end space-x-2">
+        <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables"
+           class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition">
+          Cancel
+        </a>
+        <button type="submit"
+                class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+          Create
+        </button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

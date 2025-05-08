@@ -11,8 +11,7 @@ from rich.text import Text
 
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
 from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner
-from asyncmq.conf import settings
-from asyncmq.queues import Queue
+from asyncmq.conf import monkay
 
 console = Console()
 
@@ -83,8 +82,8 @@ def list_queues() -> None:
     implementation supports this functionality (i.e., exposes a `list_queues`
     method).
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Print a banner for the queue listing operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating that the backend is being queried for queues.
@@ -125,8 +124,8 @@ def pause_queue(queue: str) -> None:
         queue: The name of the queue to pause. This argument is required
                and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Call the backend's pause_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
     anyio.run(backend.pause_queue, queue)
@@ -152,8 +151,8 @@ def resume_queue(queue: str) -> None:
         queue: The name of the queue to resume. This argument is required
                and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
     # Call the backend's resume_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
     anyio.run(backend.resume_queue, queue)
@@ -181,8 +180,8 @@ def info_queue(queue: str) -> None:
         queue: The name of the queue to get information about. This argument
                is required and is passed from the command line.
     """
-    # Get the currently configured backend instance from settings.
-    backend = settings.backend
+    # Get the currently configured backend instance from monkay.settings.
+    backend = monkay.settings.backend
 
     # Print a banner for the queue information operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
@@ -251,6 +250,8 @@ def cli_list_delayed(queue: str) -> None:
     Args:
         queue: The name of the queue to list delayed jobs from.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the list delayed jobs operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ List Delayed Jobs")
     # Create a Queue instance for the specified queue name.
@@ -298,6 +299,8 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
         job_id: The unique identifier of the delayed job to remove. Can be
                 a string or an integer depending on how job IDs are managed.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the remove delayed job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Removed Delayed Jobs")
 
@@ -330,6 +333,8 @@ def cli_list_repeatables(queue: str) -> None:
     Args:
         queue: The name of the queue to list repeatable jobs from.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the list repeatable jobs operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ List Repeatable Jobs")
     # Create a Queue instance for the specified queue name.
@@ -383,6 +388,8 @@ def cli_pause_repeatable(queue: str, job_def_json: str | Any) -> None:
                       handling, but is expected to be a string that can be
                       deserialized to a dictionary.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the pause repeatable job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Pause Repeatable Jobs")
     # Create a Queue instance for the specified queue name.
@@ -417,6 +424,8 @@ def cli_resume_repeatable(queue: str, job_def_json: str | Any) -> None:
                       handling, but is expected to be a string that can be
                       deserialized to a dictionary.
     """
+    from asyncmq.queues import Queue
+
     # Print a banner for the resume repeatable job operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Resume Repeatable Jobs")
     # Create a Queue instance for the specified queue name.

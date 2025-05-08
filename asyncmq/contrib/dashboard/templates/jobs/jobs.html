@@ -1,0 +1,139 @@
+{% extends "layout.html" %}
+{% block content %}
+  <!-- Header + Pill Tabs -->
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-3xl font-bold">{{ page_header }}</h1>
+    <nav class="mt-4 flex flex-wrap gap-2">
+      {% set tabs = [
+           ("waiting",   "Waiting"),
+           ("active",    "Active"),
+           ("completed", "Completed"),
+           ("failed",    "Failed"),
+           ("delayed",   "Delayed"),
+           ("repeatable","Repeatable")
+         ] %}
+      {% for key, label in tabs %}
+        <a
+          href="?state={{ key }}{% if page>1 %}&page={{ page }}{% endif %}"
+          class="px-3 py-1 rounded-full text-sm font-medium transition
+                 {% if key == state %}
+                   bg-indigo-600 text-white
+                 {% else %}
+                   bg-gray-200 text-gray-700 hover:bg-gray-300
+                 {% endif %}"
+        >
+          {{ label }}
+        </a>
+      {% endfor %}
+    </nav>
+    <a href="{{ url_prefix }}/queues/{{ queue }}"
+       class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
+      ← Back to Queue
+    </a>
+  </div>
+
+  <!-- Job Cards Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for job in jobs %}
+      <div class="job-card bg-white shadow-sm rounded-lg overflow-hidden flex flex-col">
+        <!-- Card Header -->
+        <div class="px-4 py-3 border-b">
+          <h2 class="text-lg font-semibold truncate">ID: {{ job.id }}</h2>
+          <p class="text-xs text-gray-500 mt-1">
+            {{ job.status | capitalize }} on {{ job.run_at or job.created_at }}
+          </p>
+        </div>
+        <!-- Payload Preview -->
+        <div class="p-4 flex-1 overflow-auto bg-gray-50">
+          <pre class="text-xs whitespace-pre-wrap">{{ job.payload | tojson(indent=2) }}</pre>
+        </div>
+        <!-- Actions -->
+        <div class="px-4 py-3 border-t bg-white flex justify-end space-x-2">
+          <button
+            class="retry-btn px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+            data-job-id="{{ job.id }}"
+          >Retry</button>
+          <button
+            class="remove-btn px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
+            data-job-id="{{ job.id }}"
+          >Delete</button>
+          <button
+            class="cancel-btn px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+            data-job-id="{{ job.id }}"
+          >Cancel</button>
+        </div>
+      </div>
+    {% else %}
+      <div class="col-span-full text-center text-gray-500 py-8">
+        No {{ state }} jobs to display.
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  <div class="mt-8 flex justify-center items-center space-x-4">
+    {% if page > 1 %}
+      <a href="?state={{ state }}&page={{ page-1 }}"
+         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">← Previous</a>
+    {% endif %}
+    <span class="text-sm text-gray-600">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="?state={{ state }}&page={{ page+1 }}"
+         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next →</a>
+    {% endif %}
+  </div>
+
+  <!-- Row‐level AJAX actions script -->
+  <script>
+    (function() {
+      const prefix = window.location.pathname.replace(/\/$/, '');
+      async function doAction(jobId, action) {
+        const res = await fetch(`${prefix}/${jobId}/${action}`, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' }
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          return alert(`Error ${action} ${jobId}: ${json.error || res.statusText}`);
+        }
+        // Remove the corresponding job-card
+        const btn = document.querySelector(`.${action}-btn[data-job-id="${jobId}"]`)
+                  || document.querySelector(`button[data-job-id="${jobId}"].${action}-btn`);
+        // Fallback: check by class name
+        const selector = action === 'retry'
+          ? '.retry-btn'
+          : action === 'remove'
+            ? '.remove-btn'
+            : '.cancel-btn';
+        const button = document.querySelector(`${selector}[data-job-id="${jobId}"]`);
+        if (button) {
+          const card = button.closest('.job-card');
+          if (card) card.remove();
+        }
+      }
+
+      document.querySelectorAll('.retry-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'retry');
+          showToast(`Job ${btn.dataset.jobId} has been retried`, "success");
+
+        })
+      );
+      document.querySelectorAll('.remove-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'remove');
+          showToast(`Job ${btn.dataset.jobId} has been deleted`);
+        })
+      );
+      document.querySelectorAll('.cancel-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'cancel');
+          showToast(`Job ${btn.dataset.jobId} has been cancelled`);
+        })
+      );
+    })();
+  </script>
+{% endblock %}

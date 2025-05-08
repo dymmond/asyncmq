@@ -17,4 +17,4 @@ else
 fi
 
 "$PIP" install -U pip
-"$PIP" install -e .[dev,testing]
+"$PIP" install -e .[dev,testing,all]

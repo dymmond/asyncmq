@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" href="{{ favicon }}"/>
+  <title>AsyncMQ | {{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/toastify.min.css') }}">
+  <script src="{{ url_for('statics', path='/js/toastify.min.js') }}"></script>
+  <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
+  <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        asyncmq: {
+                            green: "{{ sidebar_bg_colour }}"
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+  <style>
+      .loader {
+        border-top-color: #3490dc;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+</style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+  {% include "shared/loading.html" %}
+  {% include "shared/messages.html" %}
+
+  <div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-asyncmq-green text-gray-900 flex-shrink-0">
+      <!-- Brand -->
+      <div class="h-16 flex items-center justify-center border-b border-[#B0B735]">
+        <span class="text-xl font-bold">{{ header_text }}</span>
+      </div>
+      <!-- Navigation -->
+      <nav class="mt-6 px-2 space-y-1">
+        <a href="{{ url_prefix }}"
+           class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
+             {% if active_page=='dashboard' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
+          <!-- Home Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg"
+               class="h-5 w-5 flex-shrink-0"
+               fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3 9l9-7 9 7v10a2 2 0 01-2 2h-4a2 2 0 01-2-2V12H9v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9z"/>
+          </svg>
+          <span class="ml-3">Dashboard</span>
+        </a>
+        <a href="{{ url_prefix }}/queues"
+           class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
+             {% if active_page=='queues' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
+          <!-- Queues Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg"
+               class="h-5 w-5 flex-shrink-0"
+               fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+          <span class="ml-3">Queues</span>
+        </a>
+        <a href="{{ url_prefix }}/metrics"
+           class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
+             {% if active_page=='metrics' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
+          <!-- Metrics Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg"
+               class="h-5 w-5 flex-shrink-0"
+               fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 17v-6m4 6V4m4 6v10M3 21h18"/>
+          </svg>
+          <span class="ml-3">Metrics</span>
+        </a>
+        <a href="{{ url_prefix }}/workers"
+           class="group flex items-center px-4 py-2 text-sm font-medium rounded-md
+             {% if active_page=='workers' %}bg-[#B0B735] text-white{% else %}text-gray-900 hover:bg-gray-200{% endif %}">
+          <!-- Workers Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg"
+               class="h-5 w-5 flex-shrink-0"
+               fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m9-13a4 4 0 11-8 0 4 4 0 018 0z"/>
+          </svg>
+          <span class="ml-3">Workers</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-auto">
+      <!-- Page Header -->
+      <header class="bg-white shadow px-6 py-4 print:hidden">
+        <h1 class="text-2xl font-semibold text-gray-800">{{ title }}</h1>
+      </header>
+      <!-- Page Body -->
+      <main class="flex-1 overflow-auto p-6 bg-gray-100">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+<script>
+    // Show loading on form submit
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll("form").forEach(form => {
+        form.addEventListener("submit", function () {
+          document.getElementById("loading-overlay").classList.remove("hidden");
+        });
+      });
+
+      // Optional: Show loading on navigation clicks
+      document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function (e) {
+          if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
+            document.getElementById("loading-overlay").classList.remove("hidden");
+          }
+        });
+      });
+
+      document.querySelectorAll("button").forEach(link => {
+        link.addEventListener("click", function (e) {
+          if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
+            document.getElementById("loading-overlay").classList.remove("hidden");
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

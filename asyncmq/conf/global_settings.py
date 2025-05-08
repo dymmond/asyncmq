@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
 from asyncmq.backends.redis import RedisBackend
+from asyncmq.core.utils.dashboard import DashboardConfig
 
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig
@@ -22,7 +23,7 @@ class Settings:
     backends (Postgres, MongoDB), parameters for stalled job recovery,
     sandbox execution settings, worker concurrency limits, and rate limiting
     configurations. It provides a centralized place to manage and access
-    these operational settings.
+    these operational monkay.settings.
     """
 
     debug: bool = False
@@ -103,6 +104,7 @@ class Settings:
     cancelled when utilizing the Postgres backend. Defaults to
     "asyncmq_cancelled_jobs".
     """
+    postgres_workers_heartbeat_table_name: str = "asyncmq_workers_heartbeat"
 
     asyncmq_postgres_backend_url: str | None = None
     """
@@ -206,11 +208,16 @@ class Settings:
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.
     """
+    heartbeat_ttl: int = 30
+
+    @property
+    def dashboard_config(self) -> DashboardConfig | None:
+        return DashboardConfig()
 
     @property
     def logging_config(self) -> "LoggingConfig" | None:
         """
-        Provides the configured logging setup based on current settings.
+        Provides the configured logging setup based on current monkay.settings.
 
         This property dynamically creates and returns an object that adheres
         to the `LoggingConfig` protocol, configured according to the
@@ -223,7 +230,7 @@ class Settings:
             (though the current implementation always returns a config).
         """
         # Import StandardLoggingConfig locally to avoid potential circular imports
-        # if asyncmq.logging depends on asyncmq.conf.settings.
+        # if asyncmq.logging depends on asyncmq.conf.monkay.settings.
         from asyncmq.core.utils.logging import StandardLoggingConfig
 
         # Returns a logging configuration object with the specified level.

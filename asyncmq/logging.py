@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 # and Doc would be from a specific library or convention.
 from typing_extensions import Doc
 
+from asyncmq.conf import monkay
 from asyncmq.protocols.logging import LoggerProtocol
 
 
@@ -71,8 +72,9 @@ class LoggerProxy:
         with self._lock:
             # Check if the real logger has been bound.
             if not self._logger:
+                enable_logging()
                 # If not bound, raise an error.
-                raise RuntimeError("Logger is not configured yet. Please call setup_logging() first.")
+                return getattr(self._logger, item)
             # If bound, get and return the requested attribute from the real logger.
             return getattr(self._logger, item)
 
@@ -145,7 +147,7 @@ class LoggingConfig(ABC):
     @abstractmethod
     def configure(self) -> None:
         """
-        Abstract method to configure the logging settings.
+        Abstract method to configure the logging monkay.settings.
 
         Subclasses must implement this method to apply their specific logging
         configuration (e.g., setting up handlers, formatters, loggers) using
@@ -217,24 +219,18 @@ def enable_logging() -> None:
 
     This function uses the `@lru_cache` decorator to guarantee that its body
     is executed a maximum of one time across the application's lifespan. Inside,
-    it checks the `settings.is_logging_setup` flag. If the logging system
+    it checks the `monkay.settings.is_logging_setup` flag. If the logging system
     has not already been set up according to the settings, it calls the
     `setup_logging` function (imported from `asyncmq.logging`) using the
-    logging configuration specified in `settings.logging_config`.
+    logging configuration specified in `monkay.settings.logging_config`.
 
     The imports are placed inside the function to potentially support lazy
     loading or manage import dependencies.
     """
-    # Import the application settings and the main logging setup function.
-    from asyncmq.conf import settings
-
-    # Check if the logging system is already marked as set up in the settings.
+    # Check if the logging system is already marked as set up in the monkay.settings.
     # This flag is typically managed by the `setup_logging` function itself.
-    if not settings.is_logging_setup:
+    if not monkay.settings.is_logging_setup:
         # If logging is not set up, call the setup function using the
-        # logging configuration from settings.
-        setup_logging(settings.logging_config)
-        settings.is_logging_setup = True
-
-
-enable_logging()
+        # logging configuration from monkay.settings.
+        setup_logging(monkay.settings.logging_config)
+        monkay.settings.is_logging_setup = True

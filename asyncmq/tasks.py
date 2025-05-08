@@ -4,8 +4,8 @@ from typing import Any, Callable
 
 import anyio
 
-from asyncmq import settings
 from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import monkay
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 
@@ -120,7 +120,7 @@ def task(
                 repeat_every=repeat_every,
             )
             # If the job has dependencies, add them to the backend.
-            backend = backend or settings.backend
+            backend = backend or monkay.settings.backend
 
             if job.depends_on:
                 await backend.add_dependencies(queue, job.to_dict())

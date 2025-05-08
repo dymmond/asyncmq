@@ -35,6 +35,18 @@ class DelayedInfo:
     payload: dict[str, Any]
 
 
+@dataclass
+class WorkerInfo:
+    """
+    Information about a worker (for dashboard display).
+    """
+
+    id: str
+    queue: str
+    concurrency: int
+    heartbeat: float
+
+
 class BaseBackend(ABC):
     """
     Abstract base class defining the contract for a queue backend implementation.
@@ -519,7 +531,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously cancels a job, removing it from active/waiting/delayed
         queues and marking it so workers will stop processing or skip it.
@@ -529,6 +541,12 @@ class BaseBackend(ABC):
             job_id: The unique identifier of the job to cancel.
         """
         ...
+
+    @abstractmethod
+    async def remove_job(self, queue_name: str, job_id: str) -> bool: ...
+
+    @abstractmethod
+    async def retry_job(self, queue_name: str, job_id: str) -> bool: ...
 
     @abstractmethod
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
@@ -547,4 +565,25 @@ class BaseBackend(ABC):
     @abstractmethod
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
         """List jobs by queue and state."""
+        ...
+
+    @abstractmethod
+    async def queue_stats(self, queue_name: str) -> dict[str, int]: ...
+
+    @abstractmethod
+    async def list_queues(self) -> list[str]: ...
+
+    @abstractmethod
+    async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
+        """Register or update a worker’s heartbeat and metadata."""
+        ...
+
+    @abstractmethod
+    async def deregister_worker(self, worker_id: str) -> None:
+        """Remove a worker explicitly (on clean shutdown)."""
+        ...
+
+    @abstractmethod
+    async def list_workers(self) -> list[WorkerInfo]:
+        """Return all workers with heartbeat ≥ now - monkay.settings.heartbeat_ttl."""
         ...

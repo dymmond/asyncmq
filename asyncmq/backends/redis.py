@@ -5,7 +5,8 @@ from typing import Any, cast
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
-from asyncmq.backends.base import BaseBackend, RepeatableInfo
+from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -854,7 +855,7 @@ class RedisBackend(BaseBackend):
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
-        Lists jobs in a given queue filtered by a specific state.
+        lists jobs in a given queue filtered by a specific state.
 
         Supported states: waiting, delayed, failed.
 
@@ -1265,7 +1266,7 @@ class RedisBackend(BaseBackend):
         await self.redis.zadd(key, {json.dumps(clean_def): next_run})
         return next_run  # Return the newly computed next run timestamp.
 
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously cancels a job, removing it from the waiting and delayed
         queues in Redis and marking it as cancelled in a Redis Set.
@@ -1281,19 +1282,27 @@ class RedisBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to cancel.
         """
-        # Remove from waiting list (Note: Original code uses LREM on a Sorted Set key.
-        # This is likely incorrect and should be ZREM if the waiting queue is a Sorted Set).
-        # Keeping original logic as requested, but highlighting potential issue.
-        await self.redis.lrem(self._waiting_key(queue_name), 0, json.dumps({"id": job_id}))
-        # Remove from delayed zset.
-        # Note: This ZREM call uses a partial payload {"id": job_id} which might not
-        # match the full JSON payload stored in the set member. This could fail to remove
-        # the job if the full payload is used as the member. A better approach would be
-        # to find the full payload by iterating or using a different key structure.
-        # Keeping original logic as requested, but highlighting potential issue.
-        await self.redis.zrem(self._delayed_key(queue_name), json.dumps({"id": job_id}))
-        # Mark cancelled by adding the job ID to a Redis Set.
+        removed = False
+
+        # Remove matching jobs from the waiting sorted set
+        wait_key = self._waiting_key(queue_name)
+        raw_jobs = await self.redis.zrange(wait_key, 0, -1)
+        for raw in raw_jobs:
+            job = json.loads(raw)
+            if job.get("id") == job_id:
+                await self.redis.zrem(wait_key, raw)
+                removed = True
+
+        delayed_key = self._delayed_key(queue_name)
+        raw_jobs = await self.redis.zrange(delayed_key, 0, -1)
+        for raw in raw_jobs:
+            job = json.loads(raw)
+            if job.get("id") == job_id:
+                await self.redis.zrem(delayed_key, raw)
+                removed = True
+
         await self.redis.sadd(f"queue:{queue_name}:cancelled", job_id)
+        return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> Any:
         """
@@ -1314,3 +1323,84 @@ class RedisBackend(BaseBackend):
         """
         # Check if the job ID is a member of the cancelled Set. sismember returns 1 or 0.
         return await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id)
+
+    async def register_worker(
+        self,
+        worker_id: str,
+        queue: str,
+        concurrency: int,
+        timestamp: float,
+    ) -> None:
+        """
+        Record or bump this worker's heartbeat in a Redis hash.
+
+        Records or updates the heartbeat and concurrency for a specific worker
+        within the Redis hash dedicated to heartbeats for the given queue.
+        Sets a TTL on the hash to ensure expiration if not updated.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
+        """
+        payload = json.dumps({"heartbeat": timestamp, "concurrency": concurrency})
+        key = f"queue:{queue}:heartbeats"
+        # HSET the timestamp
+        await self.redis.hset(key, worker_id, payload)
+        # Reset TTL so the whole hash expires if no updates
+        await self.redis.expire(key, monkay.settings.heartbeat_ttl)
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove this worker_id from all queue heartbeats hashes in Redis.
+
+        Scans all Redis keys matching "queue:*:heartbeats" and removes
+        the field corresponding to the specified worker_id from each hash.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
+        """
+        # Scan for any queue heartbeats key and HDEL the field
+        async for key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            await self.redis.hdel(key, worker_id)
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Lists active workers from Redis heartbeat hashes.
+
+        Scans all Redis keys matching "queue:*:heartbeats", retrieves worker
+        information from each hash, and filters entries based on whether
+        their heartbeat is within the configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
+        """
+        infos: list[WorkerInfo] = []
+        now = time.time()
+
+        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            # full_key is bytes; decode to string
+            if isinstance(full_key, bytes):
+                key_str = full_key.decode()
+            else:
+                key_str = full_key
+
+            _, queue_name, _ = key_str.split(":", 2)
+
+            # fetch all worker_id→timestamp mappings
+            heartbeats = await self.redis.hgetall(full_key)
+            for wid, data in heartbeats.items():
+                worker_id = wid.decode() if isinstance(wid, bytes) else wid
+                payload = json.loads(data)
+                timestamp = float(payload.get("heartbeat", 0))
+                if now - timestamp <= monkay.settings.heartbeat_ttl:
+                    infos.append(
+                        WorkerInfo(
+                            id=worker_id,
+                            queue=queue_name,
+                            concurrency=payload.get("concurrency"),  # each heartbeat represents one slot
+                            heartbeat=timestamp,
+                        )
+                    )
+        return infos

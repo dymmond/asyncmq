@@ -1,0 +1,137 @@
+{% extends "layout.html" %}
+{% block content %}
+  <!-- Page Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+    <h1 class="text-3xl font-semibold">{{ page_header }}</h1>
+    <!-- Overview badges -->
+    <div class="mt-4 sm:mt-0 flex space-x-4">
+      <div class="flex items-center bg-white shadow px-4 py-2 rounded">
+        <span class="text-gray-600 mr-2">Queues:</span>
+        <span id="total-queues" class="font-bold text-indigo-600">{{ total_queues or 0 }}</span>
+      </div>
+      <div class="flex items-center bg-white shadow px-4 py-2 rounded">
+        <span class="text-gray-600 mr-2">Workers:</span>
+        <span id="total-workers" class="font-bold text-indigo-600">{{ total_workers or 0 }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queues Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for queue in queues %}
+      <div
+        class="bg-white rounded-lg shadow hover:shadow-md transition p-6 flex flex-col justify-between"
+        data-queue="{{ queue.name }}"
+      >
+        <!-- Header -->
+        <div>
+          <h2 class="text-xl font-semibold truncate">{{ queue.name }}</h2>
+          <p class="mt-1 text-sm text-gray-500">
+            {% if queue.paused %}
+              <span class="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded">Paused</span>
+            {% else %}
+              <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded">Running</span>
+            {% endif %}
+          </p>
+        </div>
+
+        <!-- Metrics -->
+        <div class="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-700">
+          <div class="flex justify-between">
+            <span>Waiting</span><span class="font-medium waiting">{{ queue.waiting }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Active</span><span class="font-medium active">{{ queue.active }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Delayed</span><span class="font-medium delayed">{{ queue.delayed }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Failed</span><span class="font-medium text-red-600 failed">{{ queue.failed }}</span>
+          </div>
+          <div class="flex justify-between col-span-2">
+            <span>Completed</span><span class="font-medium text-green-600 completed">{{ queue.completed }}</span>
+          </div>
+        </div>
+
+        <!-- Action Links -->
+        <div class="mt-6 grid grid-cols-3 gap-2">
+          <a
+            href="{{ url_prefix }}/queues/{{ queue.name }}/jobs?state=waiting"
+            class="block text-center px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition text-sm"
+          >Jobs</a>
+          <a
+            href="{{ url_prefix }}/queues/{{ queue.name }}/repeatables"
+            class="block text-center px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm"
+          >Repeatables</a>
+          <a
+            href="{{ url_prefix }}/queues/{{ queue.name }}/dlq"
+            class="block text-center px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition text-sm"
+          >Dead-Letter</a>
+        </div>
+
+        <div class="mt-4 grid gap-2">
+          <a
+              href="{{ url_prefix }}/queues/{{ queue.name }}"
+              class="block text-center px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+            >View Details</a>
+        </div>
+
+        <!-- Pause/Resume -->
+        <form method="post" action="{{ url_prefix}}/queues/{{ queue .name}}" class="mt-4">
+          {% if queue.paused %}
+            <button
+              name="action" value="resume"
+              class="w-full px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm"
+            >Resume Queue</button>
+          {% else %}
+            <button
+              name="action" value="pause"
+              class="w-full px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition text-sm"
+            >Pause Queue</button>
+          {% endif %}
+        </form>
+      </div>
+    {% else %}
+      <div class="col-span-full text-center text-gray-500 py-16 italic">
+        No queues found.
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- SSE script to live-update metrics -->
+  <script>
+    const source = new EventSource('{{ url_prefix }}/events');
+
+    source.addEventListener('overview', e => {
+      try {
+        const data = JSON.parse(e.data);
+        document.getElementById('total-queues').textContent  = data.total_queues;
+        document.getElementById('total-workers').textContent = data.total_workers;
+      } catch {}
+    });
+
+    source.addEventListener('queue_stats', e => {
+      try {
+        const stats = JSON.parse(e.data);
+        stats.forEach(q => {
+          const card = document.querySelector(`[data-queue="${q.queue}"]`);
+          if (!card) return;
+          card.querySelector('.waiting').textContent   = q.waiting;
+          card.querySelector('.active').textContent    = q.active;
+          card.querySelector('.delayed').textContent   = q.delayed;
+          card.querySelector('.failed').textContent    = q.failed;
+          card.querySelector('.completed').textContent = q.completed;
+          // paused badge
+          const badge = card.querySelector('p span');
+          badge.textContent = q.paused ? 'Paused' : 'Running';
+          badge.className = q.paused
+            ? 'inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded'
+            : 'inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded';
+        });
+      } catch {}
+    });
+
+    source.onerror = () => console.warn('SSE error – retrying…');
+  </script>
+{% endblock %}

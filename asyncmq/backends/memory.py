@@ -4,7 +4,13 @@ from typing import Any
 
 import anyio
 
-from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
+from asyncmq.backends.base import (
+    BaseBackend,
+    DelayedInfo,
+    RepeatableInfo,
+    WorkerInfo,
+)
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -54,6 +60,9 @@ class InMemoryBackend(BaseBackend):
         # Heartbeats & active jobs (existing features)
         self.heartbeats: dict[_JobKey, float] = {}
         self.active_jobs: dict[_JobKey, dict[str, Any]] = {}
+
+        # Workers
+        self._worker_registry: dict[str, WorkerInfo] = {}
 
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
@@ -674,35 +683,34 @@ class InMemoryBackend(BaseBackend):
             True if the job was found and removed, False otherwise.
         """
         async with self.lock:
-            removed = False  # Flag to track if the job was removed.
-            # Iterate through the lists representing waiting, delayed, and DLQ jobs.
-            # Note: Creating a list copy of the delayed jobs' payloads for iteration.
-            for lst in (
-                self.queues.get(queue_name, []),
-                [job for _, job in self.delayed.get(queue_name, [])],
-                self.dlqs.get(queue_name, []),
-            ):
-                # Iterate through a copy of the current list to allow modification.
-                for job in list(lst):
-                    # Check if the job ID matches.
-                    if job["id"] == job_id:
-                        try:
-                            # Attempt to remove the job from the original list.
-                            lst.remove(job)
-                            removed = True  # Set flag to True if removal was successful.
-                        except ValueError:
-                            # Handle case where job might have been removed by another operation.
-                            pass
+            removed = False
 
-            # If the job was found and removed from any list.
+            waiting = self.queues.get(queue_name, [])
+            orig_wait = len(waiting)
+            self.queues[queue_name] = [j for j in waiting if j.get("id") != job_id]
+            if len(self.queues[queue_name]) != orig_wait:
+                removed = True
+
+            delayed = self.delayed.get(queue_name, [])
+            orig_delayed = len(delayed)
+            self.delayed[queue_name] = [(ts, j) for ts, j in delayed if j.get("id") != job_id]
+            if len(self.delayed[queue_name]) != orig_delayed:
+                removed = True
+
+            dlq = self.dlqs.get(queue_name, [])
+            orig_dlq = len(dlq)
+            self.dlqs[queue_name] = [j for j in dlq if j.get("id") != job_id]
+            if len(self.dlqs[queue_name]) != orig_dlq:
+                removed = True
+
             if removed:
-                job_key: _JobKey = (queue_name, job_id)
-                # Remove the job's state, result, and progress information.
-                self.job_states.pop(job_key, None)
-                self.job_results.pop(job_key, None)
-                self.job_progress.pop(job_key, None)
-                return True  # Indicate successful removal.
-            return False  # Indicate job was not found.
+                key = (queue_name, job_id)
+                self.job_states.pop(key, None)
+                self.job_results.pop(key, None)
+                self.job_progress.pop(key, None)
+                return True
+
+            return False
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
@@ -803,3 +811,57 @@ class InMemoryBackend(BaseBackend):
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)
+
+    async def register_worker(
+        self,
+        worker_id: str,
+        queue: str,
+        concurrency: int,
+        timestamp: float,
+    ) -> None:
+        """
+        Register or update a worker's heartbeat in the in-memory registry.
+
+        Stores or updates the WorkerInfo for a specific worker in the
+        internal dictionary `_worker_registry`.
+
+        Args:
+            worker_id: The unique identifier for the worker.
+            queue: The name of the queue the worker is associated with.
+            concurrency: The concurrency level of the worker.
+            timestamp: The timestamp representing the worker's last heartbeat.
+        """
+        self._worker_registry[worker_id] = WorkerInfo(
+            id=worker_id,
+            queue=queue,
+            concurrency=concurrency,
+            heartbeat=timestamp,
+        )
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """
+        Remove a worker's entry from the in-memory registry.
+
+        Removes the entry for the specified worker_id from the
+        internal dictionary `_worker_registry`.
+
+        Args:
+            worker_id: The unique identifier of the worker to deregister.
+        """
+        self._worker_registry.pop(worker_id, None)
+
+    async def list_workers(self) -> list[WorkerInfo]:
+        """
+        Lists active workers from the in-memory registry.
+
+        Iterates through the workers in the internal dictionary `_worker_registry`
+        and returns a list of those whose last heartbeat is within the
+        configured time-to-live (TTL).
+
+        Returns:
+            A list of WorkerInfo objects representing the active workers.
+        """
+        now = time.time()
+        return [
+            info for info in self._worker_registry.values() if now - info.heartbeat <= monkay.settings.heartbeat_ttl
+        ]

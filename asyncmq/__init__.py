@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from monkay import Monkay
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 if TYPE_CHECKING:
     from .backends.memory import InMemoryBackend
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .tasks import task
     from .workers import Worker
 
-_monkay: Monkay = Monkay(
+monkay: Monkay = Monkay(
     globals(),
     lazy_imports={
         "BaseJobStore": ".stores.base.BaseJobStore",
@@ -25,7 +25,7 @@ _monkay: Monkay = Monkay(
         "RedisBackend": ".backends.redis.RedisBackend",
         "Worker": ".workers.Worker",
         "settings": ".conf.settings",
-        "Settings": ".conf.global_settings.Settings",
+        "Settings": ".conf.global_monkay.settings.Settings",
     },
     skip_all_update=True,
     package="asyncmq",
@@ -43,4 +43,4 @@ __all__ = [
     "Worker",
 ]
 
-_monkay.add_lazy_import("task", ".tasks.task")
+monkay.add_lazy_import("task", ".tasks.task")

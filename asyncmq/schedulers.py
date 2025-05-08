@@ -5,7 +5,7 @@ import anyio
 from croniter import croniter
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import settings
+from asyncmq.conf import monkay
 from asyncmq.jobs import Job
 
 
@@ -46,8 +46,8 @@ async def repeatable_scheduler(
                   This argument is advisory and aims to prevent excessive CPU usage.
     """
     # Use the provided backend or fall back to the one from settings
-    backend = backend or settings.backend
-    settings.sandbox_enabled = False
+    backend = backend or monkay.settings.backend
+    monkay.settings.sandbox_enabled = False
 
     # Dictionaries to keep track of cron iterators and their next run times
     cron_trackers: dict[str, croniter] = {}

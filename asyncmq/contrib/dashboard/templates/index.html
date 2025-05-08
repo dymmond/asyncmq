@@ -1,0 +1,211 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
+
+  <!-- Summary Cards + Pie -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Queues</h2>
+      <div id="total-queues" class="mt-2 text-3xl font-bold text-gray-900">{{ total_queues }}</div>
+    </div>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Jobs</h2>
+      <div id="total-jobs" class="mt-2 text-3xl font-bold text-gray-900">{{ total_jobs }}</div>
+    </div>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Workers</h2>
+      <div id="total-workers" class="mt-2 text-3xl font-bold text-gray-900">{{ total_workers }}</div>
+    </div>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Job Distribution</h2>
+      <div class="w-full h-48 mt-4">
+        <canvas id="jobdist-chart" class="w-full h-full"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6">
+      <h2 class="text-lg font-semibold mb-4">Throughput Over Time</h2>
+      <div class="h-64"><canvas id="overview-line-chart" class="w-full h-full"></canvas></div>
+    </div>
+    <div class="bg-white ring-1 ring-gray-200 shadow p-6">
+      <h2 class="text-lg font-semibold mb-4">Waiting Jobs Per Queue</h2>
+      <div class="h-64"><canvas id="queue-bar-chart" class="w-full h-full"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Latest 10 Jobs Table -->
+  <div class="bg-white ring-1 ring-gray-200 shadow rounded-lg overflow-x-auto mb-8">
+    <div class="p-6">
+      <h2 class="text-xl font-semibold mb-4">Latest 10 Jobs</h2>
+      <table class="min-w-full table-auto divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">ID</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Queue</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">State</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Time</th>
+          </tr>
+        </thead>
+        <tbody id="latest-jobs-body" class="bg-white divide-y divide-gray-200">
+          {% for job in latest_jobs %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ job.id }}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ job.queue }}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm">
+              <span class="px-2 inline-flex text-xs font-semibold rounded
+                {% if job.state == 'completed' %}
+                  bg-green-100 text-green-800
+                {% elif job.state == 'failed' %}
+                  bg-red-100 text-red-800
+                {% elif job.state == 'active' %}
+                  bg-yellow-100 text-yellow-800
+                {% else %}
+                  bg-gray-100 text-gray-800
+                {% endif %}">
+                {{ job.state | capitalize }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ job.time }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="px-6 py-8 text-center text-gray-500 italic">No recent jobs.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recently Active Queues Table -->
+  <div class="bg-white ring-1 ring-gray-200 shadow rounded-lg overflow-x-auto mb-8">
+    <div class="p-6">
+      <h2 class="text-xl font-semibold mb-4">Recently Active Queues</h2>
+      <table class="min-w-full table-auto divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Queue</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Last Activity</th>
+          </tr>
+        </thead>
+        <tbody id="latest-queues-body" class="bg-white divide-y divide-gray-200">
+          {% for q in latest_queues %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ q.name }}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ q.time }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="2" class="px-6 py-8 text-center text-gray-500 italic">No queues found.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chart.js & SSE Script -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const source = new EventSource('{{ url_prefix }}/events');
+
+    // Overview
+    source.addEventListener('overview', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('total-queues').textContent  = d.total_queues;
+      document.getElementById('total-jobs').textContent    = d.total_jobs;
+      document.getElementById('total-workers').textContent = d.total_workers;
+    });
+
+    // Pie
+    const pieChart = new Chart(
+      document.getElementById('jobdist-chart').getContext('2d'), {
+      type: 'doughnut',
+      data: { labels:['Waiting','Active','Delayed','Completed','Failed'], datasets:[{ data:[0,0,0,0,0] }] },
+      options:{ responsive:true, maintainAspectRatio:false, animation:{ duration:0 } }
+    });
+    source.addEventListener('jobdist', e => {
+      const dist = JSON.parse(e.data);
+      pieChart.data.datasets[0].data = [dist.waiting,dist.active,dist.delayed,dist.completed,dist.failed];
+      pieChart.update();
+    });
+
+    // Line
+    const lineCtx = document.getElementById('overview-line-chart').getContext('2d');
+    const lineData = { labels:[], datasets:[{ label:'Completed', data:[], borderColor:'rgba(59,130,246,0.8)', fill:false }] };
+    const lineChart = new Chart(lineCtx, { type:'line', data:lineData,
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{}, y:{ beginAtZero:true } }, animation:{ duration:0 } }
+    });
+    source.addEventListener('metrics', e => {
+      const m = JSON.parse(e.data), ts=new Date().toLocaleTimeString();
+      lineData.labels.push(ts); lineData.datasets[0].data.push(m.throughput);
+      if(lineData.labels.length>20){ lineData.labels.shift(); lineData.datasets[0].data.shift(); }
+      lineChart.update();
+    });
+
+    // Bar
+    const barCtx = document.getElementById('queue-bar-chart').getContext('2d');
+    const barData = { labels:[], datasets:[{ label:'Waiting', data:[], backgroundColor:'rgba(59,130,246,0.7)' }] };
+    const barChart = new Chart(barCtx, { type:'bar', data:barData,
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{}, y:{ beginAtZero:true } }, animation:{ duration:0 } }
+    });
+    source.addEventListener('queues', e => {
+      const rows = JSON.parse(e.data);
+      barData.labels = rows.map(r=>r.name);
+      barData.datasets[0].data = rows.map(r=>r.waiting);
+      barChart.update();
+    });
+
+    // Latest 10 Jobs table
+    source.addEventListener('latest_jobs', e => {
+      const jobs = JSON.parse(e.data);
+      const tbody = document.getElementById('latest-jobs-body');
+      tbody.innerHTML = '';
+      jobs.forEach(j => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-100';
+        tr.innerHTML = `
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${j.id}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.queue}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.state}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.time}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+
+    // Recent 5 Queues table
+    source.addEventListener('latest_queues', e => {
+      const qs = JSON.parse(e.data);
+      const tbody = document.getElementById('latest-queues-body');
+      tbody.innerHTML = '';
+      qs.forEach(q => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-100';
+        tr.innerHTML = `
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${q.name}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${q.time}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+
+    source.onerror = () => console.warn('SSE error – retrying…');
+  </script>nt.getElementById('total-workers').textContent = d.total_workers;
+    });
+
+    // Pie chart
+    const pieChart = new Chart(
+      document.getElementById('jobdist-chart').getContext('2d'),
+      {
+        type: 'doughnut',
+        data: {
+          labels: ['Waiting','Active','Delayed','Completed','Failed'],
+          datasets: [{ data: [0,0,0,0,0] }]
+        },
+        options: { responsive:true, maintainAspectRatio:false, animation:{ duration:0 } }
+
+{% endblock %}

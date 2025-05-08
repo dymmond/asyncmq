@@ -1,0 +1,148 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
+  <a href="{{ url_prefix }}/queues"
+         class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition">
+        ← Back to Queues
+    </a>
+</div>
+
+  <div class="grid lg:grid-cols-2 gap-6 mb-6">
+    <!-- Controls & Counts Card -->
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-lg font-semibold mb-4">Controls</h2>
+      <form method="post" class="mb-6">
+        {% if paused %}
+          <button name="action" value="resume"
+                  class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+            Resume Queue
+          </button>
+        {% else %}
+          <button name="action" value="pause"
+                  class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+            Pause Queue
+          </button>
+        {% endif %}
+      </form>
+
+      <h2 class="text-lg font-semibold mb-4">Job Counts</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="flex justify-between">
+          <span class="font-medium text-gray-700">Waiting:</span>
+          <span class="text-gray-900">{{ counts.waiting }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="font-medium text-gray-700">Active:</span>
+          <span class="text-gray-900">{{ counts.active }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="font-medium text-gray-700">Delayed:</span>
+          <span class="text-gray-900">{{ counts.delayed }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="font-medium text-gray-700">Failed:</span>
+          <span class="text-red-600">{{ counts.failed }}</span>
+        </div>
+        <div class="flex justify-between col-span-2">
+          <span class="font-medium text-gray-700">Completed:</span>
+          <span class="text-green-600">{{ counts.completed }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Real-Time Chart Card -->
+    <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+      <h2 class="text-lg font-semibold mb-4">Real-Time Job Counts</h2>
+      <div class="flex-1 h-64">
+        <canvas id="queue-chart" class="w-full h-full"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modern Quick-Links Grid -->
+  <div class="bg-white rounded-lg shadow p-6 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Quick Actions</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <!-- All Jobs -->
+      <a href="{{ url_prefix }}/queues/{{ queue }}/jobs"
+         class="flex items-center p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg shadow-sm transition">
+        <svg class="w-6 h-6 text-indigo-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h8V6H5z" />
+        </svg>
+        <span class="font-medium text-indigo-700">All Jobs</span>
+      </a>
+
+      <!-- Repeatables -->
+      <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables"
+         class="flex items-center p-4 bg-green-50 hover:bg-green-100 rounded-lg shadow-sm transition">
+        <svg class="w-6 h-6 text-green-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M4 3a1 1 0 011-1h4a1 1 0 010 2H6v4a1 1 0 11-2 0V4zm8 0a1 1 0 011-1h4a1 1 0 010 2h-3v4a1 1 0 11-2 0V4zM4 13a1 1 0 011 1v4a1 1 0 01-2 0v-3H?..." />
+        </svg>
+        <span class="font-medium text-green-700">Repeatable Jobs</span>
+      </a>
+
+      <!-- Dead-Letter Queue -->
+      <a href="{{ url_prefix }}/queues/{{ queue }}/dlq"
+         class="flex items-center p-4 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm transition">
+        <svg class="w-6 h-6 text-red-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M10 3a1 1 0 00-1 1v6H3a1 1 0 100 2h6v6a1 1 0 102 0v-6h6a1 1 0 100-2h-6V4a1 1 0 00-1-1z" />
+        </svg>
+        <span class="font-medium text-red-700">Dead-Letter Queue</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Chart.js CDN + SSE Script -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById('queue-chart').getContext('2d');
+    const maxPoints = 20;
+    const data = {
+      labels: [],
+      datasets: [
+        { label: 'Waiting',   data: [], borderColor: 'rgba(59,130,246,0.8)', fill: false },
+        { label: 'Active',    data: [], borderColor: 'rgba(234,179,8,0.8)',  fill: false },
+        { label: 'Delayed',   data: [], borderColor: 'rgba(14,165,233,0.8)', fill: false },
+        { label: 'Failed',    data: [], borderColor: 'rgba(239,68,68,0.8)',  fill: false },
+        { label: 'Completed', data: [], borderColor: 'rgba(34,197,94,0.8)',  fill: false },
+      ]
+    };
+    const queueChart = new Chart(ctx, {
+      type: 'line',
+      data,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: {}, y: { beginAtZero: true } },
+        animation: { duration: 0 },
+      },
+    });
+
+    const source = new EventSource('{{ url_prefix }}/events');
+    source.addEventListener('queues', e => {
+      try {
+        const rows = JSON.parse(e.data);
+        const now = new Date().toLocaleTimeString();
+        const q = rows.find(r => r.name === "{{ queue }}");
+        if (!q) return;
+
+        data.labels.push(now);
+        data.datasets[0].data.push(q.waiting);
+        data.datasets[1].data.push(q.active);
+        data.datasets[2].data.push(q.delayed);
+        data.datasets[3].data.push(q.failed);
+        data.datasets[4].data.push(q.completed);
+
+        if (data.labels.length > maxPoints) {
+          data.labels.shift();
+          data.datasets.forEach(ds => ds.data.shift());
+        }
+        queueChart.update();
+      } catch (err) {
+        console.error('Queue SSE parse error', err);
+      }
+    });
+    source.onerror = () => console.warn('SSE error on queues – retrying…');
+  </script>
+{% endblock %}
