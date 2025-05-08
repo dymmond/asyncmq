@@ -3,6 +3,7 @@ from typing import Any
 from lilya.apps import Lilya
 from lilya.requests import Request
 from lilya.routing import Include, RoutePath
+from lilya.staticfiles import StaticFiles
 
 from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.controllers import sse
@@ -46,6 +47,8 @@ routes = [
     RoutePath("/metrics", metrics.MetricsController, methods=["GET"], name="metrics"),
     # New SSE endpoint for real-time updates
     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),
+    # Serve the statics
+    Include("/static", app=StaticFiles(packages=["asyncmq.contrib.dashboard"]), name="statics"),
 ]
 
 dashboard = Lilya(
