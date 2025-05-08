@@ -54,6 +54,7 @@ class QueueJobController(DashboardMixin, TemplateController):
             )
 
         total_pages = (total + size - 1) // size
+        state = request.query_params.get("state", "waiting")
 
         context = await super().get_context_data(request)
         context.update(
@@ -65,6 +66,7 @@ class QueueJobController(DashboardMixin, TemplateController):
                 "size": size,
                 "total": total,
                 "total_pages": total_pages,
+                "state": state,
             }
         )
         return await self.render_template(request, context=context)

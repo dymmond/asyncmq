@@ -55,6 +55,21 @@ class QueueController(DashboardMixin, TemplateController):
         )
         return await self.render_template(request, context=context)
 
+    async def post(self, request: Request) -> Any:
+        """
+        Handles pause/resume form posts (unchanged).
+        """
+        backend = monkay.settings.backend
+        q = request.path_params["name"]
+        action = (await request.form()).get("action")
+
+        if action == "pause" and hasattr(backend, "pause_queue"):
+            await backend.pause_queue(q)
+        elif action == "resume" and hasattr(backend, "resume_queue"):
+            await backend.resume_queue(q)
+
+        return RedirectResponse(f"/queues/{q}/{request.path_params.get('state', 'waiting')}")
+
 
 class QueueDetailController(DashboardMixin, TemplateController):
     """

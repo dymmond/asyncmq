@@ -1,9 +1,40 @@
 {% extends "layout.html" %}
 {% block content %}
+  <!-- Page header -->
   <h1 class="text-2xl font-bold mb-4">{{ page_header }}</h1>
 
+  <!-- Tabs for job states -->
+  <ul class="flex space-x-4 mb-4 border-b">
+    {% set tabs = [
+         ("waiting",   "Waiting"),
+         ("active",    "Active"),
+         ("completed", "Completed"),
+         ("failed",    "Failed"),
+         ("delayed",   "Delayed"),
+         ("repeatable","Repeatable")
+       ] %}
+    {% for key, label in tabs %}
+      <li class="-mb-px">
+        <a
+          href="?state={{ key }}{% if page > 1 %}&page={{ page }}{% endif %}"
+          class="px-4 py-2 inline-block border-l border-t border-r rounded-t
+                 {% if key == state %}
+                   bg-white border-gray-300 font-semibold
+                 {% else %}
+                   bg-gray-100 border-transparent
+                 {% endif %}"
+        >
+          {{ label }}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <!-- Bulk‐action form -->
   <form method="post">
-    <div class="flex space-x-2 mb-2">
+    <input type="hidden" name="state" value="{{ state }}">
+
+    <div class="flex space-x-2 mb-4">
       <button name="action" value="retry"
               class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
         Retry Selected
@@ -18,60 +49,61 @@
       </button>
     </div>
 
-    <table class="min-w-full bg-white mb-4">
+    <!-- Jobs table -->
+    <table class="min-w-full bg-white">
       <thead>
         <tr>
-          <th><input type="checkbox" id="select-all"></th>
-          <th>ID</th>
-          <th>Args</th>
-          <th>Kwargs</th>
-          <th>Created</th>
+          <th class="px-2"><input type="checkbox" id="select-all"></th>
+          <th class="px-4 py-2">ID</th>
+          <th class="px-4 py-2">Status</th>
+          <th class="px-4 py-2">Payload</th>
+          <th class="px-4 py-2">Enqueued At</th>
         </tr>
       </thead>
       <tbody>
         {% for job in jobs %}
-        <tr>
-          <td><input type="checkbox" name="job_id" value="{{ job.id }}"></td>
-          <td>{{ job.id }}</td>
-          <td><pre>{{ job.args }}</pre></td>
-          <td><pre>{{ job.kwargs }}</pre></td>
-          <td>{{ job.created }}</td>
-        </tr>
+          <tr class="border-t">
+            <td class="px-2 text-center">
+              <input type="checkbox" name="job_id" value="{{ job.id }}">
+            </td>
+            <td class="px-4 py-2">{{ job.id }}</td>
+            <td class="px-4 py-2">{{ job.status }}</td>
+            <td class="px-4 py-2">
+              <pre class="whitespace-pre-wrap">{{ job.payload | tojson(indent=2) }}</pre>
+            </td>
+            <td class="px-4 py-2">{{ job.run_at or job.created_at }}</td>
+          </tr>
         {% else %}
-        <tr>
-          <td colspan="5" class="italic text-gray-600">
-            No jobs found in this state.
-          </td>
-        </tr>
+          <tr>
+            <td colspan="5" class="text-center py-4">No {{ state }} jobs</td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>
+
+    <!-- Pagination -->
+    <nav class="mt-4 flex justify-between">
+      {% if page > 1 %}
+        <a href="?state={{ state }}&page={{ page - 1 }}"
+           class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+          ← Previous
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      {% if page < total_pages %}
+        <a href="?state={{ state }}&page={{ page + 1 }}"
+           class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+          Next →
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+    </nav>
   </form>
 
-  <nav class="flex justify-between items-center">
-    {% if page > 1 %}
-      <a href="?state={{ state }}&page={{ page-1 }}&size={{ size }}"
-         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
-        Previous
-      </a>
-    {% else %}
-      <span></span>
-    {% endif %}
-
-    <span>Page {{ page }} of {{ total_pages }}</span>
-
-    {% if page < total_pages %}
-      <a href="?state={{ state }}&page={{ page+1 }}&size={{ size }}"
-         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
-        Next
-      </a>
-    {% else %}
-      <span></span>
-    {% endif %}
-  </nav>
-
+  <!-- “Select all” checkbox script -->
   <script>
-    // Toggle all checkboxes
     document.getElementById('select-all')?.addEventListener('change', function(e) {
       document.querySelectorAll('input[name="job_id"]').forEach(cb => {
         cb.checked = e.target.checked;
