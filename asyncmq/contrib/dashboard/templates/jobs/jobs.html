@@ -58,6 +58,7 @@
           <th class="px-4 py-2">Status</th>
           <th class="px-4 py-2">Payload</th>
           <th class="px-4 py-2">Enqueued At</th>
+          <th class="px-4 py-2">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -72,10 +73,24 @@
               <pre class="whitespace-pre-wrap">{{ job.payload | tojson(indent=2) }}</pre>
             </td>
             <td class="px-4 py-2">{{ job.run_at or job.created_at }}</td>
+            <td class="px-4 py-2 space-x-2">
+              <button
+                class="retry-btn px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                data-job-id="{{ job.id }}"
+              >Retry</button>
+              <button
+                class="remove-btn px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                data-job-id="{{ job.id }}"
+              >Delete</button>
+              <button
+                class="cancel-btn px-2 py-1 bg-yellow-500 text-black rounded hover:bg-yellow-600"
+                data-job-id="{{ job.id }}"
+              >Cancel</button>
+            </td>
           </tr>
         {% else %}
           <tr>
-            <td colspan="5" class="text-center py-4">No {{ state }} jobs</td>
+            <td colspan="6" class="text-center py-4">No {{ state }} jobs</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -109,5 +124,42 @@
         cb.checked = e.target.checked;
       });
     });
+  </script>
+
+  <!-- Row‐level AJAX actions script -->
+  <script>
+    (function() {
+      const prefix = window.location.pathname.replace(/\/$/, '');
+      async function doAction(jobId, action) {
+        const url = `${prefix}/${jobId}/${action}`;
+        try {
+          const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } });
+          const json = await res.json();
+          if (!json.ok) throw new Error(json.error || res.statusText);
+          document.querySelector(`button[data-job-id="${jobId}"]`).closest('tr').remove();
+        } catch (err) {
+          alert(`Error ${action} ${jobId}: ${err.message}`);
+        }
+      }
+
+      document.querySelectorAll('.retry-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'retry');
+        })
+      );
+      document.querySelectorAll('.remove-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'remove');
+        })
+      );
+      document.querySelectorAll('.cancel-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          doAction(btn.dataset.jobId, 'cancel');
+        })
+      );
+    })();
   </script>
 {% endblock %}

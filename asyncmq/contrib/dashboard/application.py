@@ -35,6 +35,7 @@ routes = [
     RoutePath("/queues/{name}", queues.QueueDetailController, methods=["GET", "POST"], name="queue-detail"),
     # Jobs listing + pagination + Retry/Delete/Cancel
     RoutePath("/queues/{name}/jobs", jobs.QueueJobController, methods=["GET", "POST"], name="queue-jobs"),
+    RoutePath("/queues/{name}/jobs/{job_id}/{action}", jobs.JobActionController, methods=["POST"], name="job-action"),
     # Repeatable definitions
     RoutePath("/queues/{name}/repeatables", repeatables.RepeatablesController, methods=["GET"], name="repeatables"),
     # Dead-letter queue + Retry/Delete

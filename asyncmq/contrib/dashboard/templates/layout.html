@@ -31,9 +31,7 @@
 </style>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
-  <div id="loading-overlay" class="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center hidden">
-    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
-  </div>
+  {% include "shared/loading.html" %}
 
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
@@ -107,7 +105,6 @@
       </main>
     </div>
   </div>
-
 <script>
     // Show loading on form submit
     document.addEventListener("DOMContentLoaded", function () {

@@ -4,8 +4,9 @@ import json
 from datetime import datetime
 from typing import Any
 
+from lilya.controllers import Controller
 from lilya.requests import Request
-from lilya.responses import RedirectResponse
+from lilya.responses import JSONResponse, RedirectResponse
 from lilya.templating.controllers import TemplateController
 
 from asyncmq.conf import monkay
@@ -99,3 +100,29 @@ class QueueJobController(DashboardMixin, TemplateController):
 
         # back to the same list/state
         return RedirectResponse(f"/queues/{queue}/jobs?state={state}")
+
+
+class JobActionController(Controller):
+    """
+    Handles single‐job actions via AJAX:
+      POST /queues/{name}/jobs/{job_id}/{action}
+      where action ∈ {'retry','remove','cancel'}
+    Returns JSON { ok: true } on success or { ok: false, error: '...' }.
+    """
+    async def post(self, request: Request, job_id: str | int, action: str) -> Any:
+        queue = request.path_params.get("name")
+        backend = monkay.settings.backend
+
+        try:
+            if action == "retry":
+                await backend.retry_job(queue, job_id)
+            elif action == "remove":
+                await backend.remove_job(queue, job_id)
+            elif action == "cancel":
+                await backend.cancel_job(queue, job_id)
+            else:
+                return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        return JSONResponse({"ok": True})
