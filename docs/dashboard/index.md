@@ -12,6 +12,10 @@ The AsyncMQ Admin Dashboard provides a browser-based interface to monitor and ma
 
 You eill need to install the dashboard.
 
+The dashboard also requires the `SessionMiddleware` to be used due to messages being sent.
+
+If you use FastAPI or Esmerald you can simply use the one from Starlette or Lilya.
+
 ```shell
 pip install asyncmq[dashboard]
 ```
