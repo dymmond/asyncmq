@@ -16,6 +16,18 @@ The dashboard also requires the `SessionMiddleware` to be used due to messages b
 
 If you use FastAPI or Esmerald you can simply use the one from Starlette or Lilya.
 
+The reason for all of this was to make the dashboard as ASGI friendly as possible and since Lilya and Starlette use Pure ASGI middlewares, that means you can also use them anywhere else but you are also free to use your own.
+
+**Importing from Lilya**
+
+When you install the dashboard, it will also install [Lilya](https://lilya.dev) as its used internally for this purpose.
+
+```python
+from lilya.middleware.session import SessionMiddleware
+```
+
+## The installation
+
 ```shell
 pip install asyncmq[dashboard]
 ```
