@@ -49,7 +49,7 @@ routes = [
     # New SSE endpoint for real-time updates
     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),
     # Serve the statics
-    Include("/static", app=StaticFiles(packages=["asyncmq.contrib.dashboard"]), name="statics"),
+    Include("/static", app=StaticFiles(packages=["asyncmq.contrib.dashboard"], html=True), name="statics"),
 ]
 
 dashboard = Lilya(
