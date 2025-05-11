@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.2.1
+
+### Fixed
+
+- StaticFiles were not enabling the html to True for the dashboard.
+
 ## 0.2.0
 
 ## Release Notes
