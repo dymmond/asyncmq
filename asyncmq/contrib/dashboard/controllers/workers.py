@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Any
 
 from lilya.requests import Request
@@ -16,31 +17,45 @@ class WorkerController(DashboardMixin, TemplateController):
     template_name = "workers/workers.html"
 
     async def get(self, request: Request) -> Any:
-        # 1. Base context (title, header, favicon)
         context = await super().get_context_data(request)
 
         backend = monkay.settings.backend
         worker_info = await backend.list_workers()
 
-        # 3. Normalize into simple dicts for Jinja
-        workers: list[dict[str, Any]] = []
+        all_workers: list[dict[str, Any]] = []
         for wi in worker_info:
-            heartbeat = datetime.datetime.fromtimestamp(wi.heartbeat)
-            workers.append(
+            hb = datetime.datetime.fromtimestamp(wi.heartbeat)
+            all_workers.append(
                 {
                     "id": wi.id,
-                    "queue": wi.queue,  # or wi.queues if a list
+                    "queue": wi.queue,
                     "concurrency": wi.concurrency,
-                    "heartbeat": heartbeat.strftime("%Y-%m-%d %H:%M:%S"),
+                    "heartbeat": hb.strftime("%Y-%m-%d %H:%M:%S"),
                 }
             )
 
-        # 4. Inject and render
+        qs = request.query_params
+        page = max(1, int(qs.get("page", 1)))
+        size = max(1, int(qs.get("size", 20)))
+
+        total = len(all_workers)
+        total_pages = math.ceil(total / size) if size else 1
+        page = min(page, total_pages)
+
+        start = (page - 1) * size
+        end = start + size
+        workers = all_workers[start:end]
+
         context.update(
             {
                 "title": "Active Workers",
                 "workers": workers,
                 "active_page": "workers",
+                "page": page,
+                "size": size,
+                "total": total,
+                "total_pages": total_pages,
+                "page_sizes": [10, 20, 50, 100],
             }
         )
         return await self.render_template(request, context=context)

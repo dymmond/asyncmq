@@ -1,8 +1,22 @@
 from dataclasses import dataclass, field
+from typing import Sequence
+
+from lilya.conf.global_settings import Settings as LilyaSettings
+from lilya.middleware import DefineMiddleware, Middleware
+from lilya.middleware.sessions import SessionMiddleware
 
 from asyncmq.conf.global_settings import Settings
 
 test_scanner_interval = 0.01
+
+
+@dataclass
+class LilyaDashboardSettings(LilyaSettings):
+    @property
+    def middleware(self) -> Sequence[DefineMiddleware]:
+        return [
+            Middleware(SessionMiddleware, secret_key="secret"),
+        ]
 
 
 @dataclass

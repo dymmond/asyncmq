@@ -18,7 +18,7 @@ def client():
         yield client
 
 
-def xtest_home_page(client):
+def test_home_page(client):
     monkay.settings.backend = RedisBackend()
     response = client.get(reverse("dashboard"))
     assert response.status_code == 200
@@ -34,7 +34,7 @@ def xtest_home_page(client):
         (reverse("metrics"), b"Metrics"),
     ],
 )
-def xtest_pages(path, keyword, client):
+def test_pages(path, keyword, client):
     monkay.settings.backend = RedisBackend()
     response = client.get(path)
     assert response.status_code == 200

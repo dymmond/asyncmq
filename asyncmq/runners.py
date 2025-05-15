@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Any
 
 from asyncmq.backends.base import BaseBackend
@@ -28,7 +29,13 @@ async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBacke
     backend = backend or monkay.settings.backend
 
     tasks = []
+    worker_ids: set[int] = set()
     for worker_id in range(concurrency):
+        if worker_id not in worker_ids:
+            worker_ids.add(worker_id)
+            timestamp = time.time()
+            await backend.register_worker(str(worker_id), queue_name, concurrency, timestamp)
+
         task = asyncio.create_task(worker_loop(queue_name, worker_id, backend))
         tasks.append(task)
 
@@ -36,6 +43,9 @@ async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBacke
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
         # Graceful shutdown if Ctrl+C
+        for worker_id in worker_ids:
+            # Unregister the workers
+            await backend.deregister_worker(str(worker_id))
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

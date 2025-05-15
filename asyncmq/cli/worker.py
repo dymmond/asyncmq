@@ -67,7 +67,7 @@ def _print_worker_help() -> None:
 @worker_app.command("start")
 @click.argument("queue")
 @click.option("--concurrency", required=False, help="Number of concurrent workers.")
-def start_worker_cli(queue: str, concurrency: int | str | None = None) -> None:
+def start_worker(queue: str, concurrency: int | str | None = None) -> None:
     """
     Starts an AsyncMQ worker process for a specified queue.
 
