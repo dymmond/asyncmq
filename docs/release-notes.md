@@ -5,6 +5,18 @@ hide:
 
 # Release Notes
 
+## 0.2.2
+
+### Changed
+
+- Updated minimum version of Lilya.
+- Workers controller now reflects pagination and sizes.
+
+### Fixed
+
+- When starting a worker from the command-line, it was not automatically registering that same worker.
+- The `workers.html` was not reflecting the correct information about the active workers.
+
 ## 0.2.1
 
 ### Fixed

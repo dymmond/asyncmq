@@ -1378,7 +1378,6 @@ class RedisBackend(BaseBackend):
         """
         infos: list[WorkerInfo] = []
         now = time.time()
-
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
             # full_key is bytes; decode to string
             if isinstance(full_key, bytes):

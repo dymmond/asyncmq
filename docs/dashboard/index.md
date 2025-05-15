@@ -5,7 +5,9 @@ hide:
 
 # AsyncMQ Admin Dashboard
 
-The AsyncMQ Admin Dashboard provides a browser-based interface to monitor and manage your queues, jobs, workers, metrics, and dead-letter queues in real time. It is fully ASGI-friendly and can be mounted in any ASGI framework (e.g., FastAPI, Esmerald, Starlette).
+The AsyncMQ Admin Dashboard is a sleek, ASGI powered interface that lets you peek under the hood of your background job system.
+Whether you're cruising with FastAPI, Esmerald, or Starlette, simply mount the dashboard, plug in a session middleware,
+and voilà, you've got real-time insights into queues, workers, jobs, and metrics without writing a single JavaScript line.
 
 !!! Note
     This is the first version of the AsyncMQ Admin Dashboard documentation, created to gather user feedback and understand user needs.
@@ -28,34 +30,14 @@ from lilya.middleware.session import SessionMiddleware
 
 ## The installation
 
+Getting started is a breeze. Install the AsyncMQ package (which bundles the dashboard) via pip:
+
 ```shell
 pip install asyncmq[dashboard]
 ```
 
----
-
-## Table of Contents
-
-1. [Installation](#installation)
-2. [Configuration](#configuration)
-3. [Quick Start](#quick-start)
-4. [Embedding in Your ASGI App](#embedding-in-your-asgi-app)
-5. [Standalone Server](#standalone-server)
-6. [Endpoints & Controllers](#endpoints--controllers)
-7. [Templates & Static Assets](#templates--static-assets)
-8. [API Reference](#api-reference)
-9. [Examples](#examples)
-10. [Roadmap](#roadmap)
-
----
-
-## Installation
-
-Install the core AsyncMQ package (which includes the Dashboard contrib) via pip:
-
-```bash
-pip install asyncmq
-```
+Once installed, the dashboard is ready to roll, no extra dependencies required beyond your preferred ASGI framework
+and a session middleware provider.
 
 No additional dependencies are required to enable the dashboard beyond the ASGI framework of your choice.
 
@@ -63,19 +45,20 @@ No additional dependencies are required to enable the dashboard beyond the ASGI 
 
 ## Configuration
 
-AsyncMQ provides a `DashboardConfig` to adjust appearance and routing. By default:
+Before mounting, you can tweak the dashboard’s appearance and behavior by adjusting settings.dashboard_config.
+Import the settings from asyncmq.conf and apply your own `DashboardConfig` values:
 
 ```python
 from asyncmq.core.utils.dashboard import DashboardConfig
 
 # Default values:
-DashboardConfig(
-    title="Dashboard",
-    header_title="AsyncMQ",
-    description="A simple dashboard for monitoring AsyncMQ jobs.",
-    favicon="https://raw.githubusercontent.com/dymmond/asyncmq/refs/heads/main/docs/statics/favicon.ico",
+dashboard_config = DashboardConfig(
+    title="MyApp Queue Monitor",
+    header_title="MyApp Tasks",
+    description="Keep an eye on your background workers with a smile.",
+    favicon="/static/myfavicon.ico",
     dashboard_url_prefix="/admin",
-    sidebar_bg_colour="#CBDC38",
+    sidebar_bg_colour="#3498db",
 )
 ```
 
@@ -117,16 +100,25 @@ You can now mount it into any ASGI server or framework.
 
 ## Embedding in Your ASGI App
 
+Because the dashboard relies on HTTP cookies to track flash messages and user state, you must add a SessionMiddleware.
+If you’re using FastAPI or Starlette, you can use starlette.middleware.sessions.SessionMiddleware, or thanks to the
+dashboard’s ASGI-agnostic design—any Lilya compatible middleware will do:
+
 ### Esmerald
 
 ```python
 from esmerald import Esmerald, Include
+from esmerald.core.config.session import SessionConfig
+from esmerald.conf import settings
 from asyncmq.contrib.dashboard.application import dashboard
+
+session_config = SessionConfig(secret_key=settings.secret_key)
 
 app = Esmerald(
     routes=[
-        Include(path="/esmerald", app=dashboard, name="dashboard-admin")
-    ]
+        Include(path="/", app=dashboard, name="dashboard-admin")
+    ],
+    session_config=session_config,
 )
 ```
 
@@ -134,11 +126,17 @@ app = Esmerald(
 
 ```python
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 from asyncmq.contrib.dashboard.application import dashboard
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key="your-secret")
 app.mount("/fastapi", dashboard, name="asyncmq-admin")
 ```
+
+### Explanation
+
+This snippet mounts the dashboard under `/admin` and ensures session support for flash messages and stateful interactions.
 
 The `DashboadConfiguration` has a property to set the `dashboard_url_prefix` where it defaults to `/admin`
 
@@ -154,7 +152,8 @@ A convenience script is provided for standalone use:
 uvicorn asyncmq.contrib.dashboard.serve:dash_app --host 0.0.0.0 --port 8000 --reload
 ```
 
-This runs the dashboard at `http://localhost:8000/` with CORS enabled for unrestricted access.
+Out of the box, this serves your dashboard at http://localhost:8000/ with CORS enabled, so you can point any
+frontend at it without hassle.
 
 ---
 
@@ -179,6 +178,12 @@ The dashboard exposes the following routes (prefix as configured by `dashboard_u
 
 ## Templates & Static Assets
 
+All Jinja2 templates are bundled under `asyncmq/contrib/dashboard/templates/`, and static files
+(JavaScript, CSS, icons) live in `asyncmq/contrib/dashboard/statics/`.
+
+To override any asset, simply place a template or file with the same name in your application’s search path.
+This lets you rebrand, restyle, or extend the dashboard without touching the core code.
+
 * **Templates** are located in `asyncmq/contrib/dashboard/templates/`.
   Override any template by providing your own in your Jinja2 search path.
 * **Static** files (CSS, JS) reside in `asyncmq/contrib/dashboard/statics/` and are served under `/admin/static/`.
@@ -187,7 +192,8 @@ The dashboard exposes the following routes (prefix as configured by `dashboard_u
 
 ### Template Engine
 
-Built on Jinja2 via `asyncmq.contrib.dashboard.engine.templates`. Templates can use global `getattr` helper and receive the context provided by `DashboardMixin`.
+Built on Jinja2 via `asyncmq.contrib.dashboard.engine.templates`. Templates can use global `getattr` helper and receive
+the context provided by `DashboardMixin`.
 
 ---
 
