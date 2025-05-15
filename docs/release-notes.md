@@ -9,7 +9,7 @@ hide:
 
 ### Fixed
 
-- Add altanative check to get the `concurrency` field from the Redis backend.
+- Add alternative check to get the `concurrency` field from the Redis backend.
 - Ensure pagination data is checked when listing workers.
 - Added check for `workers.html` pagination to ensure it is not empty.
 
