@@ -1392,13 +1392,20 @@ class RedisBackend(BaseBackend):
             for wid, data in heartbeats.items():
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid
                 payload = json.loads(data)
+                current_concurrency:int = 0
+                if isinstance(payload, dict):
+                    current_concurrency = payload.get("concurrency", 0)
+                elif isinstance(payload, int):
+                    current_concurrency = payload
+                elif isinstance(payload, float):
+                    current_concurrency = int(payload)
                 timestamp = float(payload.get("heartbeat", 0))
                 if now - timestamp <= monkay.settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,
                             queue=queue_name,
-                            concurrency=payload.get("concurrency"),  # each heartbeat represents one slot
+                            concurrency=current_concurrency,
                             heartbeat=timestamp,
                         )
                     )

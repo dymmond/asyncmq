@@ -80,7 +80,7 @@
       results
     </p>
     <nav class="inline-flex -space-x-px">
-      {% if page > 1 %}
+      {% if page and page > 1 %}
       <a href="?page={{ page - 1 }}&size={{ size }}"
          class="px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
         Previous
@@ -98,7 +98,7 @@
       </a>
       {% endfor %}
 
-      {% if page < total_pages %}
+      {% if page and page < total_pages %}
       <a href="?page={{ page + 1 }}&size={{ size }}"
          class="px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
         Next
