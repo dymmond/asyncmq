@@ -67,7 +67,7 @@ class InMemoryBackend(BaseBackend):
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
         """
         Asynchronously enqueues a job payload onto the specified queue.
 
@@ -88,6 +88,7 @@ class InMemoryBackend(BaseBackend):
             queue.sort(key=lambda job: job.get("priority", 5))
             # Update the job's state to WAITING.
             self.job_states[(queue_name, payload["id"])] = State.WAITING
+            return payload["id"]
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """

@@ -83,7 +83,7 @@ class MongoDBBackend(BaseBackend):
         # Call the connect method of the underlying MongoDBStore to establish the connection.
         await self.store.connect()
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
         """
         Asynchronously adds a job to the specified queue.
 
@@ -104,6 +104,7 @@ class MongoDBBackend(BaseBackend):
             # Save the job to the MongoDB store with the WAITING status.
             # Use {**payload, "status": State.WAITING} to create a new dict with updated status.
             await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
+            return payload["id"]
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """

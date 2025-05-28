@@ -5,11 +5,43 @@ hide:
 
 # Release Notes
 
-## 0.2.4
+## 0.3.0
 
 ### Fixed
 
 - Enqueue/delay was not returning a job id.
+- Backend was not returning the id on enqueue.
+
+#### Breaking change
+
+* This barely affects you but the order of parameters when the `.enqueue(backend, ...)` happens, it is now
+```.enqueue(..., backend=backend)```
+
+##### Example
+
+**Before**:
+
+```python
+import anyio
+from asyncmq.queues import Queue
+
+async def main():
+    q = Queue("emails")
+    await send_welcome.enqueue(q.backend, "alice@example.com", delay=10)
+anyio.run(main)
+```
+
+**Now**
+
+```python
+import anyio
+from asyncmq.queues import Queue
+
+async def main():
+    q = Queue("emails")
+    await send_welcome.enqueue("alice@example.com", backend=q.backend, delay=10)
+anyio.run(main)
+```
 
 ## 0.2.3
 

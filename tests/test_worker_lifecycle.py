@@ -121,6 +121,34 @@ async def test_upper_case():
     assert result == "TEST"
 
 
+async def test_return_id_on_enqueue():
+    backend = InMemoryBackend()
+    job_id = await upper_case.enqueue(backend, "test")
+
+    assert job_id is not None
+
+
+async def test_return_id_on_delay():
+    backend = InMemoryBackend()
+    job_id = await upper_case.delay(backend, "test")
+
+    assert job_id is not None
+
+
+async def test_upper_case_no_backend():
+    backend = InMemoryBackend()
+    await upper_case.enqueue("test", backend=backend)
+    raw = await backend.dequeue("test")
+    await handle_job(
+        "test",
+        raw,
+        backend=backend,
+    )
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+    result = await backend.get_job_result("test", raw["id"])
+    assert result == "TEST"
+
+
 @task(queue="test")
 async def multiply(a, b):
     return a * b
@@ -128,7 +156,7 @@ async def multiply(a, b):
 
 async def test_multiply_task():
     backend = InMemoryBackend()
-    await multiply.enqueue(backend, 6, 7)
+    await multiply.enqueue(6, 7, backend=backend)
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend)
     await wait_for_state(backend, "test", raw["id"], State.COMPLETED)

@@ -48,7 +48,7 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure a DSN is provided either directly or via monkay.settings.
         if not dsn and not monkay.settings.asyncmq_postgres_backend_url:
-            raise ValueError("Either 'dsn' or 'monkay.settings.asyncmq_postgres_backend_url' must be " "provided.")
+            raise ValueError("Either 'dsn' or 'monkay.settings.asyncmq_postgres_backend_url' must be provided.")
         # Store the resolved DSN.
         self.dsn: str = dsn or monkay.settings.asyncmq_postgres_backend_url
         # Initialize the asyncpg connection pool to None; it will be created on connect.
@@ -70,7 +70,7 @@ class PostgresBackend(BaseBackend):
             # Also ensure the associated job store is connected.
             await self.store.connect()
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
@@ -88,6 +88,7 @@ class PostgresBackend(BaseBackend):
         payload["status"] = State.WAITING
         # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
+        return payload["id"]
 
     async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """

@@ -53,7 +53,7 @@ Use the generated `enqueue` helper on your task. All optional parameters have se
 # app.py (continued)
 async def main():
     # Enqueue a job; this helper returns None
-    await say_hello.enqueue(backend, "World")
+    await say_hello.enqueue("World", backend=backend)
     print("Job enqueued to 'default' queue.")
 
 if __name__ == "__main__":

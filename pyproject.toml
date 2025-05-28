@@ -8,9 +8,7 @@ description = "Async task queue with BullMQ-like features"
 readme = "README.md"
 requires-python = ">=3.8"
 dynamic = ['version']
-authors = [
-    { name = "Tiago Silva", email = "tiago@tarsild.io" },
-]
+authors = [{ name = "Tiago Silva", email = "tiago@tarsild.io" }]
 classifiers = [
     "Intended Audience :: Information Technology",
     "Intended Audience :: System Administrators",
@@ -38,33 +36,33 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = [
-  "anyio>=4.9.0,<6.0.0",
-  "click>=8.1.8,<9.0.0",
-  "rich>=14.0.0,<15.0.0",
-  "croniter>=6.0.0,<7.0.0",
-  "redis>=5.2.1",
-  "monkay>=0.4.1"
+    "anyio>=4.9.0,<6.0.0",
+    "click>=8.1.8,<9.0.0",
+    "rich>=14.0.0,<15.0.0",
+    "croniter>=6.0.0,<7.0.0",
+    "redis>=5.2.1",
+    "monkay>=0.4.1",
 
 ]
 keywords = [
-  "asyncio",
-  "anyio",
-  "task-queue",
-  "background-jobs",
-  "job-scheduler",
-  "rate-limiter",
-  "dead-letter-queue",
-  "cron",
-  "microservices",
-  "fastapi",
-  "esmerald",
-  "redis",
-  "postgresql",
-  "mongodb",
-  "celery-alternative",
-  "concurrency",
-  "parallelism",
-  "retry-policy",
+    "asyncio",
+    "anyio",
+    "task-queue",
+    "background-jobs",
+    "job-scheduler",
+    "rate-limiter",
+    "dead-letter-queue",
+    "cron",
+    "microservices",
+    "fastapi",
+    "esmerald",
+    "redis",
+    "postgresql",
+    "mongodb",
+    "celery-alternative",
+    "concurrency",
+    "parallelism",
+    "retry-policy",
 ]
 
 [project.urls]
@@ -106,7 +104,8 @@ testing = [
     "pytest-asyncio>=0.26.0",
     "structlog>=25.3.0",
     "uvicorn>=0.34.2",
-    "httpx"
+    "httpx",
+    "ipdb",
 ]
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
@@ -206,11 +205,7 @@ module = "docs_src.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = [
-    "motor.*",
-    "asyncpg.*",
-    "lilya.templating.*"
-]
+module = ["motor.*", "asyncpg.*", "lilya.templating.*"]
 ignore_missing_imports = true
 ignore_errors = true
 

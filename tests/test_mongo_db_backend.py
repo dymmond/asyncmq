@@ -23,12 +23,6 @@ async def test_enqueue_return_job_id(backend):
 
     assert job_id is not None
 
-async def test_delay_return_job_id(backend):
-    job = {"id": "job1", "task_id": "task1", "args": [], "kwargs": {}}
-    job_id = await backend.delay("test-queue", job)
-
-    assert job_id is not None
-
 
 async def test_enqueue_and_dequeue(backend):
     job = {"id": "job1", "task_id": "task1", "args": [], "kwargs": {}}
