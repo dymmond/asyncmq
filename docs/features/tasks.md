@@ -35,10 +35,10 @@ A **task** in AsyncMQ is simply a Python function (sync or async) that you mark 
 from asyncmq.logging import logger
 
 job_id = await send_email.enqueue(
-    backend,               # Optional: AsyncMQSettings.backend if omitted
     "alice@example.com",
     "Welcome!",
     "Thanks for joining.",
+    backend=backend,       # Optional: AsyncMQSettings.backend if omitted
     delay=5.0,             # run 5 seconds from now
     priority=3,            # higher urgency
     depends_on=[prev_job_id],  # wait for another job

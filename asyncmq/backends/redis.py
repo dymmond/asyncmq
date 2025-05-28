@@ -165,7 +165,7 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:repeatables'
         return f"queue:{name}:repeatables"
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
@@ -194,6 +194,7 @@ class RedisBackend(BaseBackend):
         # Update the job's status to WAITING and save the full payload in the job store.
         # Create a new dictionary to avoid modifying the original payload in place.
         await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
+        return payload["id"]
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -1392,7 +1393,7 @@ class RedisBackend(BaseBackend):
             for wid, data in heartbeats.items():
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid
                 payload = json.loads(data)
-                current_concurrency:int = 0
+                current_concurrency: int = 0
                 if isinstance(payload, dict):
                     current_concurrency = payload.get("concurrency", 0)
                 elif isinstance(payload, int):

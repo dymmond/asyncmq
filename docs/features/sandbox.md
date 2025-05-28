@@ -80,7 +80,7 @@ else:
 
 ```python
 # Override default for this specific job
-await some_task.enqueue(backend, ..., timeout=5.0)
+await some_task.enqueue(..., backend=backend, timeout=5.0)
 # In handler routing code, pass timeout through to run_handler.
 ```
 

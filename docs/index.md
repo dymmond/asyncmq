@@ -188,7 +188,7 @@ ASGI framework as well.
 
    async def main():
        q = Queue("emails")
-       await send_welcome.enqueue(q.backend, "alice@example.com", delay=10)
+       await send_welcome.enqueue("alice@example.com", backend=q.backend, delay=10)
    anyio.run(main)
    ```
 5. **Start Workers**

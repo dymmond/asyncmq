@@ -26,7 +26,7 @@ async def simple_task(x, y):
 
 async def test_job_lifecycle_changes():
     backend = InMemoryBackend()
-    await simple_task.enqueue(backend, 3, 4)
+    await simple_task.enqueue(3, 4, backend=backend)
 
     raw = await backend.dequeue("test")
     await handle_job(
@@ -50,7 +50,7 @@ async def failing_task():
 
 async def test_failed_job_goes_to_dlq():
     backend = InMemoryBackend()
-    await failing_task.enqueue(backend)
+    await failing_task.enqueue(backend=backend)
 
     raw = await backend.dequeue("test")
     await handle_job(
@@ -71,7 +71,7 @@ async def echo_task(value):
 
 async def test_echo_result():
     backend = InMemoryBackend()
-    await echo_task.enqueue(backend, "hello")
+    await echo_task.enqueue("hello", backend=backend)
     raw = await backend.dequeue("test")
     await handle_job(
         "test",
@@ -90,15 +90,17 @@ async def sum_list(lst):
 
 async def test_sum_list_task():
     backend = InMemoryBackend()
-    await sum_list.enqueue(backend, [1, 2, 3, 4])
+    await sum_list.enqueue([1, 2, 3, 4], backend=backend)
     raw = await backend.dequeue("test")
     await handle_job(
         "test",
         raw,
         backend=backend,
     )
-    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+    job_id = await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
     result = await backend.get_job_result("test", raw["id"])
+
+    assert job_id is not None
     assert result == 10
 
 
@@ -109,7 +111,37 @@ async def upper_case(text):
 
 async def test_upper_case():
     backend = InMemoryBackend()
-    await upper_case.enqueue(backend, "test")
+    await upper_case.enqueue("test", backend=backend)
+    raw = await backend.dequeue("test")
+    await handle_job(
+        "test",
+        raw,
+        backend=backend,
+    )
+    job_id = await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+    result = await backend.get_job_result("test", raw["id"])
+
+    assert job_id is not None
+    assert result == "TEST"
+
+
+async def test_return_id_on_enqueue():
+    backend = InMemoryBackend()
+    job_id = await upper_case.enqueue("test", backend=backend)
+
+    assert job_id is not None
+
+
+async def test_return_id_on_delay():
+    backend = InMemoryBackend()
+    job_id = await upper_case.delay("test", backend=backend)
+
+    assert job_id is not None
+
+
+async def test_upper_case_no_backend():
+    backend = InMemoryBackend()
+    await upper_case.enqueue("test", backend=backend)
     raw = await backend.dequeue("test")
     await handle_job(
         "test",
@@ -128,7 +160,7 @@ async def multiply(a, b):
 
 async def test_multiply_task():
     backend = InMemoryBackend()
-    await multiply.enqueue(backend, 6, 7)
+    await multiply.enqueue(6, 7, backend=backend)
     raw = await backend.dequeue("test")
     await handle_job("test", raw, backend=backend)
     await wait_for_state(backend, "test", raw["id"], State.COMPLETED)

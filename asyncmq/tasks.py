@@ -73,14 +73,14 @@ def task(
         task_id = f"{module}.{name}"
 
         async def enqueue_task(
-            backend: BaseBackend | None = None,
             *args: Any,
+            backend: BaseBackend | None = None,
             delay: float = 0,
             priority: int = 5,
             depends_on: list[str] | None = None,
             repeat_every: float | None = None,
             **kwargs: Any,
-        ) -> None:
+        ) -> Any:
             """
             Helper method attached to the decorated task function to enqueue
             a new job for this task.
@@ -119,6 +119,7 @@ def task(
                 depends_on=depends_on,
                 repeat_every=repeat_every,
             )
+
             # If the job has dependencies, add them to the backend.
             backend = backend or monkay.settings.backend
 
@@ -129,9 +130,9 @@ def task(
             if delay and delay > 0:
                 run_at = time.time() + delay
                 job.delay_until = run_at
-                await backend.enqueue_delayed(queue, job.to_dict(), run_at)
+                return await backend.enqueue_delayed(queue, job.to_dict(), run_at)
             else:
-                await backend.enqueue(queue, job.to_dict())
+                return await backend.enqueue(queue, job.to_dict())
 
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             """
