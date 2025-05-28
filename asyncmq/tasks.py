@@ -80,7 +80,7 @@ def task(
             depends_on: list[str] | None = None,
             repeat_every: float | None = None,
             **kwargs: Any,
-        ) -> None:
+        ) -> Any:
             """
             Helper method attached to the decorated task function to enqueue
             a new job for this task.
@@ -132,6 +132,8 @@ def task(
                 await backend.enqueue_delayed(queue, job.to_dict(), run_at)
             else:
                 await backend.enqueue(queue, job.to_dict())
+
+            return job.id
 
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             """

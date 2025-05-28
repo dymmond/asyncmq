@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.2.4
+
+### Fixed
+
+- Enqueue/delay was not returning a job id.
+
 ## 0.2.3
 
 ### Fixed
