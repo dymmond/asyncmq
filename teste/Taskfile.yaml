@@ -1,0 +1,36 @@
+version: 3
+
+env:
+  ESMERALD_SETTINGS_MODULE: teste.configs.settings.AppSettings
+  ASYNCMQ_SETTINGS_MODULE: teste.configs.asyncmq.Settings
+
+tasks:
+  clean:
+    desc: Cleans caching, pyc and pycache files
+    cmds:
+      - find . -type f -name "*.pyc" -delete || true
+      - find . -type d -name "*__pycache__*" -delete
+
+  run:
+    desc: Starts teste in development mode
+    env:
+      ESMERALD_SETTINGS_MODULE: teste.configs.development.settings.DevelopmentAppSettings
+    cmds:
+      - esmerald runserver
+
+  requirements:
+    desc: Install requirements
+    cmds:
+      - pip install -r requirements/development.txt
+
+  test:
+    desc: Run the suite of tests
+    env:
+      ESMERALD_SETTINGS_MODULE: teste.configs.testing.settings.TestingAppSettings
+    cmds:
+      - pytest -s
+
+  worker:
+    desc: Start worker
+    cmds:
+      - asyncmq worker start test-queue --concurrency 5
