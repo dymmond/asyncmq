@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -8,22 +8,43 @@ from asyncmq.stores.redis_store import RedisJobStore
 
 class RabbitMQJobStore(BaseJobStore):
     """
-    Job metadata store for RabbitMQ backend.
-    Delegates storage to a RedisJobStore or any BaseJobStore.
+    Job metadata store implementation for the RabbitMQ backend.
+
+    This class acts as an adapter, delegating the actual storage operations
+    to an underlying `BaseJobStore` instance, typically a `RedisJobStore`.
+    It provides methods for saving, loading, deleting, and querying job
+    metadata based on queue names and job IDs.
     """
 
     def __init__(
         self,
-        redis_url: Optional[str] = None,
-        backend: Optional[Union[BaseJobStore, aioredis.Redis]] = None
+        redis_url: str | None = None,
+        backend: BaseJobStore | aioredis.Redis | None = None
     ) -> None:
-        # If provided, a BaseJobStore instance is used directly
+        """
+        Initializes the RabbitMQJobStore instance.
+
+        Args:
+            redis_url: An optional Redis connection URL. This is used to
+                initialize a `RedisJobStore` if no explicit `backend` is
+                provided. Defaults to "redis://localhost" if not specified
+                and no backend is given.
+            backend: An optional pre-initialized backend. This can be either
+                an instance of `BaseJobStore` (e.g., `RedisJobStore`) or a
+                raw `redis.asyncio.Redis` client. If a `BaseJobStore` is
+                provided, it's used directly. If a `redis.asyncio.Redis`
+                client is provided, it overrides the internal Redis client
+                of the default `RedisJobStore`.
+        """
+        # If an explicit BaseJobStore instance is provided, use it directly.
         if isinstance(backend, BaseJobStore):
             self._store: BaseJobStore = backend
         else:
-            # Otherwise, initialize a RedisJobStore
+            # Otherwise, initialize a RedisJobStore as the default underlying store.
+            # Use the provided redis_url or default to "redis://localhost".
             self._store = RedisJobStore(redis_url or "redis://localhost")
-            # If a raw Redis client is provided, override the internal client
+            # If a raw Redis client is provided, override the RedisJobStore's
+            # internal client with the provided one.
             if isinstance(backend, aioredis.Redis):
                 self._store.redis = backend
 
@@ -31,10 +52,18 @@ class RabbitMQJobStore(BaseJobStore):
         self,
         queue_name: str,
         job_id: str,
-        data: Dict[str, Any]
+        data: dict[str, Any]
     ) -> None:
         """
-        Save or update job data.
+        Saves or updates the metadata for a specific job.
+
+        This method delegates the actual saving operation to the underlying
+        job store.
+
+        Args:
+            queue_name: The name of the queue to which the job belongs.
+            job_id: The unique identifier of the job.
+            data: A dictionary containing the job's metadata to be saved.
         """
         await self._store.save(queue_name, job_id, data)
 
@@ -42,9 +71,19 @@ class RabbitMQJobStore(BaseJobStore):
         self,
         queue_name: str,
         job_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
-        Load job data by ID.
+        Loads the metadata for a specific job by its ID.
+
+        This method delegates the actual loading operation to the underlying
+        job store.
+
+        Args:
+            queue_name: The name of the queue to which the job belongs.
+            job_id: The unique identifier of the job to load.
+
+        Returns:
+            A dictionary containing the job's metadata if found, otherwise None.
         """
         return await self._store.load(queue_name, job_id)
 
@@ -54,16 +93,32 @@ class RabbitMQJobStore(BaseJobStore):
         job_id: str
     ) -> None:
         """
-        Delete job data by ID.
+        Deletes the metadata for a specific job by its ID.
+
+        This method delegates the actual deletion operation to the underlying
+        job store.
+
+        Args:
+            queue_name: The name of the queue from which to delete the job.
+            job_id: The unique identifier of the job to delete.
         """
         await self._store.delete(queue_name, job_id)
 
     async def all_jobs(
         self,
         queue_name: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
-        Retrieve all jobs for a queue.
+        Retrieves all jobs associated with a specific queue.
+
+        This method delegates the retrieval operation to the underlying job store.
+
+        Args:
+            queue_name: The name of the queue for which to retrieve all jobs.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents the
+            metadata of a job in the specified queue.
         """
         return await self._store.all_jobs(queue_name)
 
@@ -71,8 +126,20 @@ class RabbitMQJobStore(BaseJobStore):
         self,
         queue_name: str,
         status: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
-        Retrieve jobs filtered by status.
+        Retrieves jobs from a specific queue, filtered by their status.
+
+        This method delegates the filtered retrieval operation to the
+        underlying job store.
+
+        Args:
+            queue_name: The name of the queue to retrieve jobs from.
+            status: The status string to filter jobs by (e.g., 'waiting',
+                'completed', 'failed').
+
+        Returns:
+            A list of dictionaries, where each dictionary represents the
+            metadata of a job matching the specified status in the queue.
         """
         return await self._store.jobs_by_status(queue_name, status)
