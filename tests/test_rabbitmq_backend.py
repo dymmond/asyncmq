@@ -29,6 +29,7 @@ async def backend(redis_store):
     # Cleanup after test
     await backend.drain_queue("test_q")
     await backend.drain_queue("test_q.dlq")
+    await backend.close()
 
 async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     payload = {"id": "j1", "task": "do_something"}
