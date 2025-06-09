@@ -1,4 +1,0 @@
-esmerald>=3.7.7
-edgy[postgres]
-gunicorn
-uvicorn

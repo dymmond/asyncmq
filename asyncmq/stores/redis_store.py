@@ -15,16 +15,21 @@ class RedisJobStore(BaseJobStore):
     belonging to a queue are tracked in a Redis Set.
     """
 
-    def __init__(self, redis_url: str = "redis://localhost") -> None:
+    def __init__(self, redis_url: str | None = None, *, redis_client: redis.Redis | None = None) -> None:
         """
         Initializes the RedisJobStore by establishing a connection to Redis.
 
         Args:
-            redis_url: The connection URL for the Redis instance. Defaults to
-                       "redis://localhost".
+            redis_url: The connection URL for the Redis instance. If None,
+                       a client must be injected via `redis_client`.
+            redis_client: An existing Redis client instance for custom usage.
         """
-        # Connect to the Redis instance.
-        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
+        if redis_client is not None:
+            self.redis: redis.Redis = redis_client
+        elif redis_url:
+            self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
+        else:
+            self.redis = None  # to be set externally
 
     def _key(self, queue_name: str, job_id: str) -> str:
         """

@@ -37,8 +37,6 @@ services:
     restart: always
     image: rabbitmq:latest
     environment:
-      RABBITMQ_DEFAULT_USER: rabbit_user
-      RABBITMQ_DEFAULT_PASS: rabbit_user_default_pass
       RABBITMQ_DEFAULT_VHOST: /
     expose:
       - 15672
