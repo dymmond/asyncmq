@@ -66,7 +66,9 @@ nav:
       - "features/jobs.md"
       - "features/flows.md"
       - "features/cli.md"
-      - "features/postgres-backend.md"
+      - Complex backends:
+        - "features/backends/postgres-backend.md"
+        - "features/backends/rabbitmq.md"
   - Tutorial:
       - "learn/index.md"
       - "learn/integration.md"
