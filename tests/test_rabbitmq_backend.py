@@ -142,3 +142,103 @@ async def test_queue_stats_and_drain(backend):
     await backend.drain_queue("test_q")
     stats2 = await backend.queue_stats("test_q")
     assert stats2["message_count"] == 0
+
+
+async def test_update_and_get_job_state(backend, redis_store):
+    payload = {"id": "j7", "task": "state_test"}
+    await backend.enqueue("test_q", payload)
+    await backend.update_job_state("test_q", "j7", "completed")
+    state = await backend.get_job_state("test_q", "j7")
+    assert state == "completed"
+
+
+async def test_save_and_get_job_result(backend):
+    payload = {"id": "j8", "task": "result_test"}
+    await backend.enqueue("test_q", payload)
+    await backend.save_job_result("test_q", "j8", {"answer": 42})
+    result = await backend.get_job_result("test_q", "j8")
+    assert result["answer"] == 42
+
+
+async def test_bulk_enqueue(backend):
+    jobs = [
+        {"id": "j9", "task": "bulk1"},
+        {"id": "j10", "task": "bulk2"},
+    ]
+    await backend.bulk_enqueue("test_q", jobs)
+    seen = set()
+    for _ in jobs:
+        msg = await backend.dequeue("test_q")
+        assert msg is not None
+        seen.add(msg["payload"]["id"])
+    assert seen == {"j9", "j10"}
+
+
+async def test_pause_resume(backend):
+    # Pause an empty queue
+    await backend.pause_queue("test_pause")
+    assert await backend.is_queue_paused("test_pause") is True
+    # Resume
+    await backend.resume_queue("test_pause")
+    assert await backend.is_queue_paused("test_pause") is False
+
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_by_state(backend, state):
+    queue = "test_list_state"
+    payload = {"id": "jx", "task": "filter_test"}
+    if state == "waiting":
+        await backend.enqueue(queue, payload)
+    elif state == "delayed":
+        await backend.enqueue_delayed(queue, payload, run_at=time.time() + 10)
+    else:  # failed
+        await backend.enqueue(queue, payload)
+        await backend.move_to_dlq(queue, payload)
+
+    jobs = await backend.list_jobs(queue, state)
+    assert isinstance(jobs, list)
+    # every returned job should carry our payload.task
+    assert all(j["payload"]["task"] == "filter_test" for j in jobs)
+
+
+@pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
+async def test_list_jobs_empty_queue(backend, state):
+    jobs = await backend.list_jobs("no_such_queue", state)
+    assert jobs == []
+
+
+async def test_list_jobs_filters_correctly(backend):
+    queue = "test_filters"
+    j1 = {"id": "a", "task": "A"}
+    j2 = {"id": "b", "task": "B"}
+    j3 = {"id": "c", "task": "C"}
+
+    await backend.enqueue(queue, j1)  # waiting
+    await backend.enqueue_delayed(queue, j2, run_at=time.time() + 10)  # delayed
+    await backend.enqueue(queue, j3)
+    await backend.move_to_dlq(queue, j3)  # failed
+
+    w = await backend.list_jobs(queue, "waiting")
+    d = await backend.list_jobs(queue, "delayed")
+    f = await backend.list_jobs(queue, "failed")
+
+    assert all(j["payload"]["task"] == "A" for j in w)
+    assert all(j["payload"]["task"] == "B" for j in d)
+    assert all(j["payload"]["task"] == "C" for j in f)
+
+
+async def test_list_jobs_case_sensitive_state(backend):
+    queue = "test_case"
+    job = {"id": "xd", "task": "case"}
+    await backend.enqueue(queue, job)
+    # Mixed case should return empty
+    jobs = await backend.list_jobs(queue, "Waiting")
+    assert jobs == []
+
+
+async def test_list_jobs_wrong_status_filter(backend):
+    queue = "wrong_status"
+    job = {"id": "xe", "task": "present"}
+    await backend.enqueue(queue, job)
+    jobs = await backend.list_jobs(queue, "nonexistent")
+    assert jobs == []
