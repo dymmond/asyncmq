@@ -5,6 +5,38 @@ hide:
 
 # Release Notes
 
+## 0.3.1
+
+Here’s a concise set of release notes you can include in your changelog for the new RabbitMQ integration:
+
+---
+
+## 0.3.1
+
+### Added
+
+* **RabbitMQBackend**
+    * Full implementation of the `BaseBackend` interface over AMQP via `aio-pika`:
+        * `enqueue` / `dequeue` / `ack`
+        * Dead-letter queue support (`move_to_dlq`)
+        * Delayed jobs (`enqueue_delayed`, `get_due_delayed`, `list_delayed`, `remove_delayed`)
+        * Repeatable jobs (`enqueue_repeatable`, `list_repeatables`, `pause_repeatable`, `resume_repeatable`)
+        * Atomic flows & dependency resolution (`atomic_add_flow`, `add_dependencies`, `resolve_dependency`)
+        * Queue pause/resume, cancellation/retry, job-state/progress/heartbeat tracking
+        * Broker-side stats (`queue_stats`) and queue draining (`drain_queue`)
+
+* **RabbitMQJobStore**
+    * Implements `BaseJobStore`, delegating persistence to any other store (e.g. `RedisJobStore`), so metadata stays flexible.
+
+### Changed
+
+* Unified on the default exchange for enqueueing and DLQ publishing
+
+### Fixed
+
+* Proper wrapping of store results into `DelayedInfo` and `RepeatableInfo` dataclasses
+* Correct scheduling semantics using epoch timestamps (`time.time()`)
+
 ## 0.3.0
 
 ### Fixed

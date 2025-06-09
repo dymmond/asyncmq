@@ -1,8 +1,9 @@
-from asyncmq.backends.rabbitmq import RabbitMQBackend
-
 # RabbitMQ
 
 This page documents the new **RabbitMQ** backend for AsyncMQ, enabling AMQP-based job transport while delegating all metadata/state operations (delayed jobs, repeatables, dependencies, stats, workers, etc.) to a pluggable job store.
+
+!!! Warning
+    This backend is currently in **beta**. It is functional but may have some rough edges. Please report any issues you encounter.
 
 ## Overview
 
