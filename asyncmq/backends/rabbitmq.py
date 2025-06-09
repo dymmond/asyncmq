@@ -4,8 +4,7 @@ from typing import Any, cast
 
 try:
     import aio_pika
-    from aio_pika import DeliveryMode, ExchangeType, Message
-    from aio_pika.exceptions import QueueEmpty
+    from aio_pika import DeliveryMode, Message
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
@@ -88,33 +87,19 @@ class RabbitMQBackend(BaseBackend):
         job_id = str(payload["id"])
 
         # 1) persist job metadata as 'waiting'
-        await self._state.save(
-            queue_name,
-            job_id,
-            {"id": job_id, "payload": payload, "status": "waiting"}
-        )
+        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": "waiting"})
 
         # 2) ensure AMQP connection & channel
         await self._connect()
 
         # 3) declare (and track) the queue itself
         if queue_name not in self._queues:
-            queue = await self._chan.declare_queue(
-                name=queue_name,
-                durable=True
-            )
+            queue = await self._chan.declare_queue(name=queue_name, durable=True)
             self._queues[queue_name] = queue
 
         # 4) build and publish the message
-        msg = Message(
-            json.dumps(payload).encode(),
-            message_id=job_id,
-            delivery_mode=DeliveryMode.PERSISTENT
-        )
-        await self._chan.default_exchange.publish(
-            msg,
-            routing_key=queue_name
-        )
+        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
         return job_id
 
@@ -137,10 +122,7 @@ class RabbitMQBackend(BaseBackend):
 
         # 2) declare (and track) the queue if this is the first time
         if queue_name not in self._queues:
-            queue = await self._chan.declare_queue(
-                name=queue_name,
-                durable=True
-            )
+            queue = await self._chan.declare_queue(name=queue_name, durable=True)
             self._queues[queue_name] = queue
 
         # 3) attempt to get one message, returning None if empty
@@ -151,10 +133,7 @@ class RabbitMQBackend(BaseBackend):
         # 4) process (ack) and return its payload
         async with msg.process():
             payload = json.loads(msg.body.decode())
-            return {
-                "job_id": msg.message_id,
-                "payload": payload
-            }
+            return {"job_id": msg.message_id, "payload": payload}
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -183,43 +162,31 @@ class RabbitMQBackend(BaseBackend):
         job_id = str(payload["id"])
 
         # 1) persist failure in your state store
-        #    if you have a dedicated move_to_dlq on the store, use that;
-        #    otherwise fall back to a save + status update:
         if hasattr(self._state, "move_to_dlq"):
             await self._state.move_to_dlq(queue_name, payload)
         else:
-            await self._state.save(queue_name, job_id, {
-                "id": job_id,
-                "payload": payload,
-                "status": "failed",
-            })
+            await self._state.save(
+                queue_name,
+                job_id,
+                {
+                    "id": job_id,
+                    "payload": payload,
+                    "status": "failed",
+                },
+            )
 
-        # 2) ensure we have an open channel
+        # 2) ensure we have an open connection & channel
         await self._connect()
 
-        # 3) declare (and track) the DLQ queue
+        # 3) declare (and track) the DLQ queue itself
         dlq_name = f"{queue_name}.dlq"
         if dlq_name not in self._queues:
-            q = await self._chan.declare_queue(
-                name=dlq_name,
-                durable=True
-            )
+            q = await self._chan.declare_queue(name=dlq_name, durable=True)
             self._queues[dlq_name] = q
 
-        # 4) declare a direct exchange for the DLQ (so we mirror how we enqueue normally)
-        exchange = await self._chan.declare_exchange(
-            name=dlq_name,
-            type=ExchangeType.DIRECT,
-            durable=True
-        )
-
-        # 5) publish the message, marking it persistent
-        msg = Message(
-            json.dumps(payload).encode(),
-            message_id=job_id,
-            delivery_mode=DeliveryMode.PERSISTENT
-        )
-        await exchange.publish(msg, routing_key=dlq_name)
+        # 4) publish via the default exchange (routes to the queue named dlq_name)
+        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        await self._chan.default_exchange.publish(msg, routing_key=dlq_name)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -632,22 +599,24 @@ class RabbitMQBackend(BaseBackend):
             A list of job IDs that were created as part of this flow.
         """
         # Identify all job IDs that are children in any dependency link.
-        child_ids = {child for parent, child in dependency_links}
-        created: list[str] = []
+        created_ids: list[str] = []
+
         for jd in job_dicts:
-            jid = jd["id"]
-            created.append(jid)
-            if jid not in child_ids:
-                # If a job is not a child in any dependency, enqueue it immediately.
-                await self.enqueue(queue_name, jd)
-            else:
-                # If it's a child, just save its metadata for now; it will be
-                # enqueued when its dependencies are resolved.
-                await self._state.save(queue_name, jid, {"id": jid, "payload": jd, "status": "waiting"})
-        for parent, child in dependency_links:
-            # Add dependencies for each child job.
-            await self.add_dependencies(queue_name, {"id": child, "depends_on": [parent]})
-        return created
+            job_id = jd["id"]
+            created_ids.append(job_id)
+            await self.enqueue(queue_name, jd)
+
+        for parent_id, child_id in dependency_links:
+            # this will push a Redis HSET (e.g. queue:<q>:deps:<parent> => child)
+            await self.add_dependencies(
+                queue_name,
+                {
+                    "id": child_id,
+                    "depends_on": [parent_id],
+                },
+            )
+
+        return created_ids
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """

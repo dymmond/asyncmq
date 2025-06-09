@@ -3,6 +3,7 @@ import pytest
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.backends.mongodb import MongoDBBackend
 from asyncmq.backends.postgres import PostgresBackend
+from asyncmq.backends.rabbitmq import RabbitMQBackend
 from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.enums import State
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
@@ -48,6 +49,26 @@ async def mongodb_backend():
     yield backend
     # Cleanup
     backend.store.client.drop_database("test_asyncmq")
+
+
+@pytest.fixture
+async def rabbitmq_backend(redis_backend):
+    """
+    RabbitMQBackend powered by a RedisJobStore for metadata.
+    """
+    # 1) flush the raw Redis DB
+    await redis_backend.redis.flushdb()
+
+    # 3) instantiate RabbitMQBackend with the job_store (not the RedisBackend!)
+    backend = RabbitMQBackend(
+        rabbit_url="amqp://guest:guest@localhost:5672/", prefetch_count=1, redis_url="redis://localhost:6379"
+    )
+
+    yield backend
+
+    # teardown: close RabbitMQ and flush Redis again
+    await backend.close()
+    await redis_backend.redis.flushdb()
 
 
 async def test_redis_atomic_add_flow(redis_backend):
@@ -103,3 +124,19 @@ async def test_mongodb_atomic_add_flow(mongodb_backend):
     assert doc1["status"] == State.WAITING
     assert doc2["status"] == State.WAITING
     assert doc2.get("depends_on") == ["id1"]
+
+
+async def test_rabbitmq_atomic_add_flow(rabbitmq_backend):
+    fp = FlowProducer(backend=rabbitmq_backend)
+    job1 = Job(task_id="t5", args=[], kwargs={}, job_id="id1")
+    job2 = Job(task_id="t5", args=[], kwargs={}, job_id="id2", depends_on=["id1"])
+
+    ids = await fp.add_flow("rrq", [job1, job2])
+    assert ids == ["id1", "id2"]
+
+    # Dequeue in order
+    first = await rabbitmq_backend.dequeue("rrq")
+    assert first and first["payload"]["id"] == "id1"
+
+    second = await rabbitmq_backend.dequeue("rrq")
+    assert second and second["payload"]["id"] == "id2"

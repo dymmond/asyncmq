@@ -61,9 +61,7 @@ async def rabbitmq_backend(redis_backend):
 
     # 3) instantiate RabbitMQBackend with the job_store (not the RedisBackend!)
     backend = RabbitMQBackend(
-        rabbit_url="amqp://guest:guest@localhost:5672/",
-        prefetch_count=1,
-        redis_url="redis://localhost:6379"
+        rabbit_url="amqp://guest:guest@localhost:5672/", prefetch_count=1, redis_url="redis://localhost:6379"
     )
 
     yield backend
@@ -117,6 +115,7 @@ async def test_backend_queue_and_worker_management_postgres(postgres_backend):
 
 async def test_backend_queue_and_worker_management_mongo(mongodb_backend):
     await _run_common_tests(mongodb_backend)
+
 
 async def test_backend_queue_and_worker_management_rabbitmq(rabbitmq_backend):
     await _run_common_tests(rabbitmq_backend)
