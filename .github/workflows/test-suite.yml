@@ -51,6 +51,12 @@ jobs:
         ports:
           - 27017:27017
 
+      rabbitmq:
+        image: rabbitmq:latest
+        ports:
+          - 5672:5672
+          - 15672:15672
+
     steps:
       - uses: "actions/checkout@v4"
       - uses: "actions/setup-python@v5"
