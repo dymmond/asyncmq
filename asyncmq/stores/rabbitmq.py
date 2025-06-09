@@ -1,6 +1,7 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from asyncmq.backends.base import BaseBackend
+import redis.asyncio as aioredis
+
 from asyncmq.stores.base import BaseJobStore
 from asyncmq.stores.redis_store import RedisJobStore
 
@@ -8,18 +9,23 @@ from asyncmq.stores.redis_store import RedisJobStore
 class RabbitMQJobStore(BaseJobStore):
     """
     Job metadata store for RabbitMQ backend.
-    Internally delegates to RedisJobStore for persistence.
+    Delegates storage to a RedisJobStore or any BaseJobStore.
     """
 
     def __init__(
         self,
-        redis_url: str | None = None,
-        backend: BaseBackend | None = None
-    ):
-        assert redis_url is not None or backend is not None, "a redis_url must be provided or a different backend at your choice"
-
-        # Delegate storage to Redis/another
-        self._store = RedisJobStore(redis_url) if redis_url is not None else backend
+        redis_url: Optional[str] = None,
+        backend: Optional[Union[BaseJobStore, aioredis.Redis]] = None
+    ) -> None:
+        # If provided, a BaseJobStore instance is used directly
+        if isinstance(backend, BaseJobStore):
+            self._store: BaseJobStore = backend
+        else:
+            # Otherwise, initialize a RedisJobStore
+            self._store = RedisJobStore(redis_url or "redis://localhost")
+            # If a raw Redis client is provided, override the internal client
+            if isinstance(backend, aioredis.Redis):
+                self._store.redis = backend
 
     async def save(
         self,
@@ -40,7 +46,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         Load job data by ID.
         """
-        return await self._store.get(queue_name, job_id)
+        return await self._store.load(queue_name, job_id)
 
     async def delete(
         self,
@@ -59,7 +65,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         Retrieve all jobs for a queue.
         """
-        return await self._store.list_jobs(queue_name)
+        return await self._store.all_jobs(queue_name)
 
     async def jobs_by_status(
         self,
@@ -69,4 +75,4 @@ class RabbitMQJobStore(BaseJobStore):
         """
         Retrieve jobs filtered by status.
         """
-        return await self._store.get_by_status(queue_name, status)
+        return await self._store.jobs_by_status(queue_name, status)
