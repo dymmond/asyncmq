@@ -20,7 +20,7 @@ async def redis():
     yield client
     # teardown
     await client.flushall()
-    await client.close()
+    await client.aclose()
 
 
 @pytest.fixture(scope="module", params=["asyncio", "trio"])

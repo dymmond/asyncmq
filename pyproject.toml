@@ -94,6 +94,7 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
+    "aio_pika>=9.5.5",
     "anyio[trio]>=4.9.0,<6.0.0",
     "autoflake>=2.0.2,<3.0.0",
     "esmerald>=3.7.7",
@@ -110,7 +111,9 @@ testing = [
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
 dashboard = ["lilya>=0.13.7", "jinja2>=3.1.6"]
-all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[dashboard]"]
+aio-pika = ["aio_pika>=9.5.5"]
+
+all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[dashboard]", "asyncmq[aio-pika]"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"

@@ -32,3 +32,15 @@ services:
       - 27017
     ports:
       - "27017:27017"
+
+  rabbitmq:
+    restart: always
+    image: rabbitmq:latest
+    environment:
+      RABBITMQ_DEFAULT_VHOST: /
+    expose:
+      - 15672
+      - 5672
+    ports:
+      - 5672:5672
+      - 15672:15672

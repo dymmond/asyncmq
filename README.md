@@ -109,17 +109,17 @@ $ pip install asyncmq[dashboard]
 
 ## Comparison with Other Python Task Queues
 
-| Feature                    | **AsyncMQ**                      | Celery        | RQ         | Dramatiq     | Huey       |
-| -------------------------- | -------------------------------- | ------------- | ---------- | ------------ | ---------- |
-| **AsyncIO Native**         | ✅                                | ❌             | ❌          | ✅            | ❌          |
-| **Pluggable Backends**     | ✅ Redis, Postgres, Mongo, In-Mem | RabbitMQ only | Redis only | Redis only   | Redis only |
-| **Rate Limiting**          | ✅ built-in                       | ❌             | ❌          | ✅ via addon  | ❌          |
-| **Cron & Repeatable Jobs** | ✅ interval & cron expressions    | ✅             | ✅          | ✅            | ✅          |
-| **Progress Reporting**     | ✅ event hooks                    | ✅ callbacks   | ❌          | ✅ hooks      | ❌          |
-| **Dead Letter Queue**      | ✅                                | ✅             | ❌          | ✅            | ✅          |
-| **Flow / DAG Support**     | ✅ `FlowProducer`                 | ✅ chords      | ❌          | ✅ extensions | ❌          |
-| **ASGI-Friendly**          | ✅ FastAPI/Esmerald integration   | ❌             | ❌          | ❌            | ❌          |
-| **CLI Management**         | ✅ rich, JSON-friendly            | ✅             | ✅          | ✅            | ✅          |
+| Feature                    | **AsyncMQ**                      | Celery          | RQ         | Dramatiq     | Huey       |
+| -------------------------- | -------------------------------- |-----------------| ---------- | ------------ | ---------- |
+| **AsyncIO Native**         | ✅                                | ❌               | ❌          | ✅            | ❌          |
+| **Pluggable Backends**     | ✅ Redis, Postgres, Mongo, In-Mem | RabbitMQ/others | Redis only | Redis only   | Redis only |
+| **Rate Limiting**          | ✅ built-in                       | ❌               | ❌          | ✅ via addon  | ❌          |
+| **Cron & Repeatable Jobs** | ✅ interval & cron expressions    | ✅               | ✅          | ✅            | ✅          |
+| **Progress Reporting**     | ✅ event hooks                    | ✅ callbacks     | ❌          | ✅ hooks      | ❌          |
+| **Dead Letter Queue**      | ✅                                | ✅               | ❌          | ✅            | ✅          |
+| **Flow / DAG Support**     | ✅ `FlowProducer`                 | ✅ chords        | ❌          | ✅ extensions | ❌          |
+| **ASGI-Friendly**          | ✅ FastAPI/Esmerald integration   | ❌               | ❌          | ❌            | ❌          |
+| **CLI Management**         | ✅ rich, JSON-friendly            | ✅               | ✅          | ✅            | ✅          |
 
 ---
 
