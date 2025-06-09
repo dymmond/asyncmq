@@ -5,6 +5,7 @@ from asyncmq.stores.rabbitmq import RabbitMQJobStore
 
 pytestmark = pytest.mark.asyncio
 
+
 @pytest_asyncio.fixture(scope="function")
 async def redis_store(redis):
     # Underlying Redis store
@@ -15,15 +16,18 @@ async def redis_store(redis):
     await redis.flushall()
     return store
 
+
 async def test_save_and_load(redis_store):
     await redis_store.save("q1", "j1", {"a": 1})
     data = await redis_store.load("q1", "j1")
     assert data == {"a": 1}
 
+
 async def test_delete(redis_store):
     await redis_store.save("q1", "j2", {"b": 2})
     await redis_store.delete("q1", "j2")
     assert await redis_store.load("q1", "j2") is None
+
 
 async def test_all_jobs_and_jobs_by_status(redis_store):
     # Save multiple jobs with different statuses

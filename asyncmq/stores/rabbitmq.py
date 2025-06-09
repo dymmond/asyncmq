@@ -16,11 +16,7 @@ class RabbitMQJobStore(BaseJobStore):
     metadata based on queue names and job IDs.
     """
 
-    def __init__(
-        self,
-        redis_url: str | None = None,
-        backend: BaseJobStore | aioredis.Redis | None = None
-    ) -> None:
+    def __init__(self, redis_url: str | None = None, backend: BaseJobStore | aioredis.Redis | None = None) -> None:
         """
         Initializes the RabbitMQJobStore instance.
 
@@ -48,12 +44,7 @@ class RabbitMQJobStore(BaseJobStore):
             if isinstance(backend, aioredis.Redis):
                 self._store.redis = backend
 
-    async def save(
-        self,
-        queue_name: str,
-        job_id: str,
-        data: dict[str, Any]
-    ) -> None:
+    async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """
         Saves or updates the metadata for a specific job.
 
@@ -67,11 +58,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         await self._store.save(queue_name, job_id, data)
 
-    async def load(
-        self,
-        queue_name: str,
-        job_id: str
-    ) -> dict[str, Any] | None:
+    async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
         Loads the metadata for a specific job by its ID.
 
@@ -87,11 +74,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         return await self._store.load(queue_name, job_id)
 
-    async def delete(
-        self,
-        queue_name: str,
-        job_id: str
-    ) -> None:
+    async def delete(self, queue_name: str, job_id: str) -> None:
         """
         Deletes the metadata for a specific job by its ID.
 
@@ -104,10 +87,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         await self._store.delete(queue_name, job_id)
 
-    async def all_jobs(
-        self,
-        queue_name: str
-    ) -> list[dict[str, Any]]:
+    async def all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
         """
         Retrieves all jobs associated with a specific queue.
 
@@ -122,11 +102,7 @@ class RabbitMQJobStore(BaseJobStore):
         """
         return await self._store.all_jobs(queue_name)
 
-    async def jobs_by_status(
-        self,
-        queue_name: str,
-        status: str
-    ) -> list[dict[str, Any]]:
+    async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
         """
         Retrieves jobs from a specific queue, filtered by their status.
 

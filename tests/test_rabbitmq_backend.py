@@ -10,6 +10,7 @@ pytestmark = pytest.mark.asyncio
 
 RABBIT_URL = "amqp://guest:guest@localhost/"
 
+
 @pytest_asyncio.fixture(scope="function")
 async def redis_store(redis):
     # instantiate RedisJobStore and override its client to use pytest-redis fixture
@@ -17,6 +18,7 @@ async def redis_store(redis):
     store.redis = redis
     await redis.flushall()
     return store
+
 
 @pytest_asyncio.fixture(scope="function")
 async def backend(redis_store):
@@ -31,6 +33,7 @@ async def backend(redis_store):
     await backend.drain_queue("test_q.dlq")
     await backend.close()
 
+
 async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     payload = {"id": "j1", "task": "do_something"}
     jid = await backend.enqueue("test_q", payload)
@@ -44,12 +47,14 @@ async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     state = await redis_store.load("test_q", "j1")
     assert state["status"] == "completed"
 
+
 async def test_move_to_dlq(backend):
     payload = {"id": "j2", "task": "fail_me"}
     await backend.move_to_dlq("test_q", payload)
     dlq_job = await backend.dequeue("test_q.dlq")
     assert dlq_job is not None
     assert dlq_job["payload"]["task"] == "fail_me"
+
 
 async def test_delayed_jobs(backend):
     now = time.time()
@@ -58,6 +63,7 @@ async def test_delayed_jobs(backend):
 
     due = await backend.get_due_delayed("test_q")
     assert any(di.job_id == "j3" and di.payload["task"] == "delayed" for di in due)
+
 
 async def test_list_and_remove_delayed(backend):
     run_at = time.time() + 10
@@ -69,6 +75,7 @@ async def test_list_and_remove_delayed(backend):
     await backend.remove_delayed("test_q", "j4")
     lst2 = await backend.list_delayed("test_q")
     assert not any(di.job_id == "j4" for di in lst2)
+
 
 async def test_repeatable_jobs(backend):
     payload = {"id": "j5", "task": "repeat"}
@@ -87,6 +94,7 @@ async def test_repeatable_jobs(backend):
     final = await backend.list_repeatables("test_q")
     assert not any(r.job_def.get("id") == rid for r in final)
 
+
 async def test_atomic_add_flow_and_dependencies(backend):
     jobs = [{"id": "p1", "task": "A"}, {"id": "c1", "task": "B"}]
     created = await backend.atomic_add_flow("test_q", jobs, [("p1", "c1")])
@@ -99,6 +107,7 @@ async def test_atomic_add_flow_and_dependencies(backend):
     await backend.resolve_dependency("test_q", "p1")
     second = await backend.dequeue("test_q")
     assert second and second["payload"]["id"] == "c1"
+
 
 async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     payload = {"id": "j6", "task": "todo"}
@@ -113,6 +122,7 @@ async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     await backend.enqueue("test_q", payload)
     assert await backend.retry_job("test_q", "j6")
 
+
 async def test_worker_registration_and_listing(backend):
     await backend.register_worker("w1", "test_q", 2, time.time())
     workers = await backend.list_workers()
@@ -121,6 +131,7 @@ async def test_worker_registration_and_listing(backend):
     await backend.deregister_worker("w1")
     workers2 = await backend.list_workers()
     assert not any(w.id == "w1" for w in workers2)
+
 
 async def test_queue_stats_and_drain(backend):
     for i in range(3):
