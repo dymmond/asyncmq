@@ -4,7 +4,7 @@ from typing import Any, cast
 
 try:
     import aio_pika
-    from aio_pika import DeliveryMode, Message
+    from aio_pika import DeliveryMode, ExchangeType, Message
     from aio_pika.exceptions import QueueEmpty
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
@@ -86,16 +86,36 @@ class RabbitMQBackend(BaseBackend):
             The unique identifier of the enqueued job.
         """
         job_id = str(payload["id"])
-        # Save the job metadata to the job store with a 'waiting' status.
-        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": "waiting"})
-        await self._connect()  # Ensure connection is established.
 
-        # Create a RabbitMQ message from the payload.
-        # Message ID is set to job_id for tracking.
-        # Delivery mode is set to PERSISTENT to ensure message survives broker restarts.
-        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
-        # Publish the message to the default exchange with the queue_name as routing key.
-        await self._chan.default_exchange.publish(msg, routing_key=queue_name)
+        # 1) persist job metadata as 'waiting'
+        await self._state.save(
+            queue_name,
+            job_id,
+            {"id": job_id, "payload": payload, "status": "waiting"}
+        )
+
+        # 2) ensure AMQP connection & channel
+        await self._connect()
+
+        # 3) declare (and track) the queue itself
+        if queue_name not in self._queues:
+            queue = await self._chan.declare_queue(
+                name=queue_name,
+                durable=True
+            )
+            self._queues[queue_name] = queue
+
+        # 4) build and publish the message
+        msg = Message(
+            json.dumps(payload).encode(),
+            message_id=job_id,
+            delivery_mode=DeliveryMode.PERSISTENT
+        )
+        await self._chan.default_exchange.publish(
+            msg,
+            routing_key=queue_name
+        )
+
         return job_id
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
@@ -113,27 +133,28 @@ class RabbitMQBackend(BaseBackend):
             A dictionary containing 'job_id' and 'payload' if a job is
             successfully dequeued, otherwise None.
         """
-        await self._connect()  # Ensure connection is established.
+        await self._connect()
+
+        # 2) declare (and track) the queue if this is the first time
         if queue_name not in self._queues:
-            # Declare the queue if it hasn't been declared yet, ensuring durability.
-            self._queues[queue_name] = await self._chan.declare_queue(queue_name, durable=True)
-        try:
-            # Attempt to get a message from the queue.
-            # no_ack=False means messages will be acknowledged after processing.
-            # fail=False means it won't raise an exception if the queue is empty.
-            msg = await self._queues[queue_name].get(no_ack=False, fail=False)
-        except QueueEmpty:
-            # If the queue is empty, no message was available.
-            return None
+            queue = await self._chan.declare_queue(
+                name=queue_name,
+                durable=True
+            )
+            self._queues[queue_name] = queue
+
+        # 3) attempt to get one message, returning None if empty
+        msg = await self._queues[queue_name].get(no_ack=False, fail=False)
         if msg is None:
-            # If msg is None, it means no message was retrieved.
             return None
-        # Process the message. The message will be acknowledged automatically
-        # when exiting this 'async with' block.
+
+        # 4) process (ack) and return its payload
         async with msg.process():
-            # Decode the message body from bytes to string, then parse as JSON.
             payload = json.loads(msg.body.decode())
-            return {"job_id": msg.message_id, "payload": payload}
+            return {
+                "job_id": msg.message_id,
+                "payload": payload
+            }
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -160,16 +181,45 @@ class RabbitMQBackend(BaseBackend):
             payload: The payload of the job that failed, including its 'id'.
         """
         job_id = str(payload["id"])
-        # Save the job metadata to the job store with a 'failed' status.
-        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": "failed"})
-        await self._connect()  # Ensure connection is established.
-        dlq = f"{queue_name}.dlq"  # Construct DLQ name.
-        # Declare the Dead Letter Queue, ensuring its durability.
-        await self._chan.declare_queue(dlq, durable=True)
-        # Create a message for the DLQ.
-        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
-        # Publish the message to the DLQ.
-        await self._chan.default_exchange.publish(msg, routing_key=dlq)
+
+        # 1) persist failure in your state store
+        #    if you have a dedicated move_to_dlq on the store, use that;
+        #    otherwise fall back to a save + status update:
+        if hasattr(self._state, "move_to_dlq"):
+            await self._state.move_to_dlq(queue_name, payload)
+        else:
+            await self._state.save(queue_name, job_id, {
+                "id": job_id,
+                "payload": payload,
+                "status": "failed",
+            })
+
+        # 2) ensure we have an open channel
+        await self._connect()
+
+        # 3) declare (and track) the DLQ queue
+        dlq_name = f"{queue_name}.dlq"
+        if dlq_name not in self._queues:
+            q = await self._chan.declare_queue(
+                name=dlq_name,
+                durable=True
+            )
+            self._queues[dlq_name] = q
+
+        # 4) declare a direct exchange for the DLQ (so we mirror how we enqueue normally)
+        exchange = await self._chan.declare_exchange(
+            name=dlq_name,
+            type=ExchangeType.DIRECT,
+            durable=True
+        )
+
+        # 5) publish the message, marking it persistent
+        msg = Message(
+            json.dumps(payload).encode(),
+            message_id=job_id,
+            delivery_mode=DeliveryMode.PERSISTENT
+        )
+        await exchange.publish(msg, routing_key=dlq_name)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -851,7 +901,7 @@ class RabbitMQBackend(BaseBackend):
             A list of strings, where each string is the name of a queue.
         """
         # Delegate the listing of queues to the job store.
-        return cast(list[str], await self._state.list_queues())
+        return list(self._queues.keys())
 
     async def close(self) -> None:
         """
