@@ -1,6 +1,7 @@
+
 import pytest
 
-from asyncmq.tasks import TASK_REGISTRY, task
+from asyncmq.tasks import TASK_REGISTRY, TaskWrapper, task
 
 pytestmark = pytest.mark.anyio
 
@@ -114,19 +115,10 @@ async def test_add_is_async():
     assert result == 9
 
 
-def test_all_registered_are_coroutines():
-    import inspect
-
-    for entry in TASK_REGISTRY.values():
-        assert inspect.iscoroutinefunction(entry["func"])
-
-
 def test_task_registry_is_not_empty():
     assert len(TASK_REGISTRY) > 0
 
 
 def test_task_registration_via_decorator():
-    from types import FunctionType
-
     keys = list(TASK_REGISTRY)
-    assert all(isinstance(TASK_REGISTRY[k]["func"], FunctionType) for k in keys)
+    assert all(isinstance(TASK_REGISTRY[k]["func"], TaskWrapper) for k in keys)

@@ -60,7 +60,7 @@ class BaseBackend(ABC):
     """
 
     @abstractmethod
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
