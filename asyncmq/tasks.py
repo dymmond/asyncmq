@@ -1,6 +1,6 @@
 import inspect
 import time
-from typing import Any, Callable
+from typing import Any, Callable, ParamSpec, Protocol, TypeVar, cast
 
 import anyio
 
@@ -16,13 +16,26 @@ from asyncmq.jobs import Job
 # and 'progress_enabled'.
 TASK_REGISTRY: dict[str, dict[str, Any]] = {}
 
+# Type variables to preserve function signature
+P = ParamSpec('P')  # For capturing parameter types
+R = TypeVar('R')    # For capturing return type
+
+# Protocol for progress reporter function
+class ProgressReporter(Protocol):
+    def __call__(self, pct: float, data: Any | None = None) -> None: ...
+
+# Type for a function with an optional progress reporter
+# For functions that accept progress reporting
+class TaskWithProgress(Protocol[P, R]):
+    def __call__(self, *args: P.args, report_progress: ProgressReporter, **kwargs: P.kwargs) -> R: ...
+
 
 def task(
     queue: str,
     retries: int = 0,
     ttl: int | None = None,
     progress: bool = False,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """
     Decorator factory used to register an asynchronous or synchronous function
     as an asyncmq task.
@@ -51,7 +64,7 @@ def task(
         and returns a wrapped version of that function.
     """
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         """
         The actual decorator applied to the user's task function.
 
@@ -73,13 +86,13 @@ def task(
         task_id = f"{module}.{name}"
 
         async def enqueue_task(
-            *args: Any,
+            *args: P.args,
             backend: BaseBackend | None = None,
             delay: float = 0,
             priority: int = 5,
             depends_on: list[str] | None = None,
             repeat_every: float | None = None,
-            **kwargs: Any,
+            **kwargs: P.kwargs,
         ) -> Any:
             """
             Helper method attached to the decorated task function to enqueue
@@ -134,7 +147,7 @@ def task(
             else:
                 return await backend.enqueue(queue, job.to_dict())
 
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             """
             The wrapped task function that gets executed by the worker.
 
@@ -170,7 +183,12 @@ def task(
 
                     # Call the original function, injecting the report_progress
                     # callback.
-                    result = func(*args, report_progress=report, **kwargs)
+                    if progress:
+                        # For functions expecting progress reporting
+                        task_func = cast(TaskWithProgress[P, R], func)
+                        result = task_func(*args, report_progress=report, **kwargs)
+                    else:
+                        result = func(*args, **kwargs)
                 else:
                     # Call the original function without progress reporting.
                     result = func(*args, **kwargs)
@@ -192,7 +210,6 @@ def task(
         wrapper.__module__ = module
 
         # Attach helper methods/attributes to the wrapped function.
-        # Type ignored because these attributes are dynamically added.
         wrapper.enqueue = enqueue_task  # type: ignore
         wrapper.delay = enqueue_task  # type: ignore
         wrapper.task_id = task_id  # type: ignore
@@ -208,7 +225,7 @@ def task(
         }
 
         # Return the wrapped function.
-        return wrapper
+        return cast(Callable[P, R], wrapper)
 
     # Return the decorator function itself.
     return decorator
