@@ -1,5 +1,7 @@
+import anyio
 from click.testing import CliRunner
 
+from asyncmq import InMemoryBackend
 from asyncmq.cli.__main__ import app
 
 runner = CliRunner()
@@ -56,3 +58,28 @@ def test_job_remove(monkeypatch):
     result = runner.invoke(app, ["job", "remove", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "Deleted job" in result.output
+
+
+
+def test_job_list(monkeypatch):
+    async def setup_test_backend():
+        backend = InMemoryBackend()
+
+        test_jobs = [
+            {"id": "job1", "task": "task1", "status": "waiting", "priority": 5},
+            {"id": "job2", "task": "task2", "status": "waiting", "priority": 5}
+        ]
+
+        for job in test_jobs:
+            await backend.enqueue("queue1", job)
+
+        return backend
+
+    from asyncmq.conf import monkay
+
+    monkay.settings.backend = anyio.run(setup_test_backend)
+
+    result = runner.invoke(app, ["job", "list", "--queue", "queue1", "--state", "waiting"])
+
+    assert result.exit_code == 0
+    assert "ID: job1  State: waiting  Task: task1" in result.output

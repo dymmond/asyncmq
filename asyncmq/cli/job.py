@@ -189,5 +189,5 @@ def list_jobs(queue: str, state: str) -> None:
         return
     for job in jobs:
         console.print(
-            f"[green]ID:[/] {job.get('job_id')}  [blue]State:[/] {job.get('status')}  [magenta]Task:[/] {job.get('task_id')}"
+            f"[green]ID:[/] {job.get('id')}  [blue]State:[/] {job.get('status')}  [magenta]Task:[/] {job.get('task')}"
         )
