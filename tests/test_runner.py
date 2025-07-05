@@ -1,5 +1,7 @@
 import asyncio
+import logging
 
+import anyio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
@@ -44,6 +46,11 @@ async def fail_once_then_succeed():
         fail_once_then_succeed.called = True
         raise RuntimeError("fail once")
     return "success"
+
+
+@task(queue="runner")
+async def fails():
+    raise RuntimeError("This is a problem")
 
 
 async def test_run_worker_success():
@@ -248,3 +255,36 @@ async def test_worker_long_chain_jobs():
     for job_id in job_ids:
         state = await backend.get_job_state("runner", job_id)
         assert state == State.COMPLETED
+
+
+async def test_worker_logs_exceptions():
+    def _setup_custom_logging():
+        class TestHandler(logging.Handler):
+            def emit(self, record):
+                logs.append(record)
+
+        logger = logging.getLogger('asyncmq')
+        handler = TestHandler()
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+
+    async def run_test():
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_worker, "runner", backend)
+            await anyio.sleep(0.5)
+            tg.cancel_scope.cancel()
+
+    logs = []
+    _setup_custom_logging()
+    backend = InMemoryBackend()
+    job = Job(task_id=get_task_id(fails), args=[], kwargs={})
+    await backend.enqueue("runner", job.to_dict())
+
+    await run_test()
+
+    # Verify the job failed (could be FAILED or EXPIRED depending on timing)
+    state = await backend.get_job_state("runner", job.id)
+    assert state in {State.FAILED, State.EXPIRED}
+
+    assert any("This is a problem" in record.getMessage() for record in logs)
+    assert any("failed with exception" in record.getMessage() for record in logs)

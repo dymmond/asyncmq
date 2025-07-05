@@ -13,6 +13,7 @@ from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
+from asyncmq.logging import logger
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
@@ -212,6 +213,8 @@ async def handle_job(
         # Exception handling: If any exception occurs during execution
         # Format the traceback to capture the error details
         tb = traceback.format_exc()
+        # Log the exception to ensure it's not swallowed
+        logger.error(f"Job {job.id} in queue '{queue_name}' failed with exception: \n{tb}")
         # Store the last error message and the full traceback in the job
         job.last_error = str(tb)
         job.error_traceback = tb
