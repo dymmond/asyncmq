@@ -122,7 +122,7 @@ async def signal_handler(scope: anyio.CancelScope) -> None:
             return  # Exit the signal handler task
 
 
-@worker_app.command("list-workers")
+@worker_app.command("list")
 def list_workers() -> None:
     """
     List all currently registered workers.
@@ -144,7 +144,7 @@ def list_workers() -> None:
     console.print(table)
 
 
-@worker_app.command("register-worker")
+@worker_app.command("register")
 @click.argument("worker_id")
 @click.argument("queue")
 @click.option("--concurrency", default=1, help="Concurrency level for the worker.")
@@ -178,7 +178,7 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
     )
 
 
-@worker_app.command("deregister-worker")
+@worker_app.command("deregister")
 @click.argument("worker_id")
 def deregister_worker(worker_id: str) -> None:
     """
