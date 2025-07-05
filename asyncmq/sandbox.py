@@ -32,11 +32,17 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
         func = TASK_REGISTRY[task_id]["func"]
 
         # Execute the handler function
-        if inspect.iscoroutinefunction(func):
-            # If the function is a coroutine, run it synchronously using anyio
+        # Handle TaskWrapper instances which have async __call__ methods
+        if callable(func) and inspect.iscoroutinefunction(func.__call__):
+            # For TaskWrapper instances, call them directly and await the result
+            async def run_task() -> Any:
+                return await func(*args, **kwargs)
+            result = anyio.run(run_task)
+        elif inspect.iscoroutinefunction(func):
+            # For regular async functions
             result = anyio.run(func, *args, **kwargs)
         else:
-            # Otherwise, execute the function directly
+            # For regular sync functions, call them directly
             result = func(*args, **kwargs)
 
         # Put the successful result into the output queue
@@ -130,7 +136,13 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
             # Retrieve the handler function
             handler = TASK_REGISTRY[task_id]["func"]
             # Run the handler directly in the current process
-            if inspect.iscoroutinefunction(handler):
+            # Handle TaskWrapper instances which have async __call__ methods
+            if callable(handler) and inspect.iscoroutinefunction(handler.__call__):
+                # For TaskWrapper instances, use anyio.run with async wrapper
+                async def run_task() -> Any:
+                    return await handler(*args, **kwargs)
+                return anyio.run(run_task)
+            elif inspect.iscoroutinefunction(handler):
                 # If async, use anyio.run
                 return anyio.run(handler, *args, **kwargs)
             else:

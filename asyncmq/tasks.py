@@ -1,6 +1,6 @@
 import inspect
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, cast
 
 import anyio
 
@@ -16,13 +16,187 @@ from asyncmq.jobs import Job
 # and 'progress_enabled'.
 TASK_REGISTRY: dict[str, dict[str, Any]] = {}
 
+# Type variables to preserve function signature
+P = ParamSpec('P')  # For capturing parameter types
+R = TypeVar('R')    # For capturing return type
+
+# Protocol for progress reporter function
+class ProgressReporter(Protocol):
+    def __call__(self, pct: float, data: Any | None = None) -> None: ...
+
+# Type for a function with an optional progress reporter
+# For functions that accept progress reporting
+class TaskWithProgress(Protocol[P, R]):
+    def __call__(self, *args: P.args, report_progress: ProgressReporter, **kwargs: P.kwargs) -> R: ...
+
+
+# Wrapper class for task functions that properly exposes attributes to type checker
+class TaskWrapper(Generic[P, R]):
+    """
+    A wrapper class for task functions that properly exposes task-specific
+    attributes and methods to the type checker.
+    """
+    def __init__(
+        self,
+        func: Callable[P, R],
+        task_id: str,
+        queue: str,
+        retries: int = 0,
+        ttl: int | None = None,
+        progress_enabled: bool = False
+    ):
+        self.func = func
+        self.task_id = task_id
+        self.queue = queue
+        self.retries = retries
+        self.ttl = ttl
+        self.progress_enabled = progress_enabled
+
+        # Preserve original function metadata
+        self.__name__ = func.__name__
+        self.__doc__ = func.__doc__
+        self.__module__ = func.__module__
+        self._is_asyncmq_task = True
+
+    async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """
+        The wrapped task function that gets executed by the worker.
+
+        This function is responsible for setting up the execution context
+        for the original task function. If progress reporting is enabled,
+        it injects a `report_progress` callback. It then calls the original
+        task function and handles whether the result is an awaitable
+        (awaiting it) or a regular value (running the function in a thread
+        to avoid blocking the event loop).
+
+        Args:
+            *args: Positional arguments received by the task function.
+            **kwargs: Keyword arguments received by the task function.
+
+        Returns:
+            The result returned by the original task function.
+        """
+        # If progress reporting is enabled, create a progress reporter
+        if self.progress_enabled:
+            async def execute_with_progress() -> R:
+                # Use a local task group for potential progress-emitting tasks
+                async with anyio.create_task_group() as tg:
+                    # Define the report_progress callback function
+                    def report(pct: float, data: Any | None = None) -> None:
+                        # Spawn a task to emit the progress event non-blockingly
+                        tg.start_soon(
+                            event_emitter.emit,
+                            "job:progress",
+                            # Note: The job ID is set to None here; it's typically
+                            # filled in by the worker/handling logic.
+                            {"id": None, "progress": pct, "data": data},
+                        )
+
+                    # Cast to the appropriate type
+                    task_func = cast(TaskWithProgress[P, R], self.func)
+
+                    # Execute the function with progress reporting based on its type
+                    if inspect.iscoroutinefunction(self.func):
+                        # For async functions
+                        result = await task_func(*args, report_progress=report, **kwargs)
+                    else:
+                        # For sync functions - create a wrapper to handle keyword arguments
+                        def sync_wrapper() -> R:
+                            return task_func(*args, report_progress=report, **kwargs)
+                        result = await anyio.to_thread.run_sync(sync_wrapper)
+
+                    return cast(R, result)
+
+            return await execute_with_progress()
+        else:
+            # If progress reporting is not enabled, execute the function directly
+            if inspect.iscoroutinefunction(self.func):
+                # For async functions
+                result = await self.func(*args, **kwargs)
+                return cast(R, result)
+            else:
+                # For sync functions - create a wrapper to handle keyword arguments
+                def sync_wrapper() -> R:
+                    return self.func(*args, **kwargs)
+                result = await anyio.to_thread.run_sync(sync_wrapper)
+                return cast(R, result)
+
+    async def enqueue(
+        self,
+        *args: P.args,
+        backend: BaseBackend | None = None,
+        delay: float = 0,
+        priority: int = 5,
+        depends_on: list[str] | None = None,
+        repeat_every: float | None = None,
+        **kwargs: P.kwargs,
+    ) -> str | None:
+        """
+        Helper method to enqueue a new job for this task.
+
+        This method constructs a `Job` object with the specified arguments,
+        keyword arguments, and task-specific configuration (retries, ttl,
+        etc.). It handles dependency registration and enqueues the job
+        either immediately or with a specified delay using the provided
+        backend object.
+
+        Args:
+            *args: Positional arguments to be passed to the task function.
+            backend: An object providing the necessary interface for
+                     interacting with the queue, including
+                     `add_dependencies`, `enqueue_delayed`, and `enqueue`.
+            delay: The time in seconds to wait before the job becomes
+                   available for processing. Defaults to 0 (immediate).
+            priority: The priority level of the job (lower numbers
+                      typically mean higher priority). Defaults to 5.
+            depends_on: A list of job IDs that this job depends on. This job
+                        will not be executed until all dependent jobs are
+                        completed. Defaults to None.
+            repeat_every: If set, the job will be automatically re-enqueued
+                          after successful completion, with this value as
+                          the delay between completions. Defaults to None.
+            **kwargs: Keyword arguments to be passed to the task function.
+
+        Returns:
+            The job ID for the enqueued job or None if a delay is provided
+        """
+        # Create a Job object from the provided arguments and task metadata.
+        job = Job(
+            task_id=self.task_id,
+            args=list(args) if args else [],
+            kwargs=kwargs or {},
+            max_retries=self.retries,
+            ttl=self.ttl,
+            priority=priority,
+            depends_on=depends_on,
+            repeat_every=repeat_every,
+        )
+
+        # If the job has dependencies, add them to the backend.
+        backend = backend or monkay.settings.backend
+
+        if job.depends_on:
+            await backend.add_dependencies(self.queue, job.to_dict())
+
+        # Enqueue the job, either with a delay or immediately.
+        if delay and delay > 0:
+            run_at = time.time() + delay
+            job.delay_until = run_at
+            await backend.enqueue_delayed(self.queue, job.to_dict(), run_at)
+            return None
+        else:
+            return await backend.enqueue(self.queue, job.to_dict())
+
+    # Alias for enqueue
+    delay = enqueue
+
 
 def task(
     queue: str,
     retries: int = 0,
     ttl: int | None = None,
     progress: bool = False,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> Callable[[Callable[P, R]], TaskWrapper[P, R]]:
     """
     Decorator factory used to register an asynchronous or synchronous function
     as an asyncmq task.
@@ -51,156 +225,38 @@ def task(
         and returns a wrapped version of that function.
     """
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[P, R]) -> TaskWrapper[P, R]:
         """
         The actual decorator applied to the user's task function.
 
-        This function generates a unique task ID, defines the `enqueue_task`
-        and `wrapper` functions, registers the task metadata, and returns
-        the `wrapper` function which replaces the original task function.
+        This function generates a unique task ID, creates a TaskWrapper instance,
+        registers the task metadata, and returns the TaskWrapper.
 
         Args:
             func: The original asynchronous or synchronous function being
                   decorated as an asyncmq task.
 
         Returns:
-            The wrapped function (`wrapper`) that handles task execution and
-            reporting.
+            A TaskWrapper instance that wraps the original function.
         """
         # Generate a unique task ID based on the module and function name.
         module = func.__module__
         name = func.__name__
         task_id = f"{module}.{name}"
 
-        async def enqueue_task(
-            *args: Any,
-            backend: BaseBackend | None = None,
-            delay: float = 0,
-            priority: int = 5,
-            depends_on: list[str] | None = None,
-            repeat_every: float | None = None,
-            **kwargs: Any,
-        ) -> Any:
-            """
-            Helper method attached to the decorated task function to enqueue
-            a new job for this task.
-
-            This method constructs a `Job` object with the specified arguments,
-            keyword arguments, and task-specific configuration (retries, ttl,
-            etc.). It handles dependency registration and enqueues the job
-            either immediately or with a specified delay using the provided
-            backend object.
-
-            Args:
-                backend: An object providing the necessary interface for
-                         interacting with the queue, including
-                         `add_dependencies`, `enqueue_delayed`, and `enqueue`.
-                *args: Positional arguments to be passed to the task function.
-                delay: The time in seconds to wait before the job becomes
-                       available for processing. Defaults to 0 (immediate).
-                priority: The priority level of the job (lower numbers
-                          typically mean higher priority). Defaults to 5.
-                depends_on: A list of job IDs that this job depends on. This job
-                            will not be executed until all dependent jobs are
-                            completed. Defaults to None.
-                repeat_every: If set, the job will be automatically re-enqueued
-                              after successful completion, with this value as
-                              the delay between completions. Defaults to None.
-                **kwargs: Keyword arguments to be passed to the task function.
-            """
-            # Create a Job object from the provided arguments and task metadata.
-            job = Job(
-                task_id=task_id,
-                args=list(args) if args else [],
-                kwargs=kwargs or {},
-                max_retries=retries,
-                ttl=ttl,
-                priority=priority,
-                depends_on=depends_on,
-                repeat_every=repeat_every,
-            )
-
-            # If the job has dependencies, add them to the backend.
-            backend = backend or monkay.settings.backend
-
-            if job.depends_on:
-                await backend.add_dependencies(queue, job.to_dict())
-
-            # Enqueue the job, either with a delay or immediately.
-            if delay and delay > 0:
-                run_at = time.time() + delay
-                job.delay_until = run_at
-                return await backend.enqueue_delayed(queue, job.to_dict(), run_at)
-            else:
-                return await backend.enqueue(queue, job.to_dict())
-
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            """
-            The wrapped task function that gets executed by the worker.
-
-            This function is responsible for setting up the execution context
-            for the original task function. If progress reporting is enabled,
-            it injects a `report_progress` callback. It then calls the original
-            task function and handles whether the result is an awaitable
-            (awaiting it) or a regular value (running the function in a thread
-            to avoid blocking the event loop).
-
-            Args:
-                *args: Positional arguments received by the task function.
-                **kwargs: Keyword arguments received by the task function.
-
-            Returns:
-                The result returned by the original task function.
-            """
-            # Use a local task group for potential progress-emitting tasks
-            # to ensure they are properly managed and cancelled if the main
-            # task is cancelled.
-            async with anyio.create_task_group() as tg:
-                if progress:
-                    # Define the report_progress callback function.
-                    def report(pct: float, data: Any | None = None) -> None:
-                        # Spawn a task to emit the progress event non-blockingly.
-                        tg.start_soon(
-                            event_emitter.emit,
-                            "job:progress",
-                            # Note: The job ID is set to None here; it's typically
-                            # filled in by the worker/handling logic.
-                            {"id": None, "progress": pct, "data": data},
-                        )
-
-                    # Call the original function, injecting the report_progress
-                    # callback.
-                    result = func(*args, report_progress=report, **kwargs)
-                else:
-                    # Call the original function without progress reporting.
-                    result = func(*args, **kwargs)
-
-                # Check if the result is an awaitable (i.e., the original function
-                # was async).
-                if inspect.isawaitable(result):
-                    # If it's awaitable, await the result directly.
-                    return await result
-                else:
-                    # If it's not awaitable (i.e., the original function was
-                    # synchronous), run it in a thread to prevent blocking the
-                    # event loop.
-                    return await anyio.to_thread.run_sync(lambda: result)
-
-        # Preserve original function metadata on the wrapper for introspection.
-        wrapper.__name__ = name
-        wrapper.__doc__ = func.__doc__
-        wrapper.__module__ = module
-
-        # Attach helper methods/attributes to the wrapped function.
-        # Type ignored because these attributes are dynamically added.
-        wrapper.enqueue = enqueue_task  # type: ignore
-        wrapper.delay = enqueue_task  # type: ignore
-        wrapper.task_id = task_id  # type: ignore
-        wrapper._is_asyncmq_task = True  # type: ignore
+        # Create the task wrapper
+        task_wrapper = TaskWrapper(
+            func=func,
+            task_id=task_id,
+            queue=queue,
+            retries=retries,
+            ttl=ttl,
+            progress_enabled=progress
+        )
 
         # Register the task metadata in the global registry.
         TASK_REGISTRY[task_id] = {
-            "func": wrapper,
+            "func": task_wrapper,
             "queue": queue,
             "retries": retries,
             "ttl": ttl,
@@ -208,7 +264,7 @@ def task(
         }
 
         # Return the wrapped function.
-        return wrapper
+        return task_wrapper
 
     # Return the decorator function itself.
     return decorator

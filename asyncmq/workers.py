@@ -1,4 +1,3 @@
-import inspect
 import time
 import traceback
 import uuid
@@ -189,13 +188,7 @@ async def handle_job(
                 monkay.settings.sandbox_default_timeout,
             )
         else:
-            # If sandboxing is disabled, run the handler directly.
-            if inspect.iscoroutinefunction(handler):
-                # If the handler is an async function, await its execution.
-                result = await handler(*job.args, **job.kwargs)
-            else:
-                # If the handler is a regular sync function, call it directly.
-                result = handler(*job.args, **job.kwargs)
+            result = await handler(*job.args, **job.kwargs)
 
         # 5) Success path: If the task execution completed without exceptions
         # Set job status to COMPLETED

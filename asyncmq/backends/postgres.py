@@ -70,7 +70,7 @@ class PostgresBackend(BaseBackend):
             # Also ensure the associated job store is connected.
             await self.store.connect()
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
@@ -88,7 +88,7 @@ class PostgresBackend(BaseBackend):
         payload["status"] = State.WAITING
         # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
-        return payload["id"]
+        return cast(str, payload["id"])
 
     async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """

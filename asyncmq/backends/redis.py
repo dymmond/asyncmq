@@ -165,7 +165,7 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:repeatables'
         return f"queue:{name}:repeatables"
 
-    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> Any:
+    async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue for
         immediate processing.
@@ -194,7 +194,7 @@ class RedisBackend(BaseBackend):
         # Update the job's status to WAITING and save the full payload in the job store.
         # Create a new dictionary to avoid modifying the original payload in place.
         await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
-        return payload["id"]
+        return cast(str, payload["id"])
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
