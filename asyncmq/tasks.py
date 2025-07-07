@@ -17,12 +17,14 @@ from asyncmq.jobs import Job
 TASK_REGISTRY: dict[str, dict[str, Any]] = {}
 
 # Type variables to preserve function signature
-P = ParamSpec('P')  # For capturing parameter types
-R = TypeVar('R')    # For capturing return type
+P = ParamSpec("P")  # For capturing parameter types
+R = TypeVar("R")  # For capturing return type
+
 
 # Protocol for progress reporter function
 class ProgressReporter(Protocol):
     def __call__(self, pct: float, data: Any | None = None) -> None: ...
+
 
 # Type for a function with an optional progress reporter
 # For functions that accept progress reporting
@@ -36,6 +38,7 @@ class TaskWrapper(Generic[P, R]):
     A wrapper class for task functions that properly exposes task-specific
     attributes and methods to the type checker.
     """
+
     def __init__(
         self,
         func: Callable[P, R],
@@ -43,7 +46,7 @@ class TaskWrapper(Generic[P, R]):
         queue: str,
         retries: int = 0,
         ttl: int | None = None,
-        progress_enabled: bool = False
+        progress_enabled: bool = False,
     ):
         self.func = func
         self.task_id = task_id
@@ -78,6 +81,7 @@ class TaskWrapper(Generic[P, R]):
         """
         # If progress reporting is enabled, create a progress reporter
         if self.progress_enabled:
+
             async def execute_with_progress() -> R:
                 # Use a local task group for potential progress-emitting tasks
                 async with anyio.create_task_group() as tg:
@@ -103,6 +107,7 @@ class TaskWrapper(Generic[P, R]):
                         # For sync functions - create a wrapper to handle keyword arguments
                         def sync_wrapper() -> R:
                             return task_func(*args, report_progress=report, **kwargs)
+
                         result = await anyio.to_thread.run_sync(sync_wrapper)
 
                     return cast(R, result)
@@ -118,6 +123,7 @@ class TaskWrapper(Generic[P, R]):
                 # For sync functions - create a wrapper to handle keyword arguments
                 def sync_wrapper() -> R:
                     return self.func(*args, **kwargs)
+
                 result = await anyio.to_thread.run_sync(sync_wrapper)
                 return cast(R, result)
 
@@ -246,12 +252,7 @@ def task(
 
         # Create the task wrapper
         task_wrapper = TaskWrapper(
-            func=func,
-            task_id=task_id,
-            queue=queue,
-            retries=retries,
-            ttl=ttl,
-            progress_enabled=progress
+            func=func, task_id=task_id, queue=queue, retries=retries, ttl=ttl, progress_enabled=progress
         )
 
         # Register the task metadata in the global registry.

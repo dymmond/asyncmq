@@ -1,11 +1,9 @@
-import secrets
-
 from lilya.apps import Lilya
 from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
-from lilya.middleware.sessions import SessionMiddleware
 from lilya.routing import Include
 
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.application import dashboard
 
 dash_app = Lilya(
@@ -18,10 +16,7 @@ dash_app = Lilya(
             allow_headers=["*"],
             allow_credentials=True,
         ),
-        DefineMiddleware(
-            SessionMiddleware,
-            secret_key=secrets.token_hex(32),
-        ),
+        monkay.settings.dashboard_config.session_middleware,
     ],
 )
 

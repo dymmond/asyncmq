@@ -263,7 +263,7 @@ async def test_worker_logs_exceptions():
             def emit(self, record):
                 logs.append(record)
 
-        logger = logging.getLogger('asyncmq')
+        logger = logging.getLogger("asyncmq")
         handler = TestHandler()
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
@@ -293,8 +293,9 @@ async def test_worker_logs_exceptions():
 async def test_registers_worker():
     backend = InMemoryBackend()
     worker = asyncio.create_task(
-        run_worker("test_registry", backend=backend, concurrency=2, rate_limit=None, rate_interval=1.0,
-                   repeatables=None)
+        run_worker(
+            "test_registry", backend=backend, concurrency=2, rate_limit=None, rate_interval=1.0, repeatables=None
+        )
     )
     await asyncio.sleep(0.2)
 
