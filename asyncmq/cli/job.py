@@ -1,11 +1,10 @@
-import anyio
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner
+from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner, run_cmd
 from asyncmq.conf import monkay
 
 console = Console()
@@ -74,7 +73,7 @@ def inspect_job(job_id: str, queue: str) -> None:
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Details")
     # Load the job data from the backend's job store using anyio.run.
-    job = anyio.run(backend.job_store.load, queue, job_id)
+    job = run_cmd(backend.job_store.load, queue, job_id)
 
     # Check if the job was found.
     if job:
@@ -103,14 +102,14 @@ def retry_job(job_id: str, queue: str) -> None:
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Retry")
     # Load the job data from the backend's job store using anyio.run.
-    job = anyio.run(backend.job_store.load, queue, job_id)
+    job = run_cmd(backend.job_store.load, queue, job_id)
 
     # Check if the job was found.
     if job:
         # Print a message indicating the job is being retried.
         console.print(f"[green]Retrying job '{job_id}' in queue '{queue}'...[/green]")
         # Enqueue the job again using anyio.run. This effectively retries it.
-        anyio.run(backend.enqueue, queue, job)
+        run_cmd(backend.enqueue, queue, job)
     else:
         # If the job was not found, print an error message.
         console.print(f"[red]Job '{job_id}' not found.[/red]")
@@ -134,7 +133,7 @@ def remove_job(job_id: str, queue: str) -> None:
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Remove")
     # Delete the job from the backend's job store using anyio.run.
-    anyio.run(backend.job_store.delete, queue, job_id)
+    run_cmd(backend.job_store.delete, queue, job_id)
     # Print a confirmation message.
     console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")
 
@@ -168,7 +167,7 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
     q = Queue(queue)
     # Call the queue's cancel_job method asynchronously using anyio.run,
     # passing the job ID.
-    anyio.run(q.cancel_job, job_id)  # type: ignore
+    run_cmd(q.cancel_job, job_id)
     # Print a confirmation message with a no-entry emoji and the job ID.
     console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")
 
@@ -183,7 +182,7 @@ def list_jobs(queue: str, state: str) -> None:
     get_print_banner(JOBS_LOGO, title="AsyncMQ List Jobs")
     # Create a Queue instance for the specified queue name.
     q = Queue(queue)
-    jobs = anyio.run(q.list_jobs, state)
+    jobs = run_cmd(q.list_jobs, state)
     if not jobs:
         console.print(f"[bold yellow]No jobs found in '{queue}' with state '{state}'.[/]")
         return

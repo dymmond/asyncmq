@@ -14,6 +14,7 @@ from asyncmq.cli.utils import (
     get_centered_logo,
     get_print_banner,
     print_worker_banner,
+    run_cmd,
 )
 from asyncmq.conf import monkay
 from asyncmq.logging import logger
@@ -99,7 +100,7 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         # Start the worker using anyio's run function.
         # The lambda function wraps the start_worker call to be compatible with anyio.run.
         log(f"Starting worker for queue '{queue}' with concurrency {concurrency}")
-        anyio.run(lambda: start_worker(queue_name=queue, concurrency=concurrency))
+        run_cmd(lambda: start_worker(queue_name=queue, concurrency=concurrency))
     except anyio.get_cancelled_exc_class():
         # Handle KeyboardInterrupt (Ctrl+C) for graceful shutdown.
         console.print("[yellow]Worker shutdown requested (Ctrl+C). Exiting...[/yellow]")
@@ -132,7 +133,7 @@ def list_workers() -> None:
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ List Workers")
     backend = monkay.settings.backend
-    workers = anyio.run(backend.list_workers)
+    workers = run_cmd(backend.list_workers)
     table = Table(title="Workers")
     table.add_column("Worker ID", style="green")
     table.add_column("Queue", style="magenta")
@@ -165,7 +166,7 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Register Workers")
     backend = monkay.settings.backend
     timestamp = time.time()
-    anyio.run(
+    run_cmd(
         lambda: backend.register_worker(
             worker_id=worker_id,
             queue=queue,
@@ -192,5 +193,5 @@ def deregister_worker(worker_id: str) -> None:
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Deregister Workers")
     backend = monkay.settings.backend
-    anyio.run(lambda: backend.deregister_worker(worker_id))
+    run_cmd(lambda: backend.deregister_worker(worker_id))
     console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")

@@ -2,7 +2,6 @@ import json
 import time
 from typing import Any
 
-import anyio
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -10,7 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
-from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner
+from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner, run_cmd
 from asyncmq.conf import monkay
 
 console = Console()
@@ -93,7 +92,7 @@ def list_queues() -> None:
     if hasattr(backend, "list_queues"):
         # If the method exists, call it asynchronously using anyio.run
         # and store the returned list of queue names.
-        queues = anyio.run(backend.list_queues)
+        queues = run_cmd(backend.list_queues)
         # Check if the returned list of queues is not empty.
         if queues:
             # If queues were found, iterate through the list and print each queue name
@@ -128,7 +127,7 @@ def pause_queue(queue: str) -> None:
     backend = monkay.settings.backend
     # Call the backend's pause_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
-    anyio.run(backend.pause_queue, queue)
+    run_cmd(backend.pause_queue, queue)
 
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
@@ -155,7 +154,7 @@ def resume_queue(queue: str) -> None:
     backend = monkay.settings.backend
     # Call the backend's resume_queue method asynchronously using anyio.run,
     # passing the queue name as an argument.
-    anyio.run(backend.resume_queue, queue)
+    run_cmd(backend.resume_queue, queue)
 
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
@@ -190,7 +189,7 @@ def info_queue(queue: str) -> None:
 
     # Fetch the paused status of the queue asynchronously using anyio.run.
     # This calls the backend's is_queue_paused method.
-    paused = anyio.run(backend.is_queue_paused, queue)
+    paused = run_cmd(backend.is_queue_paused, queue)
 
     # Initialize job counts to zero. These will be updated if the backend
     # exposes the necessary attributes (e.g., for InMemoryBackend).
@@ -258,7 +257,7 @@ def cli_list_delayed(queue: str) -> None:
     q = Queue(queue)
     # Call the queue's list_delayed method asynchronously using anyio.run
     # and store the returned list of DelayedInfo dataclass instances.
-    jobs: list[DelayedInfo] = anyio.run(q.list_delayed)  # type: ignore
+    jobs: list[DelayedInfo] = run_cmd(q.list_delayed)  # type: ignore
 
     # Create a Rich Table to display the delayed job information.
     table = Table(show_header=True, header_style="bold magenta")
@@ -308,7 +307,7 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
     q = Queue(queue)
     # Call the queue's remove_delayed method asynchronously using anyio.run,
     # passing the job ID. The method returns True if the job was removed, False otherwise.
-    ok = anyio.run(q.remove_delayed, job_id)  # type: ignore
+    ok = run_cmd(q.remove_delayed, job_id)
 
     # Check the boolean result returned by remove_delayed.
     if ok:
@@ -341,7 +340,7 @@ def cli_list_repeatables(queue: str) -> None:
     q = Queue(queue)
     # Call the queue's list_repeatables method asynchronously using anyio.run
     # and store the returned list of RepeatableInfo dataclass instances.
-    rpts: list[RepeatableInfo] = anyio.run(q.list_repeatables)
+    rpts: list[RepeatableInfo] = run_cmd(q.list_repeatables)
 
     # Create a Rich Table to display the repeatable job information.
     table = Table(show_header=True, header_style="bold magenta")
@@ -398,7 +397,7 @@ def cli_pause_repeatable(queue: str, job_def_json: str | Any) -> None:
     job_def = json.loads(job_def_json)
     # Call the queue's pause_repeatable method asynchronously using anyio.run,
     # passing the job definition dictionary.
-    anyio.run(q.pause_repeatable, job_def)
+    run_cmd(q.pause_repeatable, job_def)
     # Print a confirmation message with a pause emoji and the job definition.
     console.print(f":pause_button: Paused repeatable [bold]{job_def}[/]")
 
@@ -435,7 +434,7 @@ def cli_resume_repeatable(queue: str, job_def_json: str | Any) -> None:
     # Call the queue's resume_repeatable method asynchronously using anyio.run,
     # passing the job definition dictionary. This method returns the newly
     # computed next run timestamp.
-    next_run = anyio.run(q.resume_repeatable, job_def)
+    next_run = run_cmd(q.resume_repeatable, job_def)
     # Format the returned timestamp into a human-readable string.
     human = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_run))
     # Print a confirmation message with a forward arrow emoji, the job definition,
