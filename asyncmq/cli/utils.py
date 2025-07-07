@@ -1,8 +1,11 @@
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
+import anyio
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+
+T = TypeVar('T')
 
 console = Console()
 
@@ -126,3 +129,12 @@ def get_print_banner(
         text.append(display_text, style=style)
     text.append("\n")
     console.print(Panel(text, title=title, border_style=border_style))
+
+
+def run_cmd(fn: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T | None:
+    try:
+        return anyio.run(fn, *args, **kwargs)
+    except RuntimeError as e:
+        if e.args and "Event loop is closed" in e.args[0]:
+            pass
+        return None
