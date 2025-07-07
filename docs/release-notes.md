@@ -5,12 +5,20 @@ hide:
 
 # Release Notes
 
-## 0.3.1
+## 0.4.0
 
-Here’s a concise set of release notes you can include in your changelog for the new RabbitMQ integration:
+### Added
 
----
+- Address session middleware from the dashboard config and can be changed.
+- Make cli commands more consistent across the client.
 
+### Fixed
+
+- Register/De-register workers in `run_worker`.
+- CLI: Catch RuntimeError when running commands via anyio
+- Log exceptions during job execution.
+- Out-of-process workers do not pick up jobs from the queue
+-
 ## 0.3.1
 
 ### Added

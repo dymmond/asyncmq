@@ -67,6 +67,14 @@ class InMemoryBackend(BaseBackend):
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
 
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically fetch and remove all delayed jobs whose run_at ≤ now.
+        The existing get_due_delayed() already does this under the lock,
+        so we can simply delegate to it.
+        """
+        return await self.get_due_delayed(queue_name)
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue.
