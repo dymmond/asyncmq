@@ -112,7 +112,6 @@ async def run_worker(
     await backend.register_worker(worker_id, queue_name, concurrency, timestamp)
 
     try:
-
         # Initialize the rate limiter based on the configuration.
         if rate_limit == 0:
             # If rate_limit is 0, use a special internal class that never acquires,

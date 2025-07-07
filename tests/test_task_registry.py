@@ -1,4 +1,3 @@
-
 import pytest
 
 from asyncmq.tasks import TASK_REGISTRY, TaskWrapper, task

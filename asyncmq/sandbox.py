@@ -37,6 +37,7 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
             # For TaskWrapper instances, call them directly and await the result
             async def run_task() -> Any:
                 return await func(*args, **kwargs)
+
             result = anyio.run(run_task)
         elif inspect.iscoroutinefunction(func):
             # For regular async functions
@@ -141,6 +142,7 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
                 # For TaskWrapper instances, use anyio.run with async wrapper
                 async def run_task() -> Any:
                     return await handler(*args, **kwargs)
+
                 return anyio.run(run_task)
             elif inspect.iscoroutinefunction(handler):
                 # If async, use anyio.run

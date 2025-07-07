@@ -60,14 +60,13 @@ def test_job_remove(monkeypatch):
     assert "Deleted job" in result.output
 
 
-
 def test_job_list(monkeypatch):
     async def setup_test_backend():
         backend = InMemoryBackend()
 
         test_jobs = [
             {"id": "job1", "task": "task1", "status": "waiting", "priority": 5},
-            {"id": "job2", "task": "task2", "status": "waiting", "priority": 5}
+            {"id": "job2", "task": "task2", "status": "waiting", "priority": 5},
         ]
 
         for job in test_jobs:
