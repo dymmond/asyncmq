@@ -288,3 +288,21 @@ async def test_worker_logs_exceptions():
 
     assert any("This is a problem" in record.getMessage() for record in logs)
     assert any("failed with exception" in record.getMessage() for record in logs)
+
+
+async def test_registers_worker():
+    backend = InMemoryBackend()
+    worker = asyncio.create_task(
+        run_worker("test_registry", backend=backend, concurrency=2, rate_limit=None, rate_interval=1.0,
+                   repeatables=None)
+    )
+    await asyncio.sleep(0.2)
+
+    workers = await backend.list_workers()
+
+    assert len(workers) == 1
+    assert workers[0].queue == "test_registry"
+
+    # Clean up
+    worker.cancel()
+    await asyncio.gather(worker, return_exceptions=True)

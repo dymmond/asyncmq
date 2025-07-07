@@ -1,6 +1,9 @@
 import asyncio
 import time
+import uuid
 from typing import Any
+
+import anyio
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.conf import monkay
@@ -104,52 +107,63 @@ async def run_worker(
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 
-    # Initialize the rate limiter based on the configuration.
-    if rate_limit == 0:
-        # If rate_limit is 0, use a special internal class that never acquires,
-        # effectively blocking all job processing attempts.
-        class _BlockAll:
-            """
-            A dummy rate limiter implementation used to block all calls to
-            acquire, effectively pausing job processing.
-            """
+    worker_id = str(uuid.uuid4())
+    timestamp = time.time()
+    await backend.register_worker(worker_id, queue_name, concurrency, timestamp)
 
-            async def acquire(self) -> None:
+    try:
+
+        # Initialize the rate limiter based on the configuration.
+        if rate_limit == 0:
+            # If rate_limit is 0, use a special internal class that never acquires,
+            # effectively blocking all job processing attempts.
+            class _BlockAll:
                 """
-                Asynchronously attempts to acquire a permit. This implementation
-                creates a Future that is never resolved, causing any caller to
-                await indefinitely.
+                A dummy rate limiter implementation used to block all calls to
+                acquire, effectively pausing job processing.
                 """
-                # Create a future that will never complete, blocking the caller.
-                await asyncio.Future()
 
-        # Assign the special blocker instance.
-        rate_limiter: Any | None = _BlockAll()
-    elif rate_limit is None:
-        # If rate_limit is None, no rate limiting is applied.
-        rate_limiter: Any | None = None  # type: ignore
-    else:
-        # If rate_limit is a positive integer, initialize the standard RateLimiter.
-        rate_limiter = RateLimiter(rate_limit, rate_interval)
+                async def acquire(self) -> None:
+                    """
+                    Asynchronously attempts to acquire a permit. This implementation
+                    creates a Future that is never resolved, causing any caller to
+                    await indefinitely.
+                    """
+                    # Create a future that will never complete, blocking the caller.
+                    await asyncio.Future()
 
-    # Build the list of core asynchronous tasks that constitute the worker.
-    # 1. The main process_job task that pulls jobs from the queue and handles them.
-    # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
-    tasks: list[Any] = [
-        process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),  # type: ignore
-        delayed_job_scanner(queue_name, backend, interval=scan_interval),
-    ]
+            # Assign the special blocker instance.
+            rate_limiter: Any | None = _BlockAll()
+        elif rate_limit is None:
+            # If rate_limit is None, no rate limiting is applied.
+            rate_limiter: Any | None = None  # type: ignore
+        else:
+            # If rate_limit is a positive integer, initialize the standard RateLimiter.
+            rate_limiter = RateLimiter(rate_limit, rate_interval)
 
-    # If repeatable job definitions are provided, add the repeatable scheduler task.
-    if repeatables:
-        # Import the scheduler function here to avoid circular dependencies
-        # if this module is imported elsewhere first.
-        from asyncmq.schedulers import repeatable_scheduler
+        # Build the list of core asynchronous tasks that constitute the worker.
+        # 1. The main process_job task that pulls jobs from the queue and handles them.
+        # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
+        tasks: list[Any] = [
+            process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),  # type: ignore
+            delayed_job_scanner(queue_name, backend, interval=scan_interval),
+        ]
 
-        # Add the repeatable scheduler task to the list of tasks to run.
-        tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=scan_interval))
+        # If repeatable job definitions are provided, add the repeatable scheduler task.
+        if repeatables:
+            # Import the scheduler function here to avoid circular dependencies
+            # if this module is imported elsewhere first.
+            from asyncmq.schedulers import repeatable_scheduler
 
-    # Use asyncio.gather to run all the created tasks concurrently.
-    # This function will wait for all tasks to complete (which, for these
-    # worker tasks, means running until cancelled or an error occurs).
-    await asyncio.gather(*tasks)
+            # Add the repeatable scheduler task to the list of tasks to run.
+            tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=scan_interval))
+
+        # Use asyncio.gather to run all the created tasks concurrently.
+        # This function will wait for all tasks to complete (which, for these
+        # worker tasks, means running until cancelled or an error occurs).
+        await asyncio.gather(*tasks)
+    except (anyio.get_cancelled_exc_class(), Exception):
+        await backend.deregister_worker(worker_id)
+        raise
+    finally:
+        await backend.deregister_worker(worker_id)
