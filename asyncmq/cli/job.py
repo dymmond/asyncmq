@@ -139,7 +139,7 @@ def remove_job(job_id: str, queue: str) -> None:
     console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")
 
 
-@job_app.command("cancel-job")
+@job_app.command("cancel")
 @click.argument("queue")
 @click.argument("job_id")
 def cli_cancel_job(queue: str, job_id: str | int) -> None:
