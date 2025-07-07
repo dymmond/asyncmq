@@ -11,6 +11,7 @@ hide:
 
 - Address session middleware from the dashboard config and can be changed.
 - Make cli commands more consistent across the client.
+- `start_worker` now uses the `Worker` object. This was previously added but never 100% plugged into the client.
 
 ### Fixed
 
@@ -18,7 +19,7 @@ hide:
 - CLI: Catch RuntimeError when running commands via anyio
 - Log exceptions during job execution.
 - Out-of-process workers do not pick up jobs from the queue
--
+
 ## 0.3.1
 
 ### Added
