@@ -1,5 +1,3 @@
-from typing import Any
-
 import anyio
 
 from asyncmq.backends.base import BaseBackend
@@ -37,20 +35,18 @@ async def delayed_job_scanner(
     backend = backend or monkay.settings.backend
     logger.info(f"Delayed job scanner started for queue: {queue_name}")
 
-    # Main loop to continuously scan for delayed jobs.
     while True:
-        # Get jobs from the backend that are due for processing.
-        jobs: list[dict[str, Any]] = await backend.get_due_delayed(queue_name)
+        try:
+            jobs = await backend.pop_due_delayed(queue_name)
+        except AttributeError:
+            # Fallback for backends that don’t support pop
+            jobs = await backend.get_due_delayed(queue_name)
+            for job_data in jobs:
+                await backend.remove_delayed(queue_name, job_data["id"])
 
-        # Process each due job found.
         for job_data in jobs:
-            # Convert the raw job data dictionary back into a Job object.
             job = Job.from_dict(job_data)
-            # Remove the job from the backend's delayed storage.
-            await backend.remove_delayed(queue_name, job.id)
-            # Enqueue the job back into the main queue for processing.
             await backend.enqueue(queue_name, job.to_dict())
             logger.info(f"[{job.id}] Moved delayed job to queue")
 
-        # Sleep for the specified interval before the next scan.
         await anyio.sleep(interval)

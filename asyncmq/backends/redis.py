@@ -60,6 +60,15 @@ end
 return result
 """
 
+POP_DELAYED = """
+local key, now = KEYS[1], tonumber(ARGV[1])
+local items = redis.call('ZRANGEBYSCORE', key, '-inf', now)
+if #items > 0 then
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
+end
+return items
+"""
+
 
 class RedisBackend(BaseBackend):
     """
@@ -98,6 +107,15 @@ class RedisBackend(BaseBackend):
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
+        self._pop_delayed_script: AsyncScript = self.redis.register_script(POP_DELAYED)
+
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        key = self._delayed_key(queue_name)
+        now = time.time()
+        # This calls the Lua in one round-trip: fetch + remove
+        raw_items: list[bytes] = await self._pop_delayed_script(keys=[key], args=[now])
+        # Decode & parse JSON
+        return [json.loads(item.decode("utf-8")) for item in raw_items]
 
     def _waiting_key(self, name: str) -> str:
         """

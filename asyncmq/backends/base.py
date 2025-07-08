@@ -587,3 +587,11 @@ class BaseBackend(ABC):
     async def list_workers(self) -> list[WorkerInfo]:
         """Return all workers with heartbeat ≥ now - monkay.settings.heartbeat_ttl."""
         ...
+
+    @abstractmethod
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically fetches *and* removes all delayed jobs whose run_at ≤ now.
+        Returns the list of job-dicts.
+        """
+        ...

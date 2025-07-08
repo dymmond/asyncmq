@@ -70,6 +70,16 @@ class RabbitMQBackend(BaseBackend):
         # Set the quality of service for the channel, controlling prefetch count.
         await self._chan.set_qos(prefetch_count=self.prefetch_count)
 
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically fetch and remove all scheduled ("delayed") jobs whose
+        run_at ≤ now.  We leverage the existing get_due_delayed(), which
+        already deletes each job as it yields it, and then extract the
+        raw payload dict from each DelayedInfo.
+        """
+        infos = await self.get_due_delayed(queue_name)
+        return [info.payload for info in infos]
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Enqueues a job into the specified RabbitMQ queue.

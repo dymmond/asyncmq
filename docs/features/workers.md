@@ -71,6 +71,9 @@ class Worker:
 ```
 
 * **Purpose**: Encapsulates worker startup & graceful shutdown.
+* **Automatic Task Discovery**: Before registering and processing any jobs, the worker runs `autodiscover_tasks()`
+(which imports all modules in your custom [tasks declared in the settings](./settings.md) so your `@task(...)`
+handlers are registered).
 * **CancelScope**: Allows `.stop()` to cleanly cancel processing.
 * **Defaults**: Uses `settings.worker_concurrency`, `settings.rate_limit`, and `settings.rate_interval`.
 

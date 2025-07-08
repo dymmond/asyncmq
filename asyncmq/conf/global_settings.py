@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from asyncmq import __version__  # noqa
@@ -209,6 +209,12 @@ class Settings:
     The frequency (in seconds) at which the scheduler scans for delayed jobs.
     """
     heartbeat_ttl: int = 30
+
+    """
+    A list of module paths in which to look for @task-decorated callables.
+    E.g. ["myapp.runs.tasks", "myapp.jobs.tasks"].
+    """
+    tasks: list[str] = field(default_factory=lambda: [])
 
     @property
     def dashboard_config(self) -> DashboardConfig | None:

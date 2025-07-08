@@ -124,29 +124,30 @@ with open('asyncmq_config.yml', 'w') as f:
 
 Below is a distilled breakdown of each setting, why it matters, and tips for tuning:
 
-| Name                                       | Type                     | Default                    | Purpose & Tips                                                                             |
-| ------------------------------------------ | ------------------------ | -------------------------- | ------------------------------------------------------------------------------------------ |
-| **debug**                                  | `bool`                   | `False`                    | Turn on detailed stack traces & verbose logs when diagnosing issues.                       |
-| **logging_level**                         | `str`                    | `"INFO"`                   | Control verbosity. Use `DEBUG` for development, `ERROR` for stable production.             |
-| **backend**                                | `BaseBackend`            | `RedisBackend()`           | Swap storage/backing queue. Use Postgres or Mongo backends for ACID or schema flexibility. |
-| **version**                                | `str`                    | AsyncMQ version            | Handy for logging and health endpoints.                                                    |
-| **is_logging_setup**                     | `bool`                   | `False`                    | Internal flag—rarely override manually.                                                    |
-| **jobs_table_schema**                    | `str`                    | `"asyncmq"`                | Postgres schema. Namespace your tables to avoid collisions.                                |
-| **postgres_jobs_table_name**            | `str`                    | `"asyncmq_jobs"`           | Table name for jobs in Postgres. Change for multi-tenant setups.                           |
-| **postgres_repeatables_table_name**     | `str`                    | `"asyncmq_repeatables"`    | Stores repeatable job definitions in Postgres.                                             |
-| **postgres_cancelled_jobs_table_name** | `str`                    | `"asyncmq_cancelled_jobs"` | Tracks cancelled jobs in Postgres.                                                         |
-| **asyncmq_postgres_backend_url**        | `str | None`            | `None`                     | DSN for Postgres. Required if using Postgres backend.                                      |
-| **asyncmq_postgres_pool_options**       | `dict[str, Any] | None` | `None`                     | Options for `asyncpg.create_pool`. Tunes connection pooling.                               |
-| **asyncmq_mongodb_backend_url**         | `str | None`            | `None`                     | URI for MongoDB. Use `mongodb+srv` URIs with credentials.                                  |
-| **asyncmq_mongodb_database_name**       | `str | None`            | `"asyncmq"`                | Target DB in MongoDB.                                                                      |
-| **enable_stalled_check**                 | `bool`                   | `False`                    | Detect jobs stuck > `stalled_threshold`. Useful for long tasks.                            |
-| **stalled_check_interval**               | `float`                  | `60.0`                     | Scan frequency for stalled jobs. Lower for faster detection, higher for less DB load.      |
-| **stalled_threshold**                     | `float`                  | `30.0`                     | Execution time considered stalled. Tune per workload.                                      |
-| **sandbox_enabled**                       | `bool`                   | `False`                    | Run tasks in isolated processes. Safer but slower.                                         |
-| **sandbox_default_timeout**              | `float`                  | `30.0`                     | Max seconds for sandboxed job. Prevent runaway tasks.                                      |
-| **sandbox_ctx**                           | `str | None`            | `"fork"`                   | Multiprocessing context for sandbox. OS-dependent.                                         |
-| **worker_concurrency**                    | `int`                    | `1`                        | Default concurrency for CLI workers. Increase for I/O-bound tasks.                         |
-| **scan_interval**                         | `float`                  | `1.0`                      | Global frequency to poll delayed & repeatable jobs. Override per-queue if needed.          |
+| Name                                   | Type            | Default                    | Purpose & Tips                                                                             |
+|----------------------------------------|-----------------|----------------------------| ------------------------------------------------------------------------------------------ |
+| **debug**                              | `bool`          | `False`                    | Turn on detailed stack traces & verbose logs when diagnosing issues.                       |
+| **logging_level**                      | `str`           | `"INFO"`                   | Control verbosity. Use `DEBUG` for development, `ERROR` for stable production.             |
+| **backend**                            | `BaseBackend`   | `RedisBackend()`           | Swap storage/backing queue. Use Postgres or Mongo backends for ACID or schema flexibility. |
+| **version**                            | `str`           | AsyncMQ version            | Handy for logging and health endpoints.                                                    |
+| **is_logging_setup**                   | `bool`          | `False`                    | Internal flag—rarely override manually.                                                    |
+| **jobs_table_schema**                  | `str`           | `"asyncmq"`                | Postgres schema. Namespace your tables to avoid collisions.                                |
+| **postgres_jobs_table_name**           | `str`           | `"asyncmq_jobs"`           | Table name for jobs in Postgres. Change for multi-tenant setups.                           |
+| **postgres_repeatables_table_name**    | `str`           | `"asyncmq_repeatables"`    | Stores repeatable job definitions in Postgres.                                             |
+| **postgres_cancelled_jobs_table_name** | `str`           | `"asyncmq_cancelled_jobs"` | Tracks cancelled jobs in Postgres.                                                         |
+| **asyncmq_postgres_backend_url**       | `str            | None`                      | `None`                     | DSN for Postgres. Required if using Postgres backend.                                      |
+| **asyncmq_postgres_pool_options**      | `dict[str, Any] | None`                      | `None`                     | Options for `asyncpg.create_pool`. Tunes connection pooling.                               |
+| **asyncmq_mongodb_backend_url**        | `str            | None`                      | `None`                     | URI for MongoDB. Use `mongodb+srv` URIs with credentials.                                  |
+| **asyncmq_mongodb_database_name**      | `str            | None`                      | `"asyncmq"`                | Target DB in MongoDB.                                                                      |
+| **enable_stalled_check**               | `bool`          | `False`                    | Detect jobs stuck > `stalled_threshold`. Useful for long tasks.                            |
+| **stalled_check_interval**             | `float`         | `60.0`                     | Scan frequency for stalled jobs. Lower for faster detection, higher for less DB load.      |
+| **stalled_threshold**                  | `float`         | `30.0`                     | Execution time considered stalled. Tune per workload.                                      |
+| **sandbox_enabled**                    | `bool`          | `False`                    | Run tasks in isolated processes. Safer but slower.                                         |
+| **sandbox_default_timeout**            | `float`         | `30.0`                     | Max seconds for sandboxed job. Prevent runaway tasks.                                      |
+| **sandbox_ctx**                        | `str            | None`                      | `"fork"`                   | Multiprocessing context for sandbox. OS-dependent.                                         |
+| **worker_concurrency**                 | `int`           | `1`                        | Default concurrency for CLI workers. Increase for I/O-bound tasks.                         |
+| **tasks**                               | `list[str]`     | `[]`                       | Python modules or packages to auto-discover your `@task(…)` definitions at worker startup. Defaults to `[]`.                         |
+| **scan_interval**                      | `float`         | `1.0`                      | Global frequency to poll delayed & repeatable jobs. Override per-queue if needed.          |
 
 !!! Note
     Fields like `asyncmq_postgres_pool_options` and table names exist for advanced customizations.

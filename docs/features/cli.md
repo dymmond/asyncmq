@@ -55,7 +55,7 @@ These commands are invoked directly on the `asyncmq` root without a sub-group.
 List all queues known to the configured backend.
 
 ```bash
-asyncmq list-queues
+asyncmq queue list
 ```
 
 ### `list-workers`
@@ -63,7 +63,7 @@ asyncmq list-queues
 List all registered workers, their queue, concurrency level, and last heartbeat.
 
 ```bash
-asyncmq list-workers
+asyncmq worker list
 ```
 
 ### `register-worker <worker_id> <queue> [--concurrency N]`
@@ -71,7 +71,7 @@ asyncmq list-workers
 Register or update a worker's heartbeat and concurrency on a specific queue.
 
 ```bash
-asyncmq register-worker worker42 myqueue --concurrency 10
+asyncmq worker register worker42 myqueue --concurrency 10
 ```
 
 ### `deregister-worker <worker_id>`
@@ -79,7 +79,7 @@ asyncmq register-worker worker42 myqueue --concurrency 10
 Deregister (remove) a worker from the registry.
 
 ```bash
-asyncmq deregister-worker worker42
+asyncmq worker deregister worker42
 ```
 
 ---
@@ -267,25 +267,25 @@ asyncmq worker start emails --concurrency 3
 * List all queues:
 
 ```bash
-asyncmq list-queues
+asyncmq queue list
 ```
 
 * Register a new worker heartbeat:
 
 ```bash
-asyncmq register-worker worker42 emails --concurrency 3
+asyncmq worker register worker42 emails --concurrency 3
 ```
 
 * List workers:
 
 ```bash
-asyncmq list-workers
+asyncmq worker list
 ```
 
 * Deregister a worker:
 
 ```bash
-asyncmq deregister-worker worker42
+asyncmq worker deregister worker42
 ```
 
 * Pipe output through your own `jq` or `grep` to integrate AsyncMQ into shell scripts and dashboards!

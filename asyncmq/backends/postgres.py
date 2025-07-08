@@ -57,6 +57,31 @@ class PostgresBackend(BaseBackend):
         self.pool_options = pool_options or monkay.settings.asyncmq_postgres_pool_options or {}
         self.store: PostgresJobStore = PostgresJobStore(dsn=dsn, pool_options=self.pool_options)
 
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically retrieve and remove all delayed jobs whose delay_until ≤ now
+        in a single SQL statement, returning their payloads.
+        """
+        now = time.time()
+        # Pull & delete in one CTE-backed statement
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                WITH due AS (
+                  DELETE FROM {monkay.settings.postgres_jobs_table_name}
+                  WHERE queue_name = $1
+                    AND (data ->>'delay_until') IS NOT NULL
+                    AND (data ->>'delay_until')::float <= $2
+                  RETURNING data
+                )
+                SELECT data FROM due
+                """,
+                queue_name,
+                now,
+            )
+        # Each row.data is a JSON string
+        return [json.loads(r["data"]) for r in rows]
+
     async def connect(self) -> None:
         """
         Asynchronously establishes a connection to the PostgreSQL database by
