@@ -14,6 +14,36 @@ A **task** in AsyncMQ is simply a Python function (sync or async) that you mark 
 
 > 🎩 **Magician’s Note:** Decorating doesn’t run your function—only `.enqueue()` does. No accidental background jobs!
 
+## 1.1 Automatic Task Discovery
+
+Before any jobs are ever pulled off a queue, AsyncMQ will auto-import every module you list in your
+[tasks declared in your custom setting](./settings.md). This ensures that all your `@task("<module>.<func>")`
+decorators actually run and populate the global `TASK_REGISTRY`.
+
+**How it works:**
+
+* You configure in your [custom settings](./settings.md):
+
+   ```python
+   from dataclasses import dataclass, field
+   from asyncmq.conf.global_settings import Settings as BaseSettings
+
+   @dataclass
+   class Settings(BaseSettings):
+       tasks: list[str] = field(default_factory=lambda: [
+         "myproject.tasks",
+         "myproject.scheduled_jobs",
+       ])
+
+   ```
+
+* At worker startup, `autodiscover_tasks()`:
+    * Imports each package in that list
+    * Recursively loads every .py module under it
+    * Runs each `@task(…)` decorator so `TASK_REGISTRY` is populated
+
+If a module in tasks can’t be imported, you’ll get a warning but discovery will continue for the others.
+
 ---
 
 ## 2. Basic Usage
