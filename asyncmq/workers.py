@@ -1,7 +1,9 @@
+import importlib
+import pkgutil
 import time
 import traceback
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import anyio
 from anyio import CapacityLimiter
@@ -17,8 +19,27 @@ from asyncmq.logging import logger
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
-if TYPE_CHECKING:
-    pass
+
+def autodiscover_tasks() -> None:
+    """
+    Import every module in the configured task package so that
+    @task(...) decorators run and populate TASK_REGISTRY.
+    """
+    tasks = monkay.settings.tasks  # e.g. ['myproject.tasks', 'myproject.something.tasks']
+
+    for pkg_name in tasks:
+        try:
+            pkg = importlib.import_module(pkg_name)
+        except ImportError as e:
+            logger.warning(f"Could not import task package {pkg_name!r}: {e}")
+            continue
+
+        for _, module_name, _ in pkgutil.iter_modules(pkg.__path__):
+            full_name = f"{pkg_name}.{module_name}"
+            try:
+                importlib.import_module(full_name)
+            except Exception as e:
+                logger.warning(f"autodiscover failed importing {full_name!r}: {e}")
 
 
 async def process_job(
@@ -170,7 +191,15 @@ async def handle_job(
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
         # Retrieve task metadata and the handler function from the registry
-        meta = TASK_REGISTRY[job.task_id]
+        try:
+            meta = TASK_REGISTRY[job.task_id]
+        except KeyError:
+            try:
+                importlib.import_module(job.task_id)
+                meta = TASK_REGISTRY[job.task_id]
+            except Exception as e:
+                raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from e
+
         handler = meta["func"]
 
         # Mid-flight cancellation check
@@ -271,6 +300,8 @@ class Worker:
 
     async def _run_with_scope(self) -> None:
         backend = monkay.settings.backend
+        # Trigger the auto discover tasks
+        autodiscover_tasks()
 
         # Initial registration
         await backend.register_worker(
