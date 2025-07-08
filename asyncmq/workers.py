@@ -300,8 +300,10 @@ class Worker:
 
     async def _run_with_scope(self) -> None:
         backend = monkay.settings.backend
-        # Trigger the auto discover tasks
-        autodiscover_tasks()
+
+        if monkay.settings.tasks:
+            # Trigger the auto discover tasks
+            autodiscover_tasks()
 
         # Initial registration
         await backend.register_worker(
