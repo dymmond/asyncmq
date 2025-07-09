@@ -1,11 +1,10 @@
-
 from lilya.apps import Lilya
 from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
 from lilya.routing import Include
 
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.application import dashboard
-from asyncmq.core.dependencies import get_settings
 
 dash_app = Lilya(
     routes=[Include(path="/", app=dashboard)],
@@ -17,7 +16,7 @@ dash_app = Lilya(
             allow_headers=["*"],
             allow_credentials=True,
         ),
-        get_settings().dashboard_config.session_middleware,
+        monkay.settings.dashboard_config.session_middleware,
     ],
 )
 

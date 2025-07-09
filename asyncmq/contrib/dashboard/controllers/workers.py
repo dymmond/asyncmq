@@ -5,8 +5,8 @@ from typing import Any
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
-from asyncmq.core.dependencies import get_backend
 
 
 class WorkerController(DashboardMixin, TemplateController):
@@ -19,7 +19,7 @@ class WorkerController(DashboardMixin, TemplateController):
     async def get(self, request: Request) -> Any:
         context = await super().get_context_data(request)
 
-        backend = get_backend()
+        backend = monkay.settings.backend
         worker_info = await backend.list_workers()
 
         all_workers: list[dict[str, Any]] = []

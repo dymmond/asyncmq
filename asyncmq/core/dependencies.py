@@ -19,9 +19,7 @@ def get_backend() -> "BaseBackend":
     Returns:
         The backend instance from monkay.settings.backend
     """
-    # ruff: noqa: PLC0415
-    from asyncmq.conf import monkay
-    return monkay.settings.backend
+    return get_settings().backend
 
 
 @lru_cache(maxsize=1)

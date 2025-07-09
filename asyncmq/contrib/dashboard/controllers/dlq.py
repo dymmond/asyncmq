@@ -6,9 +6,9 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
+from asyncmq.conf import monkay, settings
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
-from asyncmq.core.dependencies import get_backend, get_settings
 
 
 class DLQController(DashboardMixin, TemplateController):
@@ -16,7 +16,7 @@ class DLQController(DashboardMixin, TemplateController):
 
     async def get(self, request: Request) -> Any:
         queue = request.path_params["name"]
-        backend = get_backend()
+        backend = monkay.settings.backend
 
         # pagination params
         try:
@@ -70,7 +70,7 @@ class DLQController(DashboardMixin, TemplateController):
 
     async def post(self, request: Request) -> Any:
         queue = request.path_params.get("name")
-        backend = get_backend()
+        backend = monkay.settings.backend
         form = await request.form()
         action = form.get("action")
         page = form.get("page", 1)
@@ -87,7 +87,7 @@ class DLQController(DashboardMixin, TemplateController):
             else:
                 add_message(request, "info", "You need to select a job to be retried first.")
             return RedirectResponse(
-                f"{get_settings().dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq", status_code=303
+                f"{settings.dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq", status_code=303
             )
 
         for job_id in job_ids:
@@ -99,5 +99,5 @@ class DLQController(DashboardMixin, TemplateController):
                 await backend.remove_job(queue, job_id)
 
         return RedirectResponse(
-            f"{get_settings().dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq?page={page}", status_code=303
+            f"{settings.dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq?page={page}", status_code=303
         )

@@ -6,29 +6,28 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
+from asyncmq.conf import monkay, settings
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
-from asyncmq.core.dependencies import get_backend, get_settings
 
 
 class QueueController(DashboardMixin, TemplateController):
     template_name = "queues/queues.html"
 
     async def get_queues(self) -> list[dict[str, Any]]:
-        backend = get_backend()
-        queues = await backend.list_queues()
+        queues = await monkay.settings.backend.list_queues()
 
         rows = []
         for q in queues:
             # paused state (some backends may not support it)
             paused = False
-            if hasattr(backend, "is_queue_paused"):
-                paused = await backend.is_queue_paused(q)
+            if hasattr(monkay.settings.backend, "is_queue_paused"):
+                paused = await monkay.settings.backend.is_queue_paused(q)
 
             # counts by state
             counts = {}
             for state in ("waiting", "active", "delayed", "failed", "completed"):
-                jobs = await backend.list_jobs(q, state)
+                jobs = await monkay.settings.backend.list_jobs(q, state)
                 counts[state] = len(jobs)
 
             rows.append(
@@ -61,7 +60,7 @@ class QueueController(DashboardMixin, TemplateController):
         """
         Handles pause/resume form posts.
         """
-        backend = get_backend()
+        backend = monkay.settings.backend
         q = request.path_params["name"]
         action = (await request.form()).get("action")
 
@@ -83,7 +82,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
     template_name = "queues/info.html"
 
     async def get(self, request: Request) -> Any:
-        backend = get_backend()
+        backend = monkay.settings.backend
         q = request.path_params["name"]
 
         # get paused state
@@ -115,7 +114,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
         """
         Handles form POSTs from the pause/resume buttons.
         """
-        backend = get_backend()
+        backend = monkay.settings.backend
         q = request.path_params["name"]
         action = (await request.form()).get("action")
 
@@ -126,4 +125,4 @@ class QueueDetailController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        return RedirectResponse(f"{get_settings().dashboard_config.dashboard_url_prefix}/queues/{q}", status_code=303)
+        return RedirectResponse(f"{settings.dashboard_config.dashboard_url_prefix}/queues/{q}", status_code=303)

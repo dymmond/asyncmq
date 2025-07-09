@@ -5,6 +5,7 @@ from lilya.requests import Request
 from lilya.routing import Include, RoutePath
 from lilya.staticfiles import StaticFiles
 
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.controllers import (
     dlq,
     home,
@@ -16,7 +17,6 @@ from asyncmq.contrib.dashboard.controllers import (
     workers,
 )
 from asyncmq.contrib.dashboard.engine import templates  # noqa
-from asyncmq.core.dependencies import get_settings
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
@@ -53,7 +53,7 @@ routes = [
 ]
 
 dashboard = Lilya(
-    debug=get_settings().debug,
-    routes=[Include(path=get_settings().dashboard_config.dashboard_url_prefix, routes=routes)],
+    debug=monkay.settings.debug,
+    routes=[Include(path=monkay.settings.dashboard_config.dashboard_url_prefix, routes=routes)],
     exception_handlers={404: not_found},
 )

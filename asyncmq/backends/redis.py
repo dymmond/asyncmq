@@ -1,16 +1,19 @@
 import json
 import time
+import typing
 from typing import Any, cast
 
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
 from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
-from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.redis_store import RedisJobStore
+
+if typing.TYPE_CHECKING:
+    from asyncmq import Settings
 
 # Lua script used to atomically retrieve and remove the highest priority job
 # (first element in the sorted set, i.e., score 0) from a Redis Sorted Set.
@@ -98,7 +101,14 @@ class RedisBackend(BaseBackend):
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
-        self._settings=get_settings()
+        self._settings: "Settings | None" = None
+
+    @property
+    def settings(self) -> "Settings":
+        if self._settings is None:
+            from asyncmq.core.dependencies import get_settings
+            self._settings= get_settings()
+        return self._settings
 
     def _waiting_key(self, name: str) -> str:
         """
@@ -1351,7 +1361,7 @@ class RedisBackend(BaseBackend):
         # HSET the timestamp
         await self.redis.hset(key, worker_id, payload)
         # Reset TTL so the whole hash expires if no updates
-        await self.redis.expire(key, self._settings.heartbeat_ttl)
+        await self.redis.expire(key, self.settings.heartbeat_ttl)
 
     async def deregister_worker(self, worker_id: str) -> None:
         """
@@ -1402,7 +1412,7 @@ class RedisBackend(BaseBackend):
                 elif isinstance(payload, float):
                     current_concurrency = int(payload)
                 timestamp = float(payload.get("heartbeat", 0))
-                if now - timestamp <= self._settings.heartbeat_ttl:
+                if now - timestamp <= self.settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,
