@@ -1,3 +1,5 @@
+from asyncmq.core.dependencies import get_settings
+
 try:
     import asyncpg
 except ImportError:
@@ -6,7 +8,6 @@ except ImportError:
 import json
 from typing import Any, cast
 
-from asyncmq.conf import monkay
 from asyncmq.stores.base import BaseJobStore
 
 
@@ -38,15 +39,16 @@ class PostgresJobStore(BaseJobStore):
             ValueError: If neither `dsn` nor `monkay.settings.asyncmq_postgres_backend_url`
                         is provided.
         """
+        self._settings=get_settings()
         # Check if a DSN is provided or available in monkay.settings.
-        if not dsn and not monkay.settings.asyncmq_postgres_backend_url:
+        if not dsn and not self._settings.asyncmq_postgres_backend_url:
             # Raise an error if no DSN source is available.
-            raise ValueError("Either 'dsn' or 'monkay.settings.asyncmq_postgres_backend_url' must be " "provided.")
+            raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be " "provided.")
         # Store the resolved DSN, prioritizing the explicit 'dsn' argument.
-        self.dsn = dsn or monkay.settings.asyncmq_postgres_backend_url
+        self.dsn = dsn or self._settings.asyncmq_postgres_backend_url
         # Initialize the connection pool to None; it will be created on first connection.
         self.pool: asyncpg.Pool | None = None
-        self.pool_options = pool_options or monkay.settings.asyncmq_postgres_pool_options or {}
+        self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
 
     async def connect(self) -> None:
         """
@@ -90,7 +92,7 @@ class PostgresJobStore(BaseJobStore):
             # Execute the INSERT or UPDATE SQL query.
             await conn.execute(
                 f"""
-                INSERT INTO {monkay.settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
+                INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (job_id)
                 DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
@@ -123,7 +125,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch a single row matching the queue name and job ID.
             row = await conn.fetchrow(
                 f"""
-                SELECT data FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
+                SELECT data FROM {self._settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,
@@ -151,7 +153,7 @@ class PostgresJobStore(BaseJobStore):
             # Execute the DELETE SQL query.
             await conn.execute(
                 f"""
-                DELETE FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
+                DELETE FROM {self._settings.postgres_jobs_table_name} WHERE queue_name = $1 AND job_id = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,
@@ -177,7 +179,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch all rows for the given queue name.
             rows = await conn.fetch(
                 f"""
-                SELECT data FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name = $1
+                SELECT data FROM {self._settings.postgres_jobs_table_name} WHERE queue_name = $1
                 """,
                 # Pass the queue name as a parameter.
                 queue_name,
@@ -205,7 +207,7 @@ class PostgresJobStore(BaseJobStore):
             # Fetch rows matching the queue name and status.
             rows = await conn.fetch(
                 f"""
-                SELECT data FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name = $1 AND status = $2
+                SELECT data FROM {self._settings.postgres_jobs_table_name} WHERE queue_name = $1 AND status = $2
                 """,
                 # Pass parameters to the query.
                 queue_name,
@@ -217,7 +219,7 @@ class PostgresJobStore(BaseJobStore):
     async def filter(self, queue: str, state: str) -> list[dict[str, Any]]:
         await self.connect()
         query = f"""
-            SELECT data FROM {monkay.settings.postgres_jobs_table_name}
+            SELECT data FROM {self._settings.postgres_jobs_table_name}
             WHERE queue_name = $1 AND status = $2
         """
         rows = await self.pool.fetch(query, queue, state)

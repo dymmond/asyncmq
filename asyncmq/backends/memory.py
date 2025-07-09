@@ -10,7 +10,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -66,6 +66,9 @@ class InMemoryBackend(BaseBackend):
 
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
+
+        # Settings
+        self._settings = get_settings()
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
@@ -864,5 +867,5 @@ class InMemoryBackend(BaseBackend):
         """
         now = time.time()
         return [
-            info for info in self._worker_registry.values() if now - info.heartbeat <= monkay.settings.heartbeat_ttl
+            info for info in self._worker_registry.values() if now - info.heartbeat <= self._settings.heartbeat_ttl
         ]

@@ -5,7 +5,7 @@ from rich.text import Text
 
 from asyncmq.backends.base import BaseBackend
 from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner, run_cmd
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_backend
 
 console = Console()
 
@@ -69,7 +69,7 @@ def inspect_job(job_id: str, queue: str) -> None:
         job_id: The unique identifier of the job to inspect.
         queue: The name of the queue where the job is expected to be found.
     """
-    backend = monkay.settings.backend  # Get the configured backend instance.
+    backend = get_backend()  # Get the configured backend instance.
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Details")
     # Load the job data from the backend's job store using anyio.run.
@@ -98,7 +98,7 @@ def retry_job(job_id: str, queue: str) -> None:
         job_id: The unique identifier of the job to retry.
         queue: The name of the queue where the job is expected to be found.
     """
-    backend = monkay.settings.backend  # Get the configured backend instance.
+    backend = get_backend()  # Get the configured backend instance.
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Retry")
     # Load the job data from the backend's job store using anyio.run.
@@ -129,7 +129,7 @@ def remove_job(job_id: str, queue: str) -> None:
         job_id: The unique identifier of the job to remove.
         queue: The name of the queue where the job is expected to be found.
     """
-    backend: BaseBackend = monkay.settings.backend  # Get the configured backend instance.
+    backend: BaseBackend = get_backend()  # Get the configured backend instance.
 
     get_print_banner(JOBS_LOGO, title="AsyncMQ Job Remove")
     # Delete the job from the backend's job store using anyio.run.

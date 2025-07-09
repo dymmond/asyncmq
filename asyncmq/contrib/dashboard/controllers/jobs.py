@@ -8,8 +8,8 @@ from lilya.requests import Request
 from lilya.responses import JSONResponse, RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.core.dependencies import get_backend
 
 
 class QueueJobController(DashboardMixin, TemplateController):
@@ -17,7 +17,7 @@ class QueueJobController(DashboardMixin, TemplateController):
 
     async def get(self, request: Request) -> Any:
         queue = request.path_params.get("name")
-        backend = monkay.settings.backend
+        backend = get_backend()
 
         # filters & pagination
         state = request.query_params.get("state", "waiting")
@@ -75,7 +75,7 @@ class QueueJobController(DashboardMixin, TemplateController):
 
     async def post(self, request: Request) -> Any:
         queue = request.path_params.get("name")
-        backend = monkay.settings.backend
+        backend = get_backend()
         form = await request.form()
         action = form.get("action")
 
@@ -113,7 +113,7 @@ class JobActionController(Controller):
 
     async def post(self, request: Request, job_id: str | int, action: str) -> Any:
         queue = request.path_params.get("name")
-        backend = monkay.settings.backend
+        backend = get_backend()
 
         try:
             if action == "retry":

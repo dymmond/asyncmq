@@ -8,8 +8,8 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.core.dependencies import get_backend
 from asyncmq.queues import Queue
 
 
@@ -17,7 +17,7 @@ class RepeatablesController(DashboardMixin, TemplateController):
     template_name = "repeatables/repeatables.html"
 
     async def get_repeatables(self, queue_name: str) -> list[dict[str, Any]]:
-        backend = monkay.settings.backend
+        backend = get_backend()
         repeatables = await backend.list_repeatables(queue_name)
 
         rows: list[dict[str, Any]] = []
@@ -67,7 +67,7 @@ class RepeatablesController(DashboardMixin, TemplateController):
         action = form.get("action")
         # job_def was JSON‐embedded in a hidden field
         job_def = json.loads(form["job_def"])
-        backend = monkay.settings.backend
+        backend = get_backend()
 
         if action == "pause":
             await backend.pause_repeatable(queue, job_def)

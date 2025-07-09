@@ -5,7 +5,7 @@ from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, cast
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_backend
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 
@@ -179,7 +179,7 @@ class TaskWrapper(Generic[P, R]):
         )
 
         # If the job has dependencies, add them to the backend.
-        backend = backend or monkay.settings.backend
+        backend = backend or get_backend()
 
         if job.depends_on:
             await backend.add_dependencies(self.queue, job.to_dict())

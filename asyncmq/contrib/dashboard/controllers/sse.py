@@ -6,7 +6,7 @@ from lilya.controllers import Controller
 from lilya.requests import Request
 from lilya.responses import StreamingResponse
 
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_backend
 
 
 class SSEController(Controller):
@@ -23,7 +23,7 @@ class SSEController(Controller):
     """
 
     async def get(self, request: Request) -> StreamingResponse:
-        backend = monkay.settings.backend
+        backend = get_backend()
 
         async def event_generator() -> None:
             while True:

@@ -6,8 +6,8 @@ from typing import Any
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
 from asyncmq.core.delayed_scanner import delayed_job_scanner
+from asyncmq.core.dependencies import get_backend, get_settings
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import handle_job, process_job
 
@@ -16,7 +16,7 @@ async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | No
     """
     A single worker that keeps dequeuing and processing jobs.
     """
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
 
     while True:
         job = await backend.dequeue(queue_name)
@@ -29,7 +29,7 @@ async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBacke
     """
     Start multiple workers for the same queue.
     """
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
 
     tasks = []
     worker_ids: set[int] = set()
@@ -102,8 +102,8 @@ async def run_worker(
                        If None, uses monkay.settings.scan_interval.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
-    scan_interval = scan_interval or monkay.settings.scan_interval
+    backend = backend or get_backend()
+    scan_interval = scan_interval or get_settings().scan_interval
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 

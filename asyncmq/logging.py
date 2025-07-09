@@ -10,7 +10,7 @@ from typing import Annotated, Any, cast
 # and Doc would be from a specific library or convention.
 from typing_extensions import Doc
 
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.protocols.logging import LoggerProtocol
 
 
@@ -229,8 +229,9 @@ def enable_logging() -> None:
     """
     # Check if the logging system is already marked as set up in the monkay.settings.
     # This flag is typically managed by the `setup_logging` function itself.
-    if not monkay.settings.is_logging_setup:
+    settings =get_settings()
+    if not settings.is_logging_setup:
         # If logging is not set up, call the setup function using the
         # logging configuration from monkay.settings.
-        setup_logging(monkay.settings.logging_config)
-        monkay.settings.is_logging_setup = True
+        setup_logging(settings.logging_config)
+        settings.is_logging_setup = True
