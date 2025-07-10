@@ -1,3 +1,5 @@
+from asyncmq.core.dependencies import get_settings
+
 try:
     import asyncpg
 except ImportError:
@@ -16,7 +18,6 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
@@ -46,15 +47,16 @@ class PostgresBackend(BaseBackend):
             dsn: The connection DSN for the PostgreSQL database. If None,
                  `monkay.settings.asyncmq_postgres_backend_url` is used.
         """
+        self._settings= get_settings()
         # Ensure a DSN is provided either directly or via monkay.settings.
-        if not dsn and not monkay.settings.asyncmq_postgres_backend_url:
-            raise ValueError("Either 'dsn' or 'monkay.settings.asyncmq_postgres_backend_url' must be provided.")
+        if not dsn and not self._settings.asyncmq_postgres_backend_url:
+            raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")
         # Store the resolved DSN.
-        self.dsn: str = dsn or monkay.settings.asyncmq_postgres_backend_url
+        self.dsn: str = dsn or self._settings.asyncmq_postgres_backend_url
         # Initialize the asyncpg connection pool to None; it will be created on connect.
         self.pool: Pool | None = None
         # Initialize the PostgresJobStore with the DSN.
-        self.pool_options = pool_options or monkay.settings.asyncmq_postgres_pool_options or {}
+        self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
         self.store: PostgresJobStore = PostgresJobStore(dsn=dsn, pool_options=self.pool_options)
 
     async def connect(self) -> None:
@@ -133,10 +135,10 @@ class PostgresBackend(BaseBackend):
                 # update its status to ACTIVE, and return its data.
                 row: Record | None = await conn.fetchrow(
                     f"""
-                    UPDATE {monkay.settings.postgres_jobs_table_name}
+                    UPDATE {self._settings.postgres_jobs_table_name}
                     SET status = $3, updated_at = now()
                     WHERE id = (
-                        SELECT id FROM {monkay.settings.postgres_jobs_table_name}
+                        SELECT id FROM {self._settings.postgres_jobs_table_name}
                         WHERE queue_name = $1 AND status = $2
                         ORDER BY created_at ASC
                         LIMIT 1
@@ -240,7 +242,7 @@ class PostgresBackend(BaseBackend):
             rows: list[Record] = await conn.fetch(
                 f"""
                 SELECT data
-                FROM {monkay.settings.postgres_jobs_table_name}
+                FROM {self._settings.postgres_jobs_table_name}
                 WHERE queue_name = $1
                   AND (data ->>'delay_until') IS NOT NULL
                   AND (data ->>'delay_until')::float <= $2
@@ -280,7 +282,7 @@ class PostgresBackend(BaseBackend):
                 f"""
                 SELECT data,
                        (data ->> 'delay_until')::float AS run_at
-                FROM {monkay.settings.postgres_jobs_table_name}
+                FROM {self._settings.postgres_jobs_table_name}
                 WHERE queue_name = $1
                   AND data ->> 'delay_until' IS NOT NULL
                 ORDER BY run_at
@@ -303,7 +305,7 @@ class PostgresBackend(BaseBackend):
             rows = await conn.fetch(
                 f"""
                 SELECT job_def, next_run, paused
-                FROM {monkay.settings.postgres_repeatables_table_name}
+                FROM {self._settings.postgres_repeatables_table_name}
                 WHERE queue_name = $1
                 ORDER BY next_run
                 """,
@@ -327,7 +329,7 @@ class PostgresBackend(BaseBackend):
             await conn.execute(
                 f"""
                 DELETE
-                FROM {monkay.settings.postgres_repeatables_table_name}
+                FROM {self._settings.postgres_repeatables_table_name}
                 WHERE queue_name = $1
                   AND job_def = $2
                 """,
@@ -343,7 +345,7 @@ class PostgresBackend(BaseBackend):
         async with self.pool.acquire() as conn:
             await conn.execute(
                 f"""
-                UPDATE {monkay.settings.postgres_repeatables_table_name}
+                UPDATE {self._settings.postgres_repeatables_table_name}
                 SET paused = TRUE
                 WHERE queue_name = $1
                   AND job_def = $2
@@ -363,7 +365,7 @@ class PostgresBackend(BaseBackend):
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
-                UPDATE {monkay.settings.postgres_repeatables_table_name}
+                UPDATE {self._settings.postgres_repeatables_table_name}
                 SET paused   = FALSE,
                     next_run = $1
                 WHERE queue_name = $2
@@ -384,7 +386,7 @@ class PostgresBackend(BaseBackend):
             found = await conn.fetchval(
                 f"""
                 SELECT 1
-                FROM {monkay.settings.postgres_cancelled_jobs_table_name}
+                FROM {self._settings.postgres_cancelled_jobs_table_name}
                 WHERE queue_name = $1
                   AND job_id = $2
                 """,
@@ -534,7 +536,7 @@ class PostgresBackend(BaseBackend):
             # in their JSONB data.
             rows: list[Record] = await conn.fetch(
                 f"""
-                SELECT id, data FROM {monkay.settings.postgres_jobs_table_name}
+                SELECT id, data FROM {self._settings.postgres_jobs_table_name}
                 WHERE queue_name = $1 AND data->'depends_on' IS NOT NULL
                 """,
                 queue_name,
@@ -710,7 +712,7 @@ class PostgresBackend(BaseBackend):
                 # Execute the DELETE query with queue name, status, and age filter.
                 await conn.execute(
                     f"""
-                    DELETE FROM {monkay.settings.postgres_jobs_table_name}
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
                     WHERE queue_name = $1 AND status = $2
                       AND EXTRACT(EPOCH FROM created_at) < $3
                     """,
@@ -722,7 +724,7 @@ class PostgresBackend(BaseBackend):
                 # Execute the DELETE query with only queue name and status filter.
                 await conn.execute(
                     f"""
-                    DELETE FROM {monkay.settings.postgres_jobs_table_name}
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
                     WHERE queue_name = $1 AND status = $2
                     """,
                     queue_name,
@@ -803,7 +805,7 @@ class PostgresBackend(BaseBackend):
         async with self.store.pool.acquire() as conn:
             # Fetch all distinct queue names from the jobs table.
             rows: list[Record] = await conn.fetch(
-                f"SELECT DISTINCT queue_name FROM {monkay.settings.postgres_jobs_table_name}"
+                f"SELECT DISTINCT queue_name FROM {self._settings.postgres_jobs_table_name}"
             )
             # Extract and return the queue names.
             return [row["queue_name"] for row in rows]
@@ -829,17 +831,17 @@ class PostgresBackend(BaseBackend):
         async with self.store.pool.acquire() as conn:
             # Fetch the count of waiting jobs.
             waiting: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
+                f"SELECT COUNT(*) FROM {self._settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
                 queue_name,
             )
             # Fetch the count of delayed jobs.
             delayed: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='delayed'",
+                f"SELECT COUNT(*) FROM {self._settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='delayed'",
                 queue_name,
             )
             # Fetch the count of failed jobs.
             failed: int | None = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {monkay.settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='failed'",
+                f"SELECT COUNT(*) FROM {self._settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='failed'",
                 queue_name,
             )
             # Return the counts, defaulting None to 0.
@@ -864,7 +866,7 @@ class PostgresBackend(BaseBackend):
             rows = await conn.fetch(
                 f"""
                 SELECT data
-                FROM {monkay.settings.postgres_jobs_table_name}
+                FROM {self._settings.postgres_jobs_table_name}
                 WHERE queue_name = $1 AND status = $2
                 """,
                 queue_name,
@@ -881,7 +883,7 @@ class PostgresBackend(BaseBackend):
         async with self.pool.acquire() as conn:
             await conn.execute(
                 f"""
-                        INSERT INTO {monkay.settings.postgres_cancelled_jobs_table_name}
+                        INSERT INTO {self._settings.postgres_cancelled_jobs_table_name}
                           (queue_name, job_id)
                         VALUES ($1, $2)
                         ON CONFLICT DO NOTHING
@@ -911,7 +913,7 @@ class PostgresBackend(BaseBackend):
         async with self.pool.acquire() as conn:
             await conn.execute(
                 f"""
-                        UPDATE {monkay.settings.postgres_jobs_table_name}
+                        UPDATE {self._settings.postgres_jobs_table_name}
                         SET status = 'waiting'
                         WHERE job_id = $1
                           AND queue_name = $2
@@ -942,7 +944,7 @@ class PostgresBackend(BaseBackend):
         async with self.pool.acquire() as conn:
             cmd_tag = await conn.execute(
                 f"""
-                        DELETE FROM {monkay.settings.postgres_jobs_table_name}
+                        DELETE FROM {self._settings.postgres_jobs_table_name}
                         WHERE job_id = $1
                           AND queue_name = $2
                         """,
@@ -971,7 +973,7 @@ class PostgresBackend(BaseBackend):
             # Execute the SQL UPDATE statement
             await conn.execute(
                 f"""
-                UPDATE {monkay.settings.postgres_jobs_table_name}
+                UPDATE {self._settings.postgres_jobs_table_name}
                    SET data = jsonb_set(
                                data,
                                '{{heartbeat}}',
@@ -1010,7 +1012,7 @@ class PostgresBackend(BaseBackend):
         rows = await self.pool.fetch(
             f"""
             SELECT queue_name, data
-              FROM {monkay.settings.postgres_jobs_table_name}
+              FROM {self._settings.postgres_jobs_table_name}
              WHERE (data->>'heartbeat')::float < $1 -- Filter by heartbeat timestamp
                AND status = $2                      -- Filter by job status being ACTIVE
             """,
@@ -1066,7 +1068,7 @@ class PostgresBackend(BaseBackend):
         conn = await asyncpg.connect(self.dsn)
         await conn.execute(
             f"""
-                    INSERT INTO {monkay.settings.postgres_workers_heartbeat_table_name}
+                    INSERT INTO {self._settings.postgres_workers_heartbeat_table_name}
                       (worker_id, queues, concurrency, heartbeat)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (worker_id)
@@ -1093,7 +1095,7 @@ class PostgresBackend(BaseBackend):
         """
         conn = await asyncpg.connect(self.dsn)
         await conn.execute(
-            f"DELETE FROM {monkay.settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id
+            f"DELETE FROM {self._settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id
         )
         await conn.close()
 
@@ -1107,12 +1109,12 @@ class PostgresBackend(BaseBackend):
         Returns:
             A list of WorkerInfo objects representing the active workers.
         """
-        cutoff = time.time() - monkay.settings.heartbeat_ttl
+        cutoff = time.time() - self._settings.heartbeat_ttl
         conn = await asyncpg.connect(self.dsn)
         rows = await conn.fetch(
             f"""
                                 SELECT worker_id, queues, concurrency, heartbeat
-                                FROM {monkay.settings.postgres_workers_heartbeat_table_name}
+                                FROM {self._settings.postgres_workers_heartbeat_table_name}
                                 WHERE heartbeat >= $1
                                 """,
             cutoff,

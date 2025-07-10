@@ -1,13 +1,41 @@
 import random
+import typing
+from functools import lru_cache
 from typing import Any
 
-from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 
+if typing.TYPE_CHECKING:
+    from asyncmq import Settings
+    from asyncmq.backends.base import BaseBackend
 
-async def add_dependencies(queue: str, job: Job, backend: BaseBackend | None = None) -> None:
+
+@lru_cache(maxsize=1)
+def get_backend() -> "BaseBackend":
+    """
+    Get the configured backend instance with LRU caching.
+
+    Returns:
+        The backend instance from monkay.settings.backend
+    """
+    return get_settings().backend
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> "Settings":
+    """
+    Get the settings instance.
+
+    Returns:
+        The settings instance from monkay
+    """
+    # ruff: noqa: PLC0415
+    from asyncmq.conf import monkay
+    return monkay.settings
+
+
+async def add_dependencies(queue: str, job: Job, backend: "BaseBackend|None" = None) -> None:
     """
     Registers a job's dependencies with the backend and links dependent
     (child) jobs to this job's completion.
@@ -25,7 +53,7 @@ async def add_dependencies(queue: str, job: Job, backend: BaseBackend | None = N
         job: The `Job` instance whose dependencies need to be registered.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
 
     # If the job has no dependencies listed, there's nothing to do.
     if not job.depends_on:
@@ -34,7 +62,7 @@ async def add_dependencies(queue: str, job: Job, backend: BaseBackend | None = N
     await backend.add_dependencies(queue, job.to_dict())
 
 
-async def resolve_dependency(queue: str, parent_id: str, backend: BaseBackend | None = None) -> None:
+async def resolve_dependency(queue: str, parent_id: str, backend: "BaseBackend | None" = None) -> None:
     """
     Checks for and potentially enqueues jobs whose dependencies are now met
     after a parent job's completion.
@@ -53,12 +81,12 @@ async def resolve_dependency(queue: str, parent_id: str, backend: BaseBackend | 
         parent_id: The unique ID of the job that just completed.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the dependency resolution process to the backend.
     await backend.resolve_dependency(queue, parent_id)
 
 
-async def pause_queue(queue: str, backend: BaseBackend | None = None) -> None:
+async def pause_queue(queue: str, backend: "BaseBackend | None" = None) -> None:
     """
     Signals the backend to temporarily stop consuming new jobs from the
     specified queue.
@@ -70,12 +98,12 @@ async def pause_queue(queue: str, backend: BaseBackend | None = None) -> None:
         queue: The name of the queue to pause.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the pause operation to the backend.
     await backend.pause_queue(queue)
 
 
-async def resume_queue(queue: str, backend: BaseBackend | None = None) -> None:
+async def resume_queue(queue: str, backend: "BaseBackend | None" = None) -> None:
     """
     Signals the backend to resume consuming jobs from a queue that was
     previously paused.
@@ -87,12 +115,12 @@ async def resume_queue(queue: str, backend: BaseBackend | None = None) -> None:
         queue: The name of the queue to resume.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the resume operation to the backend.
     await backend.resume_queue(queue)
 
 
-async def is_queue_paused(queue: str, backend: BaseBackend | None = None) -> bool:
+async def is_queue_paused(queue: str, backend: "BaseBackend | None" = None) -> bool:
     """
     Checks if a specific queue is currently marked as paused by the backend.
 
@@ -106,7 +134,7 @@ async def is_queue_paused(queue: str, backend: BaseBackend | None = None) -> boo
         True if the queue is paused, False otherwise.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the check operation to the backend and return its result.
     return await backend.is_queue_paused(queue)
 
@@ -139,7 +167,7 @@ def jittered_backoff(base_delay: float, attempt: int, jitter: float = 0.1) -> fl
 
 
 async def report_progress(
-    queue: str, job: Job, pct: float, backend: BaseBackend | None = None, info: Any | None = None
+    queue: str, job: Job, pct: float, backend: "BaseBackend | None" = None, info: Any | None = None
 ) -> None:
     """
     Records the progress percentage of a job in the backend and emits a
@@ -156,7 +184,7 @@ async def report_progress(
               Defaults to None.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Persist the progress percentage with the backend.
     await backend.save_job_progress(queue, job.id, pct)
     # Emit a local event for real-time monitoring or other listeners.
@@ -172,7 +200,7 @@ async def report_progress(
 Job.report_progress = report_progress
 
 
-async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: BaseBackend | None = None) -> None:
+async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: "BaseBackend | None" = None) -> None:
     """
     Enqueues multiple jobs onto a queue in a single batch operation via the backend.
 
@@ -187,7 +215,7 @@ async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: BaseBack
         jobs: A list of job payloads (dictionaries) to be enqueued.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the bulk enqueue operation to the backend.
     # NOTE: The original code passes 'queue' twice. Assuming the backend
     # method expects it this way based on the original logic.
@@ -195,7 +223,7 @@ async def bulk_enqueue(queue: str, jobs: list[dict[str, Any]], backend: BaseBack
 
 
 async def purge_jobs(
-    queue: str, state: str, backend: BaseBackend | None = None, older_than: float | None = None
+    queue: str, state: str, backend: "BaseBackend | None" = None, older_than: float | None = None
 ) -> None:
     """
     Removes jobs from a queue based on their state and optional age criteria
@@ -213,12 +241,12 @@ async def purge_jobs(
                     in the specified state might be purged. Defaults to None.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the purge operation to the backend.
     await backend.purge(queue, state, older_than)
 
 
-async def emit_event(event: str, data: dict[str, Any], backend: BaseBackend | None = None) -> None:
+async def emit_event(event: str, data: dict[str, Any], backend: "BaseBackend | None" = None) -> None:
     """
     Emits an event both locally through the `event_emitter` and, if the backend
     supports it, broadcasts the event for distributed listeners.
@@ -232,7 +260,7 @@ async def emit_event(event: str, data: dict[str, Any], backend: BaseBackend | No
         data: The data associated with the event.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Emit the event to local listeners via the global event emitter.
     await event_emitter.emit(event, data)
     # If the backend has an emit_event method, use it for distributed broadcasting.
@@ -289,7 +317,7 @@ class Lock:
         return await self._lock.release()
 
 
-async def create_lock(key: str, ttl: int = 30, backend: BaseBackend | None = None) -> Lock:
+async def create_lock(key: str, ttl: int = 30, backend: "BaseBackend | None" = None) -> Lock:
     """
     Creates a new distributed lock instance for a given key via the backend.
 
@@ -310,7 +338,7 @@ async def create_lock(key: str, ttl: int = 30, backend: BaseBackend | None = Non
         A `Lock` instance wrapping the backend-specific lock object.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or monkay.settings.backend
+    backend = backend or get_backend()
     # Delegate the lock creation request to the backend.
     lock_obj: Any = await backend.create_lock(key, ttl)
     # Wrap the backend's lock object in the standard Lock class.
