@@ -19,6 +19,7 @@ hide:
 - CLI: Catch RuntimeError when running commands via anyio
 - Log exceptions during job execution.
 - Out-of-process workers do not pick up jobs from the queue
+- `index.html` had a typo for the `<script />`
 
 ## 0.3.1
 
