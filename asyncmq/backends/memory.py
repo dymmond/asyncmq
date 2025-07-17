@@ -10,7 +10,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.core.dependencies import get_settings
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -67,8 +67,13 @@ class InMemoryBackend(BaseBackend):
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
 
-        # Settings
-        self._settings = get_settings()
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically fetch and remove all delayed jobs whose run_at ≤ now.
+        The existing get_due_delayed() already does this under the lock,
+        so we can simply delegate to it.
+        """
+        return await self.get_due_delayed(queue_name)
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
@@ -867,5 +872,5 @@ class InMemoryBackend(BaseBackend):
         """
         now = time.time()
         return [
-            info for info in self._worker_registry.values() if now - info.heartbeat <= self._settings.heartbeat_ttl
+            info for info in self._worker_registry.values() if now - info.heartbeat <= monkay.settings.heartbeat_ttl
         ]

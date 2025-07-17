@@ -32,6 +32,7 @@ def get_settings() -> "Settings":
     """
     # ruff: noqa: PLC0415
     from asyncmq.conf import monkay
+
     return monkay.settings
 
 

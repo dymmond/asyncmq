@@ -6,17 +6,35 @@ from typing import Any
 import anyio
 
 from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import monkay
 from asyncmq.core.delayed_scanner import delayed_job_scanner
-from asyncmq.core.dependencies import get_backend, get_settings
 from asyncmq.rate_limiter import RateLimiter
-from asyncmq.workers import handle_job, process_job
+from asyncmq.workers import Worker, handle_job, process_job
 
 
-async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | None = None) -> None:
+async def worker_loop(queue_name: str, backend: BaseBackend | None = None) -> None:
     """
-    A single worker that keeps dequeuing and processing jobs.
+    Continuously dequeues and processes jobs from a specified queue.
+
+    This function represents a single worker instance that enters an infinite loop
+    to fetch and handle jobs. It attempts to dequeue a job from `queue_name` using
+    the provided `backend` (or the default backend if none is specified).
+    If a job is found, it's passed to `handle_job` for processing. A small
+    asynchronous sleep is included in each iteration to prevent busy-waiting
+    and allow for other tasks to run.
+
+    !!! Note
+        This function is still in analysis and it might go away in the future.
+
+    Args:
+        queue_name: The name of the queue from which to dequeue jobs.
+        backend: An optional backend instance to use for job operations.
+                 If `None`, `monkay.settings.backend` will be used.
+
+    Returns:
+        None: This function runs indefinitely.
     """
-    backend = backend or get_backend()
+    backend = backend or monkay.settings.backend
 
     while True:
         job = await backend.dequeue(queue_name)
@@ -25,33 +43,25 @@ async def worker_loop(queue_name: str, worker_id: int, backend: BaseBackend | No
         await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
 
 
-async def start_worker(queue_name: str, concurrency: int = 1, backend: BaseBackend | None = None) -> None:
+async def start_worker(queue_name: str, concurrency: int = 1) -> None:
     """
-    Start multiple workers for the same queue.
+    Starts multiple worker instances for a specified message queue.
+
+    This function initializes a `Worker` object for the given `queue_name`,
+    sets its concurrency level, and then starts it. The heartbeat interval
+    for the worker is configured using `monkay.settings.heartbeat_ttl`.
+
+    Args:
+        queue_name: The name of the message queue the workers will process.
+        concurrency: The number of concurrent worker processes to run for this queue.
+                     Defaults to 1.
+
+    Returns:
+        None
     """
-    backend = backend or get_backend()
-
-    tasks = []
-    worker_ids: set[int] = set()
-    for worker_id in range(concurrency):
-        if worker_id not in worker_ids:
-            worker_ids.add(worker_id)
-            timestamp = time.time()
-            await backend.register_worker(str(worker_id), queue_name, concurrency, timestamp)
-
-        task = asyncio.create_task(worker_loop(queue_name, worker_id, backend))
-        tasks.append(task)
-
-    try:
-        await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
-        # Graceful shutdown if Ctrl+C
-        for worker_id in worker_ids:
-            # Unregister the workers
-            await backend.deregister_worker(str(worker_id))
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    worker = Worker(queue_name, heartbeat_interval=monkay.settings.heartbeat_ttl)
+    worker.concurrency = concurrency
+    await worker.run()
 
 
 async def run_worker(
@@ -102,8 +112,8 @@ async def run_worker(
                        If None, uses monkay.settings.scan_interval.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or get_backend()
-    scan_interval = scan_interval or get_settings().scan_interval
+    backend = backend or monkay.settings.backend
+    scan_interval = scan_interval or monkay.settings.scan_interval
     # Create an asyncio Semaphore to limit the number of concurrent tasks.
     semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
 

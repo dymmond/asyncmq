@@ -210,6 +210,12 @@ class Settings:
     """
     heartbeat_ttl: int = 30
 
+    """
+    A list of module paths in which to look for @task-decorated callables.
+    E.g. ["myapp.runs.tasks", "myapp.jobs.tasks"].
+    """
+    tasks: list[str] = field(default_factory=lambda: [])
+
     @property
     def dashboard_config(self) -> DashboardConfig | None:
         return DashboardConfig()

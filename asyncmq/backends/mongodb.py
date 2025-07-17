@@ -84,6 +84,14 @@ class MongoDBBackend(BaseBackend):
         # Call the connect method of the underlying MongoDBStore to establish the connection.
         await self.store.connect()
 
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically fetch and remove all delayed jobs whose run_at ≤ now.
+        Delegates to get_due_delayed(), which does the in-memory removal
+        under self.lock.
+        """
+        return await self.get_due_delayed(queue_name)
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously adds a job to the specified queue.

@@ -35,7 +35,7 @@ async def stalled_recovery_scheduler(
     """
     Periodically checks for stalled jobs and re-enqueues them.
     """
-    settings =get_settings()
+    settings = get_settings()
     backend = backend or get_settings().backend
     check_interval = check_interval or settings.stalled_check_interval
     threshold = threshold or settings.stalled_threshold

@@ -194,18 +194,6 @@
     });
 
     source.onerror = () => console.warn('SSE error – retrying…');
-  </script>nt.getElementById('total-workers').textContent = d.total_workers;
-    });
-
-    // Pie chart
-    const pieChart = new Chart(
-      document.getElementById('jobdist-chart').getContext('2d'),
-      {
-        type: 'doughnut',
-        data: {
-          labels: ['Waiting','Active','Delayed','Completed','Failed'],
-          datasets: [{ data: [0,0,0,0,0] }]
-        },
-        options: { responsive:true, maintainAspectRatio:false, animation:{ duration:0 } }
+  </script>
 
 {% endblock %}

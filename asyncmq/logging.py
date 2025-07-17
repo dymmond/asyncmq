@@ -229,7 +229,7 @@ def enable_logging() -> None:
     """
     # Check if the logging system is already marked as set up in the monkay.settings.
     # This flag is typically managed by the `setup_logging` function itself.
-    settings =get_settings()
+    settings = get_settings()
     if not settings.is_logging_setup:
         # If logging is not set up, call the setup function using the
         # logging configuration from monkay.settings.

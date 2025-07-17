@@ -18,6 +18,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
+from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
@@ -47,7 +48,7 @@ class PostgresBackend(BaseBackend):
             dsn: The connection DSN for the PostgreSQL database. If None,
                  `monkay.settings.asyncmq_postgres_backend_url` is used.
         """
-        self._settings= get_settings()
+        self._settings = get_settings()
         # Ensure a DSN is provided either directly or via monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")
@@ -58,6 +59,31 @@ class PostgresBackend(BaseBackend):
         # Initialize the PostgresJobStore with the DSN.
         self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
         self.store: PostgresJobStore = PostgresJobStore(dsn=dsn, pool_options=self.pool_options)
+
+    async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically retrieve and remove all delayed jobs whose delay_until ≤ now
+        in a single SQL statement, returning their payloads.
+        """
+        now = time.time()
+        # Pull & delete in one CTE-backed statement
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                WITH due AS (
+                  DELETE FROM {monkay.settings.postgres_jobs_table_name}
+                  WHERE queue_name = $1
+                    AND (data ->>'delay_until') IS NOT NULL
+                    AND (data ->>'delay_until')::float <= $2
+                  RETURNING data
+                )
+                SELECT data FROM due
+                """,
+                queue_name,
+                now,
+            )
+        # Each row.data is a JSON string
+        return [json.loads(r["data"]) for r in rows]
 
     async def connect(self) -> None:
         """

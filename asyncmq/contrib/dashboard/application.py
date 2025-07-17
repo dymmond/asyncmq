@@ -61,12 +61,10 @@ class UnifiedDashboard:
         self,
         scope: MutableMapping[str, Any],
         receive: Callable[[], Awaitable[MutableMapping[str, Any]]],
-        send: Callable[[MutableMapping[str, Any]], Awaitable[None]]
+        send: Callable[[MutableMapping[str, Any]], Awaitable[None]],
     ) -> None:
         # Only apply FastAPI compatibility when we detect a FastAPI router
-        if (scope["type"] == "http" and
-            scope.get("router") and
-            not hasattr(scope.get("router"), "path_for")):
+        if scope["type"] == "http" and scope.get("router") and not hasattr(scope.get("router"), "path_for"):
             # We're in a FastAPI context, apply compatibility
             scope = dict(scope)
             mount_path = self._extract_mount_path(scope)

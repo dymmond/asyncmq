@@ -1,13 +1,16 @@
+import importlib
+import pkgutil
 import time
 import traceback
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import anyio
 from anyio import CapacityLimiter
 
 from asyncmq import sandbox
 from asyncmq.backends.base import BaseBackend
+from asyncmq.conf import monkay
 from asyncmq.core.dependencies import get_backend, get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
@@ -17,8 +20,27 @@ from asyncmq.logging import logger
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.tasks import TASK_REGISTRY
 
-if TYPE_CHECKING:
-    pass
+
+def autodiscover_tasks() -> None:
+    """
+    Import every module in the configured task package so that
+    @task(...) decorators run and populate TASK_REGISTRY.
+    """
+    tasks = monkay.settings.tasks  # e.g. ['myproject.tasks', 'myproject.something.tasks']
+
+    for pkg_name in tasks:
+        try:
+            pkg = importlib.import_module(pkg_name)
+        except ImportError as e:
+            logger.warning(f"Could not import task package {pkg_name!r}: {e}")
+            continue
+
+        for _, module_name, _ in pkgutil.iter_modules(pkg.__path__):
+            full_name = f"{pkg_name}.{module_name}"
+            try:
+                importlib.import_module(full_name)
+            except Exception as e:
+                logger.warning(f"autodiscover failed importing {full_name!r}: {e}")
 
 
 async def process_job(
@@ -45,7 +67,7 @@ async def process_job(
                  storage. Defaults to the backend specified in monkay.settings.
     """
     # Use the provided backend or the one from settings
-    settings=get_settings()
+    settings = get_settings()
     backend = backend or settings.backend
 
     # Create a task group to manage concurrent job handling tasks
@@ -173,7 +195,34 @@ async def handle_job(
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
         # Retrieve task metadata and the handler function from the registry
-        meta = TASK_REGISTRY[job.task_id]
+        try:
+            meta = TASK_REGISTRY[job.task_id]
+        except KeyError:
+            # Try importing as a module named exactly job.task_id
+            try:
+                importlib.import_module(job.task_id)
+            except Exception:
+                pass
+
+            # If that populated the registry, great.
+            if job.task_id in TASK_REGISTRY:
+                meta = TASK_REGISTRY[job.task_id]
+            else:
+                # Otherwise, import & reload its parent module
+                module_name, _, _ = job.task_id.rpartition(".")
+                if module_name:
+                    try:
+                        m = importlib.import_module(module_name)
+                        importlib.reload(m)
+                    except Exception:
+                        pass
+
+                # One more lookup
+                if job.task_id in TASK_REGISTRY:
+                    meta = TASK_REGISTRY[job.task_id]
+                else:
+                    raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
+
         handler = meta["func"]
 
         # Mid-flight cancellation check
@@ -262,7 +311,7 @@ class Worker:
     def __init__(
         self,
         queue: Any,
-        heartbeat_interval: float | None= None,
+        heartbeat_interval: float | None = None,
     ) -> None:
         from asyncmq.queues import Queue
 
@@ -275,6 +324,10 @@ class Worker:
 
     async def _run_with_scope(self) -> None:
         backend = get_backend()
+
+        if monkay.settings.tasks:
+            # Trigger the auto discover tasks
+            autodiscover_tasks()
 
         # Initial registration
         await backend.register_worker(
@@ -320,10 +373,8 @@ class Worker:
             try:
                 await anyio.sleep(float("inf"))
             except anyio.get_cancelled_exc_class():
-                pass
-
-        # On shutdown, deregister
-        await backend.deregister_worker(self.id)
+                # On shutdown, deregister
+                await backend.deregister_worker(self.id)
 
     def start(self) -> None:
         """Blocking entrypoint."""

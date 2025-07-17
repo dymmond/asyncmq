@@ -88,7 +88,7 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
         RuntimeError: If the subprocess fails to return a result or if the
                       subprocess reports an error during execution.
     """
-    settings=get_settings()
+    settings = get_settings()
     # Get the multiprocessing context, defaulting to 'fork' if not specified
     ctx = mp.get_context(settings.sandbox_ctx or "fork")
     # Create a queue for communication between the parent and child processes
