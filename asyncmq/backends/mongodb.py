@@ -20,7 +20,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -70,6 +70,7 @@ class MongoDBBackend(BaseBackend):
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
         self._workers = self.store.db["worker_heartbeats"]
+        self._settings = get_settings()
 
     async def connect(self) -> None:
         """
@@ -1034,7 +1035,7 @@ class MongoDBBackend(BaseBackend):
         Returns:
             A list of WorkerInfo objects representing the active workers.
         """
-        cutoff = time.time() - monkay.settings.heartbeat_ttl
+        cutoff = time.time() - self._settings.heartbeat_ttl
         cursor = self._workers.find({"heartbeat": {"$gte": cutoff}})
         workers = []
         async for doc in cursor:

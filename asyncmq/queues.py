@@ -4,7 +4,7 @@ from typing import Any
 import anyio
 
 from asyncmq.backends.base import BaseBackend, RepeatableInfo
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
 
@@ -58,14 +58,15 @@ class Queue:
                            Defaults to `monkay.settings.scan_interval`.
         """
         self.name: str = name
+        self._settings = get_settings()
         # Use the provided backend or fall back to the default configured backend.
-        self.backend: BaseBackend = backend or monkay.settings.backend
+        self.backend: BaseBackend = backend or self._settings.backend
         # Internal list to store configurations for repeatable jobs.
         self._repeatables: list[dict[str, Any]] = []
         self.concurrency: int = concurrency
         self.rate_limit: int | None = rate_limit
         self.rate_interval: float = rate_interval
-        self.scan_interval: float = scan_interval or monkay.settings.scan_interval
+        self.scan_interval: float = scan_interval or self._settings.scan_interval
 
     async def add(
         self,

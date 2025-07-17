@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Awaitable, Callable, MutableMapping
 
 from lilya.apps import Lilya
 from lilya.requests import Request
@@ -17,6 +17,71 @@ from asyncmq.contrib.dashboard.controllers import (
     workers,
 )
 from asyncmq.contrib.dashboard.engine import templates  # noqa
+
+
+class CompatibleURL:
+    """URL-like object that provides make_absolute_url method for Lilya compatibility"""
+
+    def __init__(self, path: str):
+        self.path = path
+
+    def make_absolute_url(self, base_url: str | None = None) -> str:
+        return self.path
+
+    def __str__(self) -> str:
+        return self.path
+
+
+class AsgiCompatibleRouter:
+    """Router wrapper that provides path_for method for ASGI compatibility"""
+
+    def __init__(self, original_router: Any, mount_path: str = "") -> None:
+        self.original_router = original_router
+        self.mount_path = mount_path
+
+    def path_for(self, name: str, **path_params: Any) -> CompatibleURL:
+        if name == "statics":
+            path = path_params.get("path", "")
+            return CompatibleURL(f"{self.mount_path}/admin/static{path}")
+        return CompatibleURL(f"{self.mount_path}/admin")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.original_router, name)
+
+
+class UnifiedDashboard:
+    """Dashboard that works with both Lilya and FastAPI environments"""
+
+    def __init__(self, lilya_app: Lilya) -> None:
+        self.lilya_app = lilya_app
+        # Expose the router for Lilya compatibility
+        self.router = lilya_app.router
+
+    async def __call__(
+        self,
+        scope: MutableMapping[str, Any],
+        receive: Callable[[], Awaitable[MutableMapping[str, Any]]],
+        send: Callable[[MutableMapping[str, Any]], Awaitable[None]],
+    ) -> None:
+        # Only apply FastAPI compatibility when we detect a FastAPI router
+        if scope["type"] == "http" and scope.get("router") and not hasattr(scope.get("router"), "path_for"):
+            # We're in a FastAPI context, apply compatibility
+            scope = dict(scope)
+            mount_path = self._extract_mount_path(scope)
+            scope["router"] = AsgiCompatibleRouter(scope["router"], mount_path)
+
+        await self.lilya_app(scope, receive, send)
+
+    def _extract_mount_path(self, scope: MutableMapping[str, Any]) -> str:
+        """Extract mount path from scope for proper URL generation"""
+        path = scope.get("path", "")
+        if "/admin" in path:
+            return str(path.split("/admin")[0])
+        return ""
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attributes to the underlying Lilya app for compatibility"""
+        return getattr(self.lilya_app, name)
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
@@ -52,8 +117,11 @@ routes = [
     Include("/static", app=StaticFiles(packages=["asyncmq.contrib.dashboard"], html=True), name="statics"),
 ]
 
-dashboard = Lilya(
+_lilya_dashboard = Lilya(
     debug=monkay.settings.debug,
     routes=[Include(path=monkay.settings.dashboard_config.dashboard_url_prefix, routes=routes)],
     exception_handlers={404: not_found},
 )
+
+# Create unified dashboard that works with both Lilya and FastAPI
+dashboard: UnifiedDashboard = UnifiedDashboard(_lilya_dashboard)

@@ -44,7 +44,7 @@ class Settings:
     logging output. Defaults to "INFO".
     """
 
-    backend: BaseBackend = RedisBackend()
+    backend: BaseBackend = field(default_factory=RedisBackend)
     """
     Sets the default backend instance used for queue operations.
 
@@ -221,7 +221,7 @@ class Settings:
         return DashboardConfig()
 
     @property
-    def logging_config(self) -> "LoggingConfig" | None:
+    def logging_config(self) -> "LoggingConfig | None":
         """
         Provides the configured logging setup based on current monkay.settings.
 

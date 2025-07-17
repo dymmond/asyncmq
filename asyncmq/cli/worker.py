@@ -16,7 +16,7 @@ from asyncmq.cli.utils import (
     print_worker_banner,
     run_cmd,
 )
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_backend, get_settings
 from asyncmq.logging import logger
 
 console = Console()
@@ -88,13 +88,13 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
 
-    concurrency = concurrency or monkay.settings.worker_concurrency
+    concurrency = concurrency or get_settings().worker_concurrency
     if isinstance(concurrency, str):
         concurrency = int(concurrency)
 
     # Print the worker banner with configuration details.
-    print_worker_banner(queue, concurrency, monkay.settings.backend.__class__.__name__, __version__)
-    logger_level = getattr(monkay.settings, "logging_level", "info")
+    print_worker_banner(queue, concurrency, get_backend().__class__.__name__, __version__)
+    logger_level = getattr(get_settings(), "logging_level", "info")
     log = getattr(logger, logger_level.lower())
     try:
         # Start the worker using anyio's run function.
@@ -132,7 +132,7 @@ def list_workers() -> None:
     in a table, including their ID, queue, concurrency, and last heartbeat timestamp.
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ List Workers")
-    backend = monkay.settings.backend
+    backend = get_backend()
     workers = run_cmd(backend.list_workers)
     table = Table(title="Workers")
     table.add_column("Worker ID", style="green")
@@ -164,7 +164,7 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
                      Defaults to 1.
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Register Workers")
-    backend = monkay.settings.backend
+    backend = get_backend()
     timestamp = time.time()
     run_cmd(
         lambda: backend.register_worker(
@@ -192,6 +192,6 @@ def deregister_worker(worker_id: str) -> None:
         worker_id: The unique identifier of the worker to deregister.
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Deregister Workers")
-    backend = monkay.settings.backend
+    backend = get_backend()
     run_cmd(lambda: backend.deregister_worker(worker_id))
     console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")
