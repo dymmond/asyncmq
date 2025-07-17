@@ -349,10 +349,8 @@ class Worker:
             try:
                 await anyio.sleep(float("inf"))
             except anyio.get_cancelled_exc_class():
-                pass
-
-        # On shutdown, deregister
-        await backend.deregister_worker(self.id)
+                # On shutdown, deregister
+                await backend.deregister_worker(self.id)
 
     def start(self) -> None:
         """Blocking entrypoint."""
