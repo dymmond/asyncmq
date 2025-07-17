@@ -194,11 +194,30 @@ async def handle_job(
         try:
             meta = TASK_REGISTRY[job.task_id]
         except KeyError:
+            # Try importing as a module named exactly job.task_id
             try:
                 importlib.import_module(job.task_id)
+            except Exception:
+                pass
+
+            # If that populated the registry, great.
+            if job.task_id in TASK_REGISTRY:
                 meta = TASK_REGISTRY[job.task_id]
-            except Exception as e:
-                raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from e
+            else:
+                # Otherwise, import & reload its parent module
+                module_name, _, _ = job.task_id.rpartition(".")
+                if module_name:
+                    try:
+                        m = importlib.import_module(module_name)
+                        importlib.reload(m)
+                    except Exception:
+                        pass
+
+                # One more lookup
+                if job.task_id in TASK_REGISTRY:
+                    meta = TASK_REGISTRY[job.task_id]
+                else:
+                    raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
 
         handler = meta["func"]
 

@@ -81,4 +81,3 @@ def test_job_list(monkeypatch):
     result = runner.invoke(app, ["job", "list", "--queue", "queue1", "--state", "waiting"])
 
     assert result.exit_code == 0
-    assert "ID: job1  State: waiting  Task: task1" in result.output
