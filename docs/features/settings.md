@@ -52,12 +52,10 @@ The settings is a pure Python `dataclass` and it should be treated as such.
 1. **Subclass** the global defaults:
 
    ```python
-   from dataclasses import dataclass
    from asyncmq.conf.global_settings import Settings as BaseSettings
    from asyncmq.backends.redis import RedisBackend
    from asyncmq.backends.base import BaseBackend
 
-   @dataclass
    class Settings(BaseSettings):
        debug: bool = True
        logging_level: str = "DEBUG"

@@ -65,11 +65,9 @@ dashboard_config = DashboardConfig(
 To customize:
 
 ```python
-from dataclasses import dataclass
 from asyncmq.core.utils.dashboard import DashboardConfig
 from asyncmq.conf import Settings
 
-@dataclass
 class MyCustomSettings(Settings):
 
     @property
@@ -214,11 +212,9 @@ app.mount("/fastapi", dashboard, name="asyncmq-admin")
 ### Customizing Appearance
 
 ```python
-from dataclasses import dataclass
 from asyncmq.core.utils.dashboard import DashboardConfig
 from asyncmq.conf import Settings
 
-@dataclass
 class MyCustomSettings(Settings):
 
     @property

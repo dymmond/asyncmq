@@ -1,7 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any
+import inspect
+import os
+from functools import cached_property
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
@@ -9,11 +20,176 @@ from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.utils.dashboard import DashboardConfig
 
 if TYPE_CHECKING:
-    from asyncmq.logging import LoggingConfig
+    from asyncmq.logging import LoggingConfig  # noqa
 
 
-@dataclass
-class Settings:
+def safe_get_type_hints(cls: type) -> dict[str, Any]:
+    """
+    Safely get type hints for a class, handling potential errors.
+    This function attempts to retrieve type hints for the given class,
+    and if it fails, it prints a warning and returns the class annotations.
+    Args:
+        cls (type): The class to get type hints for.
+    Returns:
+        dict[str, Any]: A dictionary of type hints for the class.
+    """
+    try:
+        return get_type_hints(cls, include_extras=True)
+    except Exception:
+        return cls.__annotations__
+
+
+class BaseSettings:
+    """
+    Base of all the settings for any system.
+    """
+
+    __type_hints__: dict[str, Any] = None
+    __truthy__: set[str] = {"true", "1", "yes", "on", "y"}
+
+    def __init__(self, **kwargs: Any) -> None:
+        """
+        Initializes the settings by loading environment variables
+        and casting them to the appropriate types.
+        This method uses type hints from the class attributes to determine
+        the expected types of the settings.
+        It will look for environment variables with the same name as the class attributes,
+        converted to uppercase, and cast them to the specified types.
+        If an environment variable is not set, it will use the default value
+        defined in the class attributes.
+        """
+        cls = self.__class__
+        if cls.__type_hints__ is None:
+            cls.__type_hints__ = safe_get_type_hints(cls)
+
+        if kwargs:
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+        for key, typ in cls.__type_hints__.items():
+            base_type = self._extract_base_type(typ)
+
+            env_value = os.getenv(key.upper(), None)
+            if env_value is not None:
+                value = self._cast(env_value, base_type)
+            else:
+                value = getattr(self, key, None)
+            setattr(self, key, value)
+
+        # Call post_init if it exists
+        self.post_init()
+
+    def post_init(self) -> None:
+        """
+        Post-initialization method that can be overridden by subclasses.
+        This method is called after all settings have been initialized.
+        """
+        ...
+
+    def _extract_base_type(self, typ: Any) -> Any:
+        origin = get_origin(typ)
+        if origin is Annotated:
+            return get_args(typ)[0]
+        return typ
+
+    def _cast(self, value: str, typ: type[Any]) -> Any:
+        """
+        Casts the value to the specified type.
+        If the type is `bool`, it checks for common truthy values.
+        Raises a ValueError if the value cannot be cast to the type.
+
+        Args:
+            value (str): The value to cast.
+            typ (type): The type to cast the value to.
+        Returns:
+            Any: The casted value.
+        Raises:
+            ValueError: If the value cannot be cast to the specified type.
+        """
+        try:
+            origin = get_origin(typ)
+            if origin is Union or origin is UnionType:
+                non_none_types = [t for t in get_args(typ) if t is not type(None)]
+                if len(non_none_types) == 1:
+                    typ = non_none_types[0]
+                else:
+                    raise ValueError(f"Cannot cast to ambiguous Union type: {typ}")
+
+            if typ is bool:
+                return value.lower() in self.__truthy__
+            return typ(value)
+        except Exception:
+            if get_origin(typ) is Union or get_origin(UnionType):
+                type_name = " | ".join(t.__name__ if hasattr(t, "__name__") else str(t) for t in get_args(typ))
+            else:
+                type_name = getattr(typ, "__name__", str(typ))
+            raise ValueError(f"Cannot cast value '{value}' to type '{type_name}'") from None
+
+    def dict(
+        self,
+        exclude_none: bool = False,
+        upper: bool = False,
+        exclude: set[str] | None = None,
+        include_properties: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Dumps all the settings into a python dictionary.
+        """
+        result = {}
+        exclude = exclude or set()
+
+        for key in self.__annotations__:
+            if key in exclude:
+                continue
+            value = getattr(self, key, None)
+            if exclude_none and value is None:
+                continue
+            result_key = key.upper() if upper else key
+            result[result_key] = value
+
+        if include_properties:
+            for name, _ in inspect.getmembers(
+                type(self),
+                lambda o: isinstance(
+                    o,
+                    (property, cached_property),
+                ),
+            ):
+                if name in exclude or name in self.__annotations__:
+                    continue
+                try:
+                    value = getattr(self, name)
+                    if exclude_none and value is None:
+                        continue
+                    result_key = name.upper() if upper else name
+                    result[result_key] = value
+                except Exception:
+                    # Skip properties that raise errors
+                    continue
+
+        return result
+
+    def tuple(
+        self,
+        exclude_none: bool = False,
+        upper: bool = False,
+        exclude: set[str] | None = None,
+        include_properties: bool = False,
+    ) -> list[tuple[str, Any]]:
+        """
+        Dumps all the settings into a tuple.
+        """
+        return list(
+            self.dict(
+                exclude_none=exclude_none,
+                upper=upper,
+                exclude=exclude,
+                include_properties=include_properties,
+            ).items()
+        )
+
+
+class Settings(BaseSettings):
     """
     Defines a comprehensive set of configuration parameters for the AsyncMQ library.
 
@@ -44,7 +220,7 @@ class Settings:
     logging output. Defaults to "INFO".
     """
 
-    backend: BaseBackend = field(default_factory=RedisBackend)
+    backend: BaseBackend = RedisBackend()
     """
     Sets the default backend instance used for queue operations.
 
@@ -214,7 +390,7 @@ class Settings:
     A list of module paths in which to look for @task-decorated callables.
     E.g. ["myapp.runs.tasks", "myapp.jobs.tasks"].
     """
-    tasks: list[str] = field(default_factory=lambda: [])
+    tasks: list[str] = []
 
     @property
     def dashboard_config(self) -> DashboardConfig | None:
@@ -241,64 +417,3 @@ class Settings:
 
         # Returns a logging configuration object with the specified level.
         return StandardLoggingConfig(level=self.logging_level)
-
-    def dict(self, exclude_none: bool = False, upper: bool = False) -> dict[str, Any]:
-        """
-        Converts the Settings object into a dictionary representation.
-
-        Provides a dictionary containing all the configuration settings defined
-        in the dataclass. Offers options to exclude None values and transform
-        keys to uppercase.
-
-        Args:
-            exclude_none: If True, omits key-value pairs where the value is None.
-                          Defaults to False.
-            upper: If True, converts all dictionary keys to uppercase strings.
-                   Defaults to False.
-
-        Returns:
-            A dictionary where keys are setting names and values are the
-            corresponding setting values.
-        """
-        original = asdict(self)  # Get the dataclass fields as a dictionary.
-
-        # Handle the case where None values should be included in the output.
-        if not exclude_none:
-            # Return either the original dictionary or an uppercase-keyed version.
-            return {k.upper(): v for k, v in original.items()} if upper else original
-
-        # Handle the case where None values should be excluded from the output.
-        # Create a filtered dictionary, then potentially uppercase the keys.
-        filtered = {k: v for k, v in original.items() if v is not None}
-        return {k.upper(): v for k, v in filtered.items()} if upper else filtered
-
-    def tuple(self, exclude_none: bool = False, upper: bool = False) -> list[tuple[str, Any]]:
-        """
-        Converts the Settings object into a list of key-value tuples.
-
-        Provides a list of (key, value) tuples representing each configuration
-        setting. Allows for excluding tuples with None values and converting
-        keys to uppercase within the tuples.
-
-        Args:
-            exclude_none: If True, omits tuples where the value is None.
-                          Defaults to False.
-            upper: If True, converts the key string in each tuple to uppercase.
-                   Defaults to False.
-
-        Returns:
-            A list of (string, Any) tuples, where each tuple contains a setting
-            name and its corresponding value.
-        """
-        original = asdict(self)  # Get the dataclass fields as a dictionary.
-
-        # Handle the case where None values should be included in the output.
-        if not exclude_none:
-            # Return a list of items from either the original or uppercase-keyed
-            # dictionary.
-            return list({k.upper(): v for k, v in original.items()}.items()) if upper else list(original.items())
-
-        # Handle the case where None values should be excluded from the output.
-        # Create a filtered list of tuples, then potentially uppercase the keys.
-        filtered_tuples = [(k, v) for k, v in original.items() if v is not None]
-        return [(k.upper(), v) for k, v in filtered_tuples] if upper else filtered_tuples
