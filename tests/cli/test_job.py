@@ -4,15 +4,8 @@ from click.testing import CliRunner
 
 from asyncmq import InMemoryBackend
 from asyncmq.cli.__main__ import app
-from asyncmq.core.dependencies import get_backend, get_settings
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def reset_cache():
-    get_backend.cache_clear()
-    get_settings.cache_clear()
 
 
 class FakeBackend:

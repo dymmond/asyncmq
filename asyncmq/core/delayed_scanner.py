@@ -1,7 +1,7 @@
 import anyio
 
 from asyncmq.backends.base import BaseBackend
-from asyncmq.core.dependencies import get_backend
+from asyncmq.conf import monkay
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
@@ -32,7 +32,7 @@ async def delayed_job_scanner(
                   due delayed jobs. Defaults to 2.0 seconds.
     """
     # Use the provided backend or fall back to the default configured backend.
-    backend = backend or get_backend()
+    backend = backend or monkay.settings.backend
     logger.info(f"Delayed job scanner started for queue: {queue_name}")
 
     while True:
