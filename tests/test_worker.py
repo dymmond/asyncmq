@@ -2,7 +2,7 @@ import anyio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.conf import monkay
+from asyncmq.conf import settings
 from asyncmq.workers import Worker
 
 pytestmark = pytest.mark.asyncio
@@ -10,7 +10,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_worker_heartbeat_registration_and_updates():
     backend = InMemoryBackend()
-    monkay.settings.backend = backend
+    settings.backend = backend
     worker = Worker("test_queue", heartbeat_interval=0.1)
 
     async with anyio.create_task_group() as tg:

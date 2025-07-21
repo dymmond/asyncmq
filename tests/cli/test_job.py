@@ -34,12 +34,12 @@ class FakeBackend:
 
 @pytest.fixture
 def fake_backend():
-    from asyncmq.conf import monkay
+    from asyncmq.conf import settings
 
-    original_backend = monkay.settings.backend
-    monkay.settings.backend = FakeBackend()
+    original_backend = settings.backend
+    settings.backend = FakeBackend()
     yield
-    monkay.settings.backend = original_backend
+    settings.backend = original_backend
 
 
 def test_job_help():
@@ -80,9 +80,9 @@ def test_job_list(monkeypatch):
 
         return backend
 
-    from asyncmq.conf import monkay
+    from asyncmq.conf import settings
 
-    monkay.settings.backend = anyio.run(setup_test_backend)
+    settings.backend = anyio.run(setup_test_backend)
 
     result = runner.invoke(app, ["job", "list", "--queue", "queue1", "--state", "waiting"])
 

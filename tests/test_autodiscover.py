@@ -3,7 +3,7 @@ from types import ModuleType
 
 import pytest
 
-from asyncmq.conf import monkay
+from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.tasks import TASK_REGISTRY
 from asyncmq.workers import autodiscover_tasks, handle_job
@@ -52,8 +52,8 @@ def stub_event_emitter(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def disable_sandbox(monkeypatch):
-    monkeypatch.setattr(monkay.settings, "sandbox_enabled", False)
-    return monkay.settings
+    monkeypatch.setattr(settings, "sandbox_enabled", False)
+    return settings
 
 
 @pytest.mark.asyncio
@@ -121,7 +121,7 @@ def test_autodiscover_tasks(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(tmp_path))
 
     monkeypatch.setattr(
-        "asyncmq.conf.monkay.settings.tasks",
+        "asyncmq.conf.settings.tasks",
         ["fake_tasks"],
         raising=True,
     )
