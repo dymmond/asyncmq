@@ -5,7 +5,7 @@ from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.conf import monkay
 from asyncmq.workers import Worker
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 async def test_worker_heartbeat_registration_and_updates():

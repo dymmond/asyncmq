@@ -32,37 +32,35 @@ class FakeBackend:
         return
 
 
+@pytest.fixture
+def fake_backend():
+    from asyncmq.conf import monkay
+
+    original_backend = monkay.settings.backend
+    monkay.settings.backend = FakeBackend()
+    yield
+    monkay.settings.backend = original_backend
+
+
 def test_job_help():
     result = runner.invoke(app, ["job", "--help"])
     assert result.exit_code == 0
     assert "Manages AsyncMQ jobs within queue" in result.output
 
 
-def test_job_inspect(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_inspect(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "inspect", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "job1" in result.output
 
 
-def test_job_retry(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_retry(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "retry", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "Retrying job" in result.output
 
 
-def test_job_remove(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_remove(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "remove", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "Deleted job" in result.output

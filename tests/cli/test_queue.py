@@ -22,27 +22,29 @@ class FakeBackend:
         return False
 
 
+@pytest.fixture
+def fake_backend():
+    from asyncmq.conf import monkay
+
+    original_backend = monkay.settings.backend
+    monkay.settings.backend = FakeBackend()
+    yield
+    monkay.settings.backend = original_backend
+
+
 def test_queue_help():
     result = runner.invoke(app, ["queue", "--help"])
     assert result.exit_code == 0
     assert "Manages AsyncMQ queues." in result.output
 
 
-def test_queue_list(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_queue_list(monkeypatch, fake_backend):
     result = runner.invoke(app, ["queue", "list"])
     assert result.exit_code == 0
     assert "Queue listing not supported for this backend" in result.output
 
 
-def test_queue_info(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_queue_info(monkeypatch, fake_backend):
     result = runner.invoke(app, ["queue", "info", "queue1"])
     assert result.exit_code == 0
     assert "Paused" in result.output
