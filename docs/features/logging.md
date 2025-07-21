@@ -86,7 +86,8 @@ If you need advanced behavior (e.g., JSON output, file rotation), implement `Log
 Then override the `logging_config` property in your settings:
 
 ```python
-@dataclass
+from asyncmq.conf.global_settings import Settings as BaseSettings
+
 class Settings(BaseSettings):
     @property
     def logging_config(self):

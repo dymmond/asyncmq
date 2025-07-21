@@ -25,15 +25,13 @@ decorators actually run and populate the global `TASK_REGISTRY`.
 * You configure in your [custom settings](./settings.md):
 
    ```python
-   from dataclasses import dataclass, field
    from asyncmq.conf.global_settings import Settings as BaseSettings
 
-   @dataclass
    class Settings(BaseSettings):
-       tasks: list[str] = field(default_factory=lambda: [
+       tasks: list[str] = [
          "myproject.tasks",
          "myproject.scheduled_jobs",
-       ])
+       ]
 
    ```
 

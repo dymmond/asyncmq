@@ -95,6 +95,7 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
+    "fastapi",
     "aio_pika>=9.5.5",
     "anyio[trio]>=4.9.0,<6.0.0",
     "autoflake>=2.0.2,<3.0.0",

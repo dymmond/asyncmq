@@ -5,7 +5,7 @@ from lilya.routing import Include
 from lilya.testclient import TestClient
 
 from asyncmq.backends.redis import RedisBackend
-from asyncmq.conf import monkay
+from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.serve import dash_app
 from asyncmq.core.utils.dashboard import DashboardConfig
 
@@ -19,7 +19,7 @@ def client():
 
 
 def test_home_page(client):
-    monkay.settings.backend = RedisBackend()
+    settings.backend = RedisBackend()
     response = client.get(reverse("dashboard"))
     assert response.status_code == 200
     assert config.title.encode() in response.content
@@ -35,7 +35,7 @@ def test_home_page(client):
     ],
 )
 def test_pages(path, keyword, client):
-    monkay.settings.backend = RedisBackend()
+    settings.backend = RedisBackend()
     response = client.get(path)
     assert response.status_code == 200
     assert keyword in response.content

@@ -73,7 +73,6 @@ from asyncmq.stores.redis_store import RedisJobStore
 
 store = RedisJobStore(redis_url="redis://localhost:6379")
 
-@dataclass
 class MySettings(Settings):
    backend: BaseBackend = RabbitMQBackend(
         rabbit_url="amqp://guest:guest@localhost:5672/",

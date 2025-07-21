@@ -1,6 +1,5 @@
 import random
 import typing
-from functools import lru_cache
 from typing import Any
 
 from asyncmq.core.event import event_emitter
@@ -11,7 +10,6 @@ if typing.TYPE_CHECKING:
     from asyncmq.backends.base import BaseBackend
 
 
-@lru_cache(maxsize=1)
 def get_backend() -> "BaseBackend":
     """
     Get the configured backend instance with LRU caching.
@@ -22,7 +20,6 @@ def get_backend() -> "BaseBackend":
     return get_settings().backend
 
 
-@lru_cache(maxsize=1)
 def get_settings() -> "Settings":
     """
     Get the settings instance.

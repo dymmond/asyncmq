@@ -47,10 +47,8 @@ def run_handler(
 Adjust sandbox behavior in your custom `Settings` class:
 
 ```python
-from dataclasses import dataclass
 from asyncmq import Settings as BaseSettings
 
-@dataclass
 class Settings(BaseSettings):
     sandbox_enabled: bool = True                   # Turn sandbox on
     sandbox_default_timeout: float = 30.0           # Seconds before kill

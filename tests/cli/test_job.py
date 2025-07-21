@@ -4,15 +4,8 @@ from click.testing import CliRunner
 
 from asyncmq import InMemoryBackend
 from asyncmq.cli.__main__ import app
-from asyncmq.core.dependencies import get_backend, get_settings
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def reset_cache():
-    get_backend.cache_clear()
-    get_settings.cache_clear()
 
 
 class FakeBackend:
@@ -32,37 +25,35 @@ class FakeBackend:
         return
 
 
+@pytest.fixture
+def fake_backend():
+    from asyncmq.conf import settings
+
+    original_backend = settings.backend
+    settings.backend = FakeBackend()
+    yield
+    settings.backend = original_backend
+
+
 def test_job_help():
     result = runner.invoke(app, ["job", "--help"])
     assert result.exit_code == 0
     assert "Manages AsyncMQ jobs within queue" in result.output
 
 
-def test_job_inspect(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_inspect(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "inspect", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "job1" in result.output
 
 
-def test_job_retry(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_retry(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "retry", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "Retrying job" in result.output
 
 
-def test_job_remove(monkeypatch):
-    from asyncmq.conf import monkay
-
-    monkay.settings.backend = FakeBackend()
-
+def test_job_remove(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "remove", "job1", "--queue", "queue1"])
     assert result.exit_code == 0
     assert "Deleted job" in result.output
@@ -82,9 +73,9 @@ def test_job_list(monkeypatch):
 
         return backend
 
-    from asyncmq.conf import monkay
+    from asyncmq.conf import settings
 
-    monkay.settings.backend = anyio.run(setup_test_backend)
+    settings.backend = anyio.run(setup_test_backend)
 
     result = runner.invoke(app, ["job", "list", "--queue", "queue1", "--state", "waiting"])
 
