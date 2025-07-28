@@ -21,6 +21,10 @@ def reset_task_registry():
 
     # Re-import every test module under tests/ so their @task decorators run
     for _, name, _ in pkgutil.walk_packages(tests.__path__, tests.__name__ + "."):
+        if "tests.dashboard" in name:
+            # If we import the dashboard tests,
+            # ALL tests will be skipped due to the `importorskip` call.
+            continue
         importlib.reload(importlib.import_module(name))
 
     yield
