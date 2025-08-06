@@ -11,7 +11,7 @@ from asyncmq.queues import Queue
 from .tasks import send_welcome
 
 # Instantiate backend and queue (must mirror settings.py)
-backend = RedisBackend(redis_url="redis://localhost:6379/0")
+backend = RedisBackend(redis_url_or_client="redis://localhost:6379/0")
 email_queue = Queue(name="email", backend=backend)
 
 class SignupPayload(BaseModel):

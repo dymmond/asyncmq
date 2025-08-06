@@ -1,7 +1,7 @@
 from asyncmq.backends.redis import RedisBackend
 from asyncmq.tasks import task
 
-backend = RedisBackend(redis_url=...)
+backend = RedisBackend(redis_url_or_client=...)
 
 @task(queue="default", retries=2, ttl=60)
 async def greet(name: str):

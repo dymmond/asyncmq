@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any, cast
+from typing import Any, Union, cast
 
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
@@ -82,27 +82,36 @@ class RedisBackend(BaseBackend):
     storage of the full job data payloads.
     """
 
-    def __init__(self, redis_url: str = "redis://localhost") -> None:
+    def __init__(self, redis_url_or_client: Union[str, redis.Redis] = "redis://localhost") -> None:
         """
         Initializes the RedisBackend by establishing a connection to Redis and
         preparing the necessary components.
 
-        Establishes an asynchronous connection to the specified Redis instance.
-        Initializes a `RedisJobStore` instance, which is responsible for
-        handling the persistent storage and retrieval of full job data payloads
-        in Redis (typically using simple key-value pairs or Hashes). It also
-        registers the `POP_SCRIPT` and `FLOW_SCRIPT` Lua scripts with Redis
-        for atomic operations like dequeueing and flow creation.
+        Establishes an asynchronous connection to the specified Redis instance or
+        uses the provided Redis client instance. Initializes a `RedisJobStore`
+        instance, which is responsible for handling the persistent storage and
+        retrieval of full job data payloads in Redis (typically using simple
+        key-value pairs or Hashes). It also registers the `POP_SCRIPT` and
+        `FLOW_SCRIPT` Lua scripts with Redis for atomic operations like
+        dequeueing and flow creation.
 
         Args:
-            redis_url: The connection URL string for the Redis instance.
-                       Defaults to "redis://localhost".
+            redis_url_or_client: Either a connection URL string for the Redis
+                                instance or an async Redis client instance.
+                                Defaults to "redis://localhost".
         """
-        # Connect to the Redis instance using the provided URL.
-        # decode_responses=True ensures Redis returns strings instead of bytes.
-        self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
-        # Initialize the RedisJobStore for persistent job data storage.
-        self.job_store: RedisJobStore = RedisJobStore(redis_url)
+        if isinstance(redis_url_or_client, str):
+            # Connect to the Redis instance using the provided URL.
+            # decode_responses=True ensures Redis returns strings instead of bytes.
+            self.redis = redis.from_url(redis_url_or_client, decode_responses=True)  # type: ignore
+            # Initialize the RedisJobStore for persistent job data storage.
+            self.job_store = RedisJobStore(redis_url_or_client)
+        else:
+            # Use the provided Redis client instance.
+            self.redis = redis_url_or_client
+            # Initialize the RedisJobStore with the same Redis client instance.
+            self.job_store = RedisJobStore(redis_client=redis_url_or_client)
+
         # Register the Lua POP_SCRIPT for atomic dequeue operations.
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
@@ -246,7 +255,7 @@ class RedisBackend(BaseBackend):
             await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.ACTIVE})
             # Add the job ID and the current time to the active jobs Hash.
             # This hash tracks jobs currently being processed.
-            await self.redis.hset(self._active_key(queue_name), payload["id"], time.time())  # type: ignore
+            await self.redis.hset(self._active_key(queue_name), payload["id"], str(time.time()))
             # Return the dequeued job payload as a dictionary.
             return payload
         # If the script returned nil (no jobs in the waiting queue).
@@ -1078,7 +1087,7 @@ class RedisBackend(BaseBackend):
         key: str = f"queue:{queue_name}:heartbeats"
         # Store the timestamp (converted to string by Redis) associated with
         # the job_id in the heartbeats Hash using HSET.
-        await self.redis.hset(key, job_id, timestamp)  # type: ignore
+        await self.redis.hset(key, job_id, str(timestamp))
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """

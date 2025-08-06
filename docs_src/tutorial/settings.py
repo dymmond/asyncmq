@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     Extend global defaults with your own preferences.
     """
     # URL for your Redis server (change to suit your environment)
-    backend: BaseBackend = RedisBackend(redis_url="redis://localhost:6379/0")
+    backend: BaseBackend = RedisBackend(redis_url_or_client="redis://localhost:6379/0")
 
     # How many tasks a worker will run concurrently (default: 3)
     worker_concurrency: int = 4

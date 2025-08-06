@@ -9,7 +9,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_cancel_job(redis):
-    backend = RedisBackend(redis_url="redis://localhost:6379")
+    backend = RedisBackend(redis_url_or_client="redis://localhost:6379")
     backend.redis = redis
 
     job = {"id": "r1"}
@@ -25,7 +25,7 @@ async def test_cancel_job(redis):
 
 
 async def test_retry_job(redis):
-    backend = RedisBackend(redis_url="redis://localhost:6379")
+    backend = RedisBackend(redis_url_or_client="redis://localhost:6379")
     backend.redis = redis
 
     job = {"id": "r2"}
@@ -40,7 +40,7 @@ async def test_retry_job(redis):
 
 
 async def test_remove_job(redis):
-    backend = RedisBackend(redis_url="redis://localhost:6379")
+    backend = RedisBackend(redis_url_or_client="redis://localhost:6379")
     backend.redis = redis
 
     job = {"id": "r3"}

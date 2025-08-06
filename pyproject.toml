@@ -189,7 +189,7 @@ target-version = "py310"
 select = ["E", "W", "F", "C", "B", "I"]
 ignore = ["E501", "B008", "C901", "B026"]
 
-exclude = ["docs_src/"]
+exclude = ["docs_src/*"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

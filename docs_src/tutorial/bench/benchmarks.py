@@ -6,7 +6,7 @@ from asyncmq.logging import logger
 from asyncmq.queues import Queue
 from asyncmq.tasks import task
 
-backend = RedisBackend(redis_url="redis://localhost:6379/0")
+backend = RedisBackend(redis_url_or_client="redis://localhost:6379/0")
 queue = Queue(name="perf", backend=backend, concurrency=10)
 
 @task(queue="perf")

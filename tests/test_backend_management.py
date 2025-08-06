@@ -21,7 +21,7 @@ async def memory_backend():
 
 @pytest.fixture
 async def redis_backend():
-    backend = RedisBackend(redis_url="redis://localhost:6379")
+    backend = RedisBackend(redis_url_or_client="redis://localhost:6379")
     # Flush DB before test
     await backend.redis.flushdb()
     yield backend

@@ -35,7 +35,7 @@ async def test_queue_stats_inmemory():
 
 @pytest.mark.asyncio
 async def test_queue_stats_redis(redis):
-    backend = RedisBackend(redis_url=REDIS_URL)
+    backend = RedisBackend(redis_url_or_client=REDIS_URL)
     # waiting jobs
     job1 = {"id": "rj1"}
     job2 = {"id": "rj2"}
