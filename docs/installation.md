@@ -70,7 +70,7 @@ You can read more about the `ASYNCMQ_SETINGS_MODULE` in the [settings](features/
 
 By default, AsyncMQ loads its configuration from `asyncmq.conf.global_settings.Settings`, which includes sensible defaults such as:
 
-* **backend**: `RedisBackend(redis_url="redis://localhost")`
+* **backend**: `RedisBackend(redis_url_or_client="redis://localhost")`
 * **worker_concurrency**: `10`
 * **logging_level**: `INFO`
 * **debug**: `False`

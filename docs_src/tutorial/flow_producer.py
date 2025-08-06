@@ -3,7 +3,7 @@ from asyncmq.flow import FlowProducer
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
-backend = RedisBackend(redis_url="redis://localhost:6379/0")
+backend = RedisBackend(redis_url_or_client="redis://localhost:6379/0")
 flow = FlowProducer(backend=backend)
 
 # Define jobs

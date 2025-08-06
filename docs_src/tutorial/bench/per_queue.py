@@ -1,7 +1,7 @@
 from asyncmq.backends.redis import RedisBackend
 from asyncmq.queues import Queue
 
-backend = RedisBackend(redis_url="redis://localhost:6379/0")
+backend = RedisBackend(redis_url_or_client="redis://localhost:6379/0")
 # Override to poll every 0.2s just for the 'perf' queue
 queue = Queue(
    name="perf",

@@ -56,7 +56,7 @@ user worker on >StrongPassword ~perf:* +get +set +xread +xreadgroup
 Example:
 
 ```python
-RedisBackend(redis_url="rediss://redis.example.com:6379/0?ssl_cert_reqs=required")
+RedisBackend(redis_url_or_client="rediss://redis.example.com:6379/0?ssl_cert_reqs=required")
 ```
 
 ### 2.2. At Rest

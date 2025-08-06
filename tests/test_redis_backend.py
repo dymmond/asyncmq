@@ -12,6 +12,16 @@ from asyncmq.logging import logger
 pytestmark = pytest.mark.asyncio
 
 
+async def test_create_with_url(redis):
+    backend = RedisBackend()
+    assert backend.redis.client().ping()
+
+
+async def test_create_with_client(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    assert backend.redis == redis
+
+
 async def test_enqueue_and_dequeue(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.enqueue", args=[], kwargs={})

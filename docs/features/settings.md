@@ -59,7 +59,7 @@ The settings is a pure Python `dataclass` and it should be treated as such.
    class Settings(BaseSettings):
        debug: bool = True
        logging_level: str = "DEBUG"
-       backend: BaseBackend = RedisBackend(redis_url="rediss://redis:6379/0")
+       backend: BaseBackend = RedisBackend(redis_url_or_client="rediss://redis:6379/0")
        worker_concurrency: int = 5
        scan_interval: float = 0.5
        enable_stalled_check: bool = True
