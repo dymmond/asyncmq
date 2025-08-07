@@ -39,8 +39,8 @@ class WorkerController(DashboardMixin, TemplateController):
         size = max(1, int(qs.get("size", 20)))
 
         total = len(all_workers)
-        total_pages = math.ceil(total / size) if size else 1
-        page = min(page, total_pages)
+        total_pages = math.ceil(total / size) if total > 0 and size else 1
+        page = min(page, total_pages) if total_pages > 0 else 1
 
         start = (page - 1) * size
         end = start + size

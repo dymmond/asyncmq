@@ -71,6 +71,7 @@
   <!-- Pagination & Summary -->
   <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between">
     <p class="text-sm text-gray-700 mb-4 sm:mb-0">
+      {% if total > 0 %}
       Showing
       <span class="font-medium">{{ (page - 1) * size + 1 }}</span>
       to
@@ -78,6 +79,9 @@
       of
       <span class="font-medium">{{ total }}</span>
       results
+      {% else %}
+      No results found
+      {% endif %}
     </p>
     <nav class="inline-flex -space-x-px">
       {% if page and page > 1 %}
