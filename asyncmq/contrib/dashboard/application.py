@@ -1,4 +1,4 @@
-from typing import Any, Awaitable, Callable, MutableMapping
+from typing import Any, Awaitable, Callable, MutableMapping, cast
 
 from lilya.apps import Lilya
 from lilya.requests import Request
@@ -40,10 +40,13 @@ class AsgiCompatibleRouter:
         self.mount_path = mount_path
 
     def path_for(self, name: str, **path_params: Any) -> CompatibleURL:
+        # Use configured dashboard prefix and the mount path for correctness under FastAPI mounts
+        configured_prefix = monkay.settings.dashboard_config.dashboard_url_prefix or ""
+        base = f"{self.mount_path}{configured_prefix}"
         if name == "statics":
             path = path_params.get("path", "")
-            return CompatibleURL(f"{self.mount_path}/admin/static{path}")
-        return CompatibleURL(f"{self.mount_path}/admin")
+            return CompatibleURL(f"{base}/static{path}")
+        return CompatibleURL(f"{base}")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.original_router, name)
@@ -73,11 +76,12 @@ class UnifiedDashboard:
         await self.lilya_app(scope, receive, send)
 
     def _extract_mount_path(self, scope: MutableMapping[str, Any]) -> str:
-        """Extract mount path from scope for proper URL generation"""
-        path = scope.get("path", "")
-        if "/admin" in path:
-            return str(path.split("/admin")[0])
-        return ""
+        """Extract mount path from scope for proper URL generation.
+
+        We rely on the ASGI-provided `root_path`, which is the standard
+        mechanism set by Starlette/FastAPI when an application is mounted.
+        """
+        return cast(str, scope.get("root_path", "").rstrip("/"))
 
     def __getattr__(self, name: str) -> Any:
         """Delegate attributes to the underlying Lilya app for compatibility"""

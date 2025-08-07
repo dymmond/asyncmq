@@ -6,7 +6,7 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import monkay, settings
+from asyncmq.conf import monkay
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
@@ -71,7 +71,12 @@ class QueueController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        return RedirectResponse(f"/queues/{q}/{request.path_params.get('state', 'waiting')}")
+        # Redirect to the queue detail with state, preserving mount path and configured prefix
+        from asyncmq.core.utils.dashboard import get_effective_prefix
+
+        base = get_effective_prefix(request)
+        state = request.path_params.get("state", "waiting")
+        return RedirectResponse(f"{base}/queues/{q}/{state}")
 
 
 class QueueDetailController(DashboardMixin, TemplateController):
@@ -125,4 +130,8 @@ class QueueDetailController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        return RedirectResponse(f"{settings.dashboard_config.dashboard_url_prefix}/queues/{q}", status_code=303)
+        # Redirect to queue detail while preserving mount path and configured prefix
+        from asyncmq.core.utils.dashboard import get_effective_prefix
+
+        base = get_effective_prefix(request)
+        return RedirectResponse(f"{base}/queues/{q}", status_code=303)
