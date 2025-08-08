@@ -825,22 +825,40 @@ class RedisBackend(BaseBackend):
         """
         Asynchronously lists all known queue names managed by this backend.
 
-        This is done by fetching all Redis keys matching the waiting queue pattern
-        (`queue:*:waiting`) and extracting the queue name from the key.
-        Note: Using `KEYS` can be blocking in Redis for large key spaces and should
-        be used with caution or replaced with `SCAN` in production environments
-        with many keys.
+        Queues can be discovered in two ways:
+        - By worker heartbeats stored under keys matching `queue:*:heartbeats`.
+        - By waiting job sets created when tasks are enqueued under `queue:*:waiting`.
+
+        This method scans for both patterns and merges the queue names.
 
         Returns:
             A list of strings, where each string is the name of a queue.
         """
-        # Get all keys matching the pattern for waiting queues.
-        # Note: Using KEYS can be blocking in Redis for large key spaces.
-        keys: list[str] = await self.redis.keys("queue:*:waiting")
-        # Extract the queue name from each key by splitting on ':' and taking
-        # the second part (index 1). Example: 'queue:my_queue:waiting' -> 'my_queue'.
-        queue_names: list[str] = [key.split(":")[1] for key in keys]
-        return queue_names
+
+        def _name_from_key(key: str) -> str:
+            queue_name = None
+            key_str = key.decode() if isinstance(key, (bytes, bytearray)) else key
+            parts = key_str.split(":", 2)
+            if len(parts) == 3:
+                # Expected format: 'queue:{name}:heartbeats'
+                _, queue_name, _ = parts
+            return queue_name
+
+        queue_names: set[str] = set()
+
+        # 1) Queues discovered from worker heartbeats
+        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            name = _name_from_key(full_key)
+            if name:
+                queue_names.add(name)
+
+        # 2) Queues discovered from waiting job sorted sets
+        async for full_key in self.redis.scan_iter(match="queue:*:waiting"):
+            name = _name_from_key(full_key)
+            if name:
+                queue_names.add(name)
+
+        return list(queue_names)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
