@@ -2,8 +2,10 @@ import asyncio
 import json
 import time
 
+import anyio
 import pytest
 
+from asyncmq import Worker
 from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.enums import State
 from asyncmq.jobs import Job
@@ -139,3 +141,23 @@ async def test_list_jobs_filters_correctly():
     assert all(j["task"] == "waiting.job" for j in waiting)
     assert all(j["task"] == "delayed.job" for j in delayed)
     assert all(j["task"] == "failed.job" for j in failed)
+
+async def test_queue_list_is_populated_when_starting_a_worker():
+    from asyncmq.conf import settings
+    backend = RedisBackend()
+
+    settings.backend = backend
+
+    queue = "test_queue"
+    worker = Worker(queue, heartbeat_interval=0.1)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(worker._run_with_scope)
+        await anyio.sleep(0.15)
+
+        # Now list queues — it should include the queue due to heartbeats
+        queues = await backend.list_queues()
+        assert queue in queues
+
+        # Stop the worker to clean up
+        tg.cancel_scope.cancel()
