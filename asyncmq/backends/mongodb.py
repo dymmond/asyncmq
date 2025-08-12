@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Any, cast
 
@@ -53,6 +52,10 @@ class MongoDBBackend(BaseBackend):
             database: The name of the MongoDB database to use for storing data.
                       Defaults to "asyncmq".
         """
+        self._settings = get_settings()
+
+        # Initialize custom JSON functions from settings
+        self._json_serializer = self._settings.json_serializer
         # Initialize the MongoDB store for persistent job data storage.
         self.store: MongoDBStore = MongoDBStore(mongo_url, database)
         # In-memory representation of waiting queues: maps queue names to lists of job payloads.
@@ -849,7 +852,7 @@ class MongoDBBackend(BaseBackend):
             # Iterate through the repeatable definitions for the specified queue.
             # Use .get() with default {} for safety.
             for raw, rec in self.repeatables.get(queue_name, {}).items():
-                jd = json.loads(raw)  # Deserialize the JSON job definition.
+                jd = self._json_serializer.to_dict(raw)  # Deserialize the JSON job definition.
                 # Append a new RepeatableInfo instance to the output list.
                 out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
             # Sort the output list by the 'next_run' timestamp.
@@ -871,7 +874,7 @@ class MongoDBBackend(BaseBackend):
         """
         # Acquire the lock to ensure exclusive access to in-memory repeatable definitions.
         async with self.lock:
-            raw = json.dumps(job_def)  # Serialize the job definition to JSON.
+            raw = self._json_serializer.to_json(job_def)  # Serialize the job definition to JSON.
             # Get the record for the repeatable job, safely handling missing queue or job.
             rec = self.repeatables.get(queue_name, {}).get(raw)
             # If the record exists.
@@ -902,7 +905,7 @@ class MongoDBBackend(BaseBackend):
         """
         # Acquire the lock to ensure exclusive access to in-memory repeatable definitions.
         async with self.lock:
-            raw = json.dumps(job_def)  # Serialize the job definition to JSON.
+            raw = self._json_serializer.to_json(job_def)  # Serialize the job definition to JSON.
             # Remove the old record for the repeatable job, safely handling missing queue or job.
             rec = self.repeatables.setdefault(queue_name, {}).pop(raw, None)
             # If the record was not found, raise a KeyError.
@@ -916,7 +919,7 @@ class MongoDBBackend(BaseBackend):
 
             # Store the updated repeatable definition under the clean JSON key
             # with the new next_run timestamp and 'paused' set to False.
-            self.repeatables[queue_name][json.dumps(clean_def)] = {
+            self.repeatables[queue_name][self._json_serializer.to_json(clean_def)] = {
                 "job_def": clean_def,
                 "next_run": next_ts,
                 "paused": False,

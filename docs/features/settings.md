@@ -146,6 +146,9 @@ Below is a distilled breakdown of each setting, why it matters, and tips for tun
 | **worker_concurrency**                 | `int`           | `1`                        | Default concurrency for CLI workers. Increase for I/O-bound tasks.                         |
 | **tasks**                               | `list[str]`     | `[]`                       | Python modules or packages to auto-discover your `@task(…)` definitions at worker startup. Defaults to `[]`.                         |
 | **scan_interval**                      | `float`         | `1.0`                      | Global frequency to poll delayed & repeatable jobs. Override per-queue if needed.          |
+| **json_dumps**                         | `Callable`      | `json.dumps`               | Custom JSON serialization function. Configure to handle custom data types like UUID, datetime, Decimal. |
+| **json_loads**                         | `Callable`      | `json.loads`               | Custom JSON deserialization function. Configure to restore custom data types from JSON.     |
+| **json_serializer**                    | `JSONSerializer` | Auto-created              | Centralized JSON serializer that handles both regular and partial functions correctly.      |
 
 !!! Note
     Fields like `asyncmq_postgres_pool_options` and table names exist for advanced customizations.
@@ -159,6 +162,180 @@ Below is a distilled breakdown of each setting, why it matters, and tips for tun
 * **Environment Parity**: Keep staging & prod configs in code, reducing *“it works only locally”* surprises.
 * **Self-Documentation**: Dataclass defaults and docstrings serve as living API docs.
 * **Extensibility**: Add new fields easily without rewriting initialization logic.
+
+---
+
+## 7. Custom JSON Encoding/Decoding
+
+AsyncMQ allows you to customize how job data and payloads are serialized to and from JSON. This is particularly useful when working with custom data types that aren't natively JSON-serializable, such as `UUID`, `datetime`, `Decimal`, or custom classes.
+
+### Why Custom JSON Encoding?
+
+By default, AsyncMQ uses Python's standard `json.dumps` and `json.loads` functions. However, these don't handle many common data types:
+
+```python
+import json
+import uuid
+
+# This will fail with TypeError
+job_data = {"user_id": uuid.uuid4(), "task": "process_user"}
+json.dumps(job_data)  # TypeError: Object of type UUID is not JSON serializable
+```
+
+### Configuring Custom JSON Functions
+
+You can configure custom JSON serialization functions in your settings:
+
+```python
+import json
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from functools import partial
+from asyncmq.conf.global_settings import Settings as BaseSettings
+
+def custom_json_encoder(obj):
+    """Custom encoder that handles UUID, datetime, and Decimal objects."""
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def custom_json_decoder(dct):
+    """Custom decoder that converts strings back to appropriate types."""
+    for key, value in dct.items():
+        if isinstance(value, str):
+            # Try to parse UUIDs (for keys ending with '_id')
+            if key.endswith('_id'):
+                try:
+                    dct[key] = uuid.UUID(value)
+                except ValueError:
+                    pass  # Not a valid UUID, keep as string
+            # Try to parse ISO datetime strings
+            elif key.endswith('_at') or key.endswith('_time'):
+                try:
+                    dct[key] = datetime.fromisoformat(value)
+                except ValueError:
+                    pass  # Not a valid datetime, keep as string
+    return dct
+
+class Settings(BaseSettings):
+    json_dumps = partial(json.dumps, default=custom_json_encoder)
+    json_loads = partial(json.loads, object_hook=custom_json_decoder)
+```
+
+### Real-World Example: E-commerce Order Processing
+
+Here's a practical example for an e-commerce system:
+
+```python
+import json
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from functools import partial
+from asyncmq.conf.global_settings import Settings as BaseSettings
+
+def ecommerce_json_encoder(obj):
+    """Encoder for e-commerce data types."""
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, Decimal):
+        return str(obj)  # Keep precision for money
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def ecommerce_json_decoder(dct):
+    """Decoder for e-commerce data types."""
+    for key, value in dct.items():
+        if isinstance(value, str):
+            # Handle UUIDs
+            if key in ['order_id', 'user_id', 'product_id', 'session_id']:
+                try:
+                    dct[key] = uuid.UUID(value)
+                except ValueError:
+                    pass
+            # Handle timestamps
+            elif key in ['created_at', 'updated_at', 'shipped_at']:
+                try:
+                    dct[key] = datetime.fromisoformat(value)
+                except ValueError:
+                    pass
+            # Handle money amounts
+            elif key in ['price', 'total', 'tax', 'shipping_cost']:
+                try:
+                    dct[key] = Decimal(value)
+                except (ValueError, TypeError):
+                    pass
+    return dct
+
+class Settings(BaseSettings):
+    json_dumps = partial(json.dumps, default=ecommerce_json_encoder)
+    json_loads = partial(json.loads, object_hook=ecommerce_json_decoder)
+```
+
+### Using Custom JSON with Tasks
+
+Once configured, your custom JSON functions work automatically with all AsyncMQ operations:
+
+```python
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from asyncmq import task, Queue
+
+@task
+async def process_order(order_data):
+    # order_data will have proper types restored
+    print(f"Processing order {order_data['order_id']}")  # UUID object
+    print(f"Total: ${order_data['total']}")  # Decimal object
+    print(f"Created: {order_data['created_at']}")  # datetime object
+
+# Enqueue with custom data types
+queue = Queue("orders")
+await queue.enqueue(process_order, {
+    "order_id": uuid.uuid4(),
+    "user_id": uuid.uuid4(),
+    "total": Decimal("99.99"),
+    "created_at": datetime.now(),
+    "items": [
+        {"product_id": uuid.uuid4(), "price": Decimal("49.99")},
+        {"product_id": uuid.uuid4(), "price": Decimal("50.00")},
+    ]
+})
+```
+
+### Best Practices
+
+1. **Handle Errors Gracefully**: Always include try/catch blocks in your decoder to handle malformed data.
+
+2. **Be Specific**: Use field names or patterns to identify which values to convert (e.g., `*_id` for UUIDs).
+
+3. **Preserve Precision**: For financial data, use `str()` for Decimal encoding to maintain precision.
+
+4. **Test Thoroughly**: Ensure your encoder/decoder pair can handle round-trip serialization:
+
+```python
+def test_round_trip():
+    original = {"user_id": uuid.uuid4(), "amount": Decimal("123.45")}
+    json_str = settings.json_dumps(original)
+    restored = settings.json_loads(json_str)
+    assert restored["user_id"] == original["user_id"]
+    assert restored["amount"] == original["amount"]
+```
+
+5. **Document Your Schema**: Clearly document which fields use which data types for your team.
+
+### Performance Considerations
+
+- Custom JSON functions add overhead to serialization/deserialization
+- Consider using simpler encoders for high-throughput scenarios
+- Profile your custom functions if performance is critical
+- Cache compiled regex patterns if using pattern matching in decoders
 
 ---
 

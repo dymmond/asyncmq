@@ -7,6 +7,7 @@ from redis.commands.core import AsyncScript
 
 from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
 from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -100,6 +101,11 @@ class RedisBackend(BaseBackend):
                                 instance or an async Redis client instance.
                                 Defaults to "redis://localhost".
         """
+        self._settings = get_settings()
+
+        # Initialize JSON serializer from settings
+        self._json_serializer = self._settings.json_serializer
+
         if isinstance(redis_url_or_client, str):
             # Connect to the Redis instance using the provided URL.
             # decode_responses=True ensures Redis returns strings instead of bytes.
@@ -124,7 +130,7 @@ class RedisBackend(BaseBackend):
         # This calls the Lua in one round-trip: fetch + remove
         raw_items: list[bytes] = await self._pop_delayed_script(keys=[key], args=[now])
         # Decode & parse JSON
-        return [json.loads(item.decode("utf-8")) for item in raw_items]
+        return [self._json_serializer.to_dict(item.decode("utf-8")) for item in raw_items]
 
     def _waiting_key(self, name: str) -> str:
         """
@@ -217,7 +223,7 @@ class RedisBackend(BaseBackend):
         key: str = self._waiting_key(queue_name)
         # Add the JSON-serialized payload to the Sorted Set with the calculated score.
         # ZADD updates the score if the member (the JSON string) already exists.
-        await self.redis.zadd(key, {json.dumps(payload): score})
+        await self.redis.zadd(key, {self._json_serializer.to_json(payload): score})
         # Update the job's status to WAITING and save the full payload in the job store.
         # Create a new dictionary to avoid modifying the original payload in place.
         await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
@@ -249,7 +255,7 @@ class RedisBackend(BaseBackend):
         # If a job payload (as a JSON string) was returned by the script.
         if raw:
             # Deserialize the job payload from the JSON string into a dictionary.
-            payload: dict[str, Any] = json.loads(raw)
+            payload: dict[str, Any] = self._json_serializer.to_dict(raw)
             # Update the job's status to ACTIVE and save the full payload in the job store.
             # Create a new dictionary to avoid modifying the original payload in place.
             await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.ACTIVE})
@@ -300,7 +306,7 @@ class RedisBackend(BaseBackend):
         # 3) Add to the DLQ Sorted Set
         dlq_key: str = self._dlq_key(queue_name)
         # Prepare a new payload dict with FAILED status
-        raw_json = json.dumps({**payload, "status": State.FAILED})
+        raw_json = self._json_serializer.to_json({**payload, "status": State.FAILED})
         await self.redis.zadd(dlq_key, {raw_json: time.time()})
 
         # 4) Persist FAILED status in the job store
@@ -341,7 +347,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the delayed queue's Sorted Set.
         key: str = self._delayed_key(queue_name)
         # Add the JSON-serialized payload to the delayed Sorted Set, scored by the run_at time.
-        await self.redis.zadd(key, {json.dumps(payload): run_at})
+        await self.redis.zadd(key, {self._json_serializer.to_json(payload): run_at})
         # Update the job's status to EXPIRED (or DELAYED) and save the full payload in the job store.
         # NOTE: Original code sets status to EXPIRED here. Consider changing to DELAYED
         # if a distinct DELAYED state is desired in the store.
@@ -373,7 +379,7 @@ class RedisBackend(BaseBackend):
         # zrangebyscore retrieves members within a score range.
         raw_jobs: list[str] = await self.redis.zrangebyscore(key, 0, now)
         # Deserialize the JSON strings back into dictionaries.
-        return [json.loads(raw) for raw in raw_jobs]
+        return [self._json_serializer.to_dict(raw) for raw in raw_jobs]
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
         """
@@ -397,7 +403,7 @@ class RedisBackend(BaseBackend):
         all_jobs_raw: list[str] = await self.redis.zrange(key, 0, -1)
         # Iterate through the raw job payloads to find the one matching the job_id.
         for raw in all_jobs_raw:
-            job: dict[str, Any] = json.loads(raw)
+            job: dict[str, Any] = self._json_serializer.to_dict(raw)
             # If the job ID matches.
             if job.get("id") == job_id:
                 # Remove the specific member (the JSON string) from the set.
@@ -503,7 +509,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the repeatable jobs Sorted Set.
         key: str = self._repeat_key(queue_name)
         # Serialize the job definition dictionary to a JSON string.
-        payload: str = json.dumps(job_def)
+        payload: str = self._json_serializer.to_json(job_def)
         # Add the JSON-serialized definition to the repeatable jobs Sorted Set,
         # scored by the next_run timestamp. ZADD updates the score if the member exists.
         await self.redis.zadd(key, {payload: next_run})
@@ -523,7 +529,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the repeatable jobs Sorted Set.
         key: str = self._repeat_key(queue_name)
         # Serialize the job definition dictionary to a JSON string to match the member.
-        payload: str = json.dumps(job_def)
+        payload: str = self._json_serializer.to_json(job_def)
         # Remove the specific member (the JSON string) from the Sorted Set.
         await self.redis.zrem(key, payload)
 
@@ -552,7 +558,7 @@ class RedisBackend(BaseBackend):
         # Retrieve all members from the repeatable set with a score <= now.
         raw: list[str] = await self.redis.zrangebyscore(key, 0, now)
         # Deserialize the JSON strings back into dictionaries.
-        return [json.loads(item) for item in raw]
+        return [self._json_serializer.to_dict(item) for item in raw]
 
     async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
@@ -730,7 +736,7 @@ class RedisBackend(BaseBackend):
         # Iterate through each job dictionary in the list.
         for job in jobs:
             # Serialize the job dictionary to a JSON string.
-            raw: str = json.dumps(job)
+            raw: str = self._json_serializer.to_json(job)
             # Calculate the score for the waiting queue Sorted Set based on priority and time.
             score: float = job.get("priority", 5) * 1e16 + time.time()
             # Add the job to the waiting queue Sorted Set using the pipeline.
@@ -780,7 +786,7 @@ class RedisBackend(BaseBackend):
                 await self.job_store.delete(queue_name, job["id"])
                 # Remove the job from the corresponding Redis Sorted Set by its payload.
                 # This assumes the state name directly maps to the Redis key suffix.
-                await self.redis.zrem(f"queue:{queue_name}:{state}", json.dumps(job))
+                await self.redis.zrem(f"queue:{queue_name}:{state}", self._json_serializer.to_json(job))
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
@@ -796,7 +802,7 @@ class RedisBackend(BaseBackend):
         # Create a payload dictionary including the event name, data, and current timestamp.
         event_payload: dict[str, Any] = {"event": event, "data": data, "ts": time.time()}
         # Serialize the event payload to a JSON string.
-        payload_json: str = json.dumps(event_payload)
+        payload_json: str = self._json_serializer.to_json(event_payload)
         # Emit the event to local listeners using the global event emitter.
         await event_emitter.emit(event, data)
         # Publish the JSON event payload to the Redis channel for distributed listeners.
@@ -909,7 +915,7 @@ class RedisBackend(BaseBackend):
 
         for raw in raw_jobs:
             try:
-                jobs.append(json.loads(raw))
+                jobs.append(self._json_serializer.to_dict(raw))
             except Exception:
                 continue
 
@@ -938,7 +944,7 @@ class RedisBackend(BaseBackend):
         raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
         # Iterate through the raw job payloads.
         for raw in raw_jobs:
-            job: dict[str, Any] = json.loads(raw)
+            job: dict[str, Any] = self._json_serializer.to_dict(raw)
             # Check if the job ID matches the one to retry.
             if job.get("id") == job_id:
                 # Atomically remove the job from the DLQ. ZREM returns the number of elements removed.
@@ -1054,7 +1060,7 @@ class RedisBackend(BaseBackend):
         args = [str(len(job_dicts))]  # First argument is the number of jobs.
         # Add JSON-serialized job payloads to ARGV.
         for jd in job_dicts:
-            args.append(json.dumps(jd))
+            args.append(self._json_serializer.to_json(jd))
         # Add the number of dependency links to ARGV.
         args.append(str(len(dependency_links)))
 
@@ -1156,7 +1162,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the waiting queue's Sorted Set.
         waiting_key: str = self._waiting_key(queue_name)
         # Serialize the job data payload to a JSON string.
-        payload: str = json.dumps(job_data)
+        payload: str = self._json_serializer.to_json(job_data)
         # Get the job's priority for the Sorted Set score, defaulting to 0.
         # Note: The original code uses priority 0 here for re-enqueued stalled jobs.
         score: float = job_data.get("priority", 0)
@@ -1195,7 +1201,7 @@ class RedisBackend(BaseBackend):
         # Iterate through each (raw_payload, score) tuple.
         for raw, score in items:
             # raw is the serialized job dict. Deserialize it.
-            job = json.loads(raw)
+            job = self._json_serializer.to_dict(raw)
             # Append a dictionary containing the job ID, full payload, and run_at time.
             out.append({"id": job["id"], "payload": job, "run_at": score})
         return out
@@ -1224,7 +1230,7 @@ class RedisBackend(BaseBackend):
         # Iterate through each (raw_job_def, score) tuple.
         for raw, score in items:
             # raw is the serialized job definition dict. Deserialize it.
-            jd = json.loads(raw)
+            jd = self._json_serializer.to_dict(raw)
             # Extract the 'paused' status from the job definition, defaulting to False.
             paused = jd.get("paused", False)
             # Append a new RepeatableInfo instance to the output list.
@@ -1250,7 +1256,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the repeatable jobs Sorted Set.
         key = self._repeat_key(queue_name)
         # Serialize the original job definition to JSON.
-        raw = json.dumps(job_def)
+        raw = self._json_serializer.to_json(job_def)
         # Remove the original job definition from the Sorted Set.
         await self.redis.zrem(key, raw)
         # Create a new job definition dictionary with the 'paused' flag set to True.
@@ -1258,7 +1264,7 @@ class RedisBackend(BaseBackend):
         # Get the next_run timestamp from the original job definition, defaulting to current time.
         next_run = job_def.get("next_run", time.time())
         # Add the modified (paused) job definition back to the Sorted Set with the same score.
-        await self.redis.zadd(key, {json.dumps(job_def_paused): next_run})
+        await self.redis.zadd(key, {self._json_serializer.to_json(job_def_paused): next_run})
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
@@ -1283,7 +1289,7 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the repeatable jobs Sorted Set.
         key = self._repeat_key(queue_name)
         # Serialize the paused version of the job definition to JSON to match the member.
-        raw_paused = json.dumps({**job_def, "paused": True})
+        raw_paused = self._json_serializer.to_json({**job_def, "paused": True})
         # Remove the paused job definition from the Sorted Set.
         await self.redis.zrem(key, raw_paused)
         # Create a 'clean' job definition dictionary by excluding the 'paused' key.
@@ -1291,7 +1297,7 @@ class RedisBackend(BaseBackend):
         # Compute the next scheduled run timestamp using the scheduler utility function.
         next_run = compute_next_run(clean_def)
         # Add the cleaned job definition back to the Sorted Set with the new next_run score.
-        await self.redis.zadd(key, {json.dumps(clean_def): next_run})
+        await self.redis.zadd(key, {self._json_serializer.to_json(clean_def): next_run})
         return next_run  # Return the newly computed next run timestamp.
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
@@ -1316,7 +1322,7 @@ class RedisBackend(BaseBackend):
         wait_key = self._waiting_key(queue_name)
         raw_jobs = await self.redis.zrange(wait_key, 0, -1)
         for raw in raw_jobs:
-            job = json.loads(raw)
+            job = self._json_serializer.to_dict(raw)
             if job.get("id") == job_id:
                 await self.redis.zrem(wait_key, raw)
                 removed = True
@@ -1324,7 +1330,7 @@ class RedisBackend(BaseBackend):
         delayed_key = self._delayed_key(queue_name)
         raw_jobs = await self.redis.zrange(delayed_key, 0, -1)
         for raw in raw_jobs:
-            job = json.loads(raw)
+            job = self._json_serializer.to_dict(raw)
             if job.get("id") == job_id:
                 await self.redis.zrem(delayed_key, raw)
                 removed = True
@@ -1372,7 +1378,7 @@ class RedisBackend(BaseBackend):
             concurrency: The concurrency level of the worker.
             timestamp: The timestamp representing the worker's last heartbeat.
         """
-        payload = json.dumps({"heartbeat": timestamp, "concurrency": concurrency})
+        payload = self._json_serializer.to_json({"heartbeat": timestamp, "concurrency": concurrency})
         key = f"queue:{queue}:heartbeats"
         # HSET the timestamp
         await self.redis.hset(key, worker_id, payload)
@@ -1419,7 +1425,7 @@ class RedisBackend(BaseBackend):
             heartbeats = await self.redis.hgetall(full_key)
             for wid, data in heartbeats.items():
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid
-                payload = json.loads(data)
+                payload = self._json_serializer.to_dict(data)
                 current_concurrency: int = 0
                 if isinstance(payload, dict):
                     current_concurrency = payload.get("concurrency", 0)

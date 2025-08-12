@@ -1,8 +1,8 @@
-import json
 from typing import Any, cast
 
 import redis.asyncio as redis
 
+from asyncmq.core.dependencies import get_settings
 from asyncmq.stores.base import BaseJobStore
 
 
@@ -30,6 +30,10 @@ class RedisJobStore(BaseJobStore):
             self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
         else:
             self.redis = None  # to be set externally
+
+        # Get JSON serializer from settings
+        self._settings = get_settings()
+        self._json_serializer = self._settings.json_serializer
 
     def _key(self, queue_name: str, job_id: str) -> str:
         """
@@ -77,7 +81,7 @@ class RedisJobStore(BaseJobStore):
             data: The dictionary containing the job's data to be saved.
         """
         # Serialize the job data dictionary to a JSON string.
-        job_data_json: str = json.dumps(data)
+        job_data_json: str = self._json_serializer.to_json(data)
         # Store the JSON data in Redis using the job's key.
         await self.redis.set(self._key(queue_name, job_id), job_data_json)
         # Add the job ID to the set of job IDs for this queue.
@@ -101,7 +105,7 @@ class RedisJobStore(BaseJobStore):
         # Retrieve the raw JSON string from Redis using the job's key.
         raw: str | None = await self.redis.get(self._key(queue_name, job_id))
         # Parse the JSON string into a dictionary if it exists, otherwise return None.
-        return cast(dict[str, Any], json.loads(raw)) if raw else None
+        return cast(dict[str, Any], self._json_serializer.to_dict(raw)) if raw else None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
         """
