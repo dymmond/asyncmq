@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from functools import cached_property
 from types import UnionType
@@ -8,6 +9,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    Callable,
     Union,
     get_args,
     get_origin,
@@ -16,11 +18,11 @@ from typing import (
 
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
-from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.utils.dashboard import DashboardConfig
 
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig  # noqa
+    from asyncmq.core.json_serializer import JSONSerializer
 
 
 def safe_get_type_hints(cls: type) -> dict[str, Any]:
@@ -220,14 +222,7 @@ class Settings(BaseSettings):
     logging output. Defaults to "INFO".
     """
 
-    backend: BaseBackend = RedisBackend()
-    """
-    Sets the default backend instance used for queue operations.
-
-    This specifies which storage and message brokering mechanism AsyncMQ
-    will use if a specific backend is not explicitly provided for a queue
-    or operation. Defaults to an instance of `RedisBackend`.
-    """
+    _backend: BaseBackend | None = None
 
     version: str = __version__
     """
@@ -392,6 +387,60 @@ class Settings(BaseSettings):
     """
     tasks: list[str] = []
 
+    json_dumps: Callable[[Any], str] = json.dumps
+    """
+    Custom JSON serialization function for encoding job data and payloads.
+
+    This function will be used by all backends when serializing data to JSON.
+    Useful for handling custom data types like datetime objects, UUID, Decimal,
+    or other non-standard JSON types. Defaults to the standard json.dumps.
+
+    Example:
+        import json
+        from functools import partial
+        from uuid import UUID
+
+        def custom_encoder(obj):
+            if isinstance(obj, UUID):
+                return str(obj)
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+        json_dumps = partial(json.dumps, default=custom_encoder)
+    """
+
+    json_loads: Callable[[str], Any] = json.loads
+    """
+    Custom JSON deserialization function for decoding job data and payloads.
+
+    This function will be used by all backends when deserializing JSON data.
+    Defaults to the standard json.loads.
+
+    Example:
+        import json
+        from functools import partial
+
+        json_loads = partial(json.loads, object_hook=custom_decoder)
+    """
+
+    @property
+    def backend(self) -> BaseBackend:
+        """
+        Gets the default backend instance used for queue operations.
+
+        This specifies which storage and message brokering mechanism AsyncMQ
+        will use if a specific backend is not explicitly provided for a queue
+        or operation. Lazily creates a RedisBackend instance if none is set.
+        """
+        if self._backend is None:
+            from asyncmq.backends.redis import RedisBackend
+            self._backend = RedisBackend()
+        return self._backend
+
+    @backend.setter
+    def backend(self, value: BaseBackend) -> None:
+        """Sets the default backend instance."""
+        self._backend = value
+
     @property
     def dashboard_config(self) -> DashboardConfig | None:
         return DashboardConfig()
@@ -417,3 +466,22 @@ class Settings(BaseSettings):
 
         # Returns a logging configuration object with the specified level.
         return StandardLoggingConfig(level=self.logging_level)
+
+    @property
+    def json_serializer(self) -> "JSONSerializer":
+        """
+        Provides a JSON serializer instance configured with the current JSON functions.
+
+        This property creates and returns a JSONSerializer instance that properly
+        handles both regular functions and partial functions for JSON serialization
+        and deserialization. This centralizes the JSON handling logic and ensures
+        consistent behavior across all AsyncMQ components.
+
+        Returns:
+            A JSONSerializer instance configured with the current json_dumps and
+            json_loads functions.
+        """
+        # Import JSONSerializer locally to avoid potential circular imports
+        from asyncmq.core.json_serializer import JSONSerializer
+
+        return JSONSerializer(self.json_dumps, self.json_loads)

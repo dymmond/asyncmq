@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Any, cast
 
@@ -10,7 +9,7 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import monkay
+from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -34,6 +33,10 @@ class InMemoryBackend(BaseBackend):
         """
         Initializes the in-memory backend with empty data structures.
         """
+        self._settings = get_settings()
+
+        # Initialize custom JSON functions from settings
+        self._json_serializer = self._settings.json_serializer
         # Waiting queues: queue_name -> list of job payloads
         self.queues: dict[str, list[dict[str, Any]]] = {}
         # Dead-letter queues: queue_name -> list of failed job payloads
@@ -232,7 +235,7 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             out: list[RepeatableInfo] = []
             for raw, rec in self.repeatables.get(queue_name, {}).items():
-                jd = json.loads(raw)
+                jd = self._json_serializer.to_dict(raw)
                 out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
             return sorted(out, key=lambda x: x.next_run)
 
@@ -241,7 +244,7 @@ class InMemoryBackend(BaseBackend):
         Remove a repeatable definition.
         """
         async with self.lock:
-            raw = json.dumps(job_def)
+            raw = self._json_serializer.to_json(job_def)
             self.repeatables.get(queue_name, {}).pop(raw, None)
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
@@ -249,7 +252,7 @@ class InMemoryBackend(BaseBackend):
         Mark the given repeatable paused so scheduler skips it.
         """
         async with self.lock:
-            raw = json.dumps(job_def)
+            raw = self._json_serializer.to_json(job_def)
             if raw in self.repeatables.get(queue_name, {}):
                 self.repeatables[queue_name][raw]["paused"] = True
 
@@ -258,13 +261,13 @@ class InMemoryBackend(BaseBackend):
         Un-pause the repeatable and return its newly computed next_run timestamp.
         """
         async with self.lock:
-            raw = json.dumps(job_def)
+            raw = self._json_serializer.to_json(job_def)
             rec = self.repeatables.get(queue_name, {}).pop(raw, None)
             if rec is None:
                 raise KeyError(f"Repeatable job not found: {job_def}")
             clean_def = {k: v for k, v in rec["job_def"].items() if k != "paused"}
             next_run = compute_next_run(clean_def)
-            self.repeatables.setdefault(queue_name, {})[json.dumps(clean_def)] = {
+            self.repeatables.setdefault(queue_name, {})[self._json_serializer.to_json(clean_def)] = {
                 "job_def": clean_def,
                 "next_run": next_run,
                 "paused": False,
@@ -870,6 +873,8 @@ class InMemoryBackend(BaseBackend):
         Returns:
             A list of WorkerInfo objects representing the active workers.
         """
+        from asyncmq.conf import monkay
+
         now = time.time()
         return [
             info for info in self._worker_registry.values() if now - info.heartbeat <= monkay.settings.heartbeat_ttl

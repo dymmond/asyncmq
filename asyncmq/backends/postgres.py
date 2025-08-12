@@ -5,7 +5,6 @@ try:
 except ImportError:
     raise ImportError("Please install asyncpg: `pip install asyncpg`") from None
 
-import json
 import time
 from datetime import datetime
 from typing import Any, cast
@@ -49,6 +48,9 @@ class PostgresBackend(BaseBackend):
                  `monkay.settings.asyncmq_postgres_backend_url` is used.
         """
         self._settings = get_settings()
+
+        # Initialize JSON serializer from settings
+        self._json_serializer = self._settings.json_serializer
         # Ensure a DSN is provided either directly or via monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")
@@ -83,7 +85,7 @@ class PostgresBackend(BaseBackend):
                 now,
             )
         # Each row.data is a JSON string
-        return [json.loads(r["data"]) for r in rows]
+        return [self._json_serializer.to_dict(r["data"]) for r in rows]
 
     async def connect(self) -> None:
         """
@@ -179,7 +181,7 @@ class PostgresBackend(BaseBackend):
                 # If a row was returned (a job was dequeued).
                 if row:
                     # Deserialize and return the job payload.
-                    return cast(dict[str, Any], json.loads(row["data"]))
+                    return cast(dict[str, Any], self._json_serializer.to_dict(row["data"]))
                 # Return None if no waiting job was found.
                 return None
 
@@ -277,7 +279,7 @@ class PostgresBackend(BaseBackend):
                 now,
             )
             # Deserialize and return the job payloads.
-            return [json.loads(row["data"]) for row in rows]
+            return [self._json_serializer.to_dict(row["data"]) for row in rows]
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> None:
         """
@@ -317,7 +319,7 @@ class PostgresBackend(BaseBackend):
             )
         result: list[DelayedInfo] = []
         for r in rows:
-            payload = json.loads(r["data"])
+            payload = self._json_serializer.to_dict(r["data"])
             result.append(DelayedInfo(job_id=payload["id"], run_at=r["run_at"], payload=payload))
         return result
 
@@ -360,7 +362,7 @@ class PostgresBackend(BaseBackend):
                   AND job_def = $2
                 """,
                 queue_name,
-                json.dumps(job_def),
+                self._json_serializer.to_json(job_def),
             )
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
@@ -377,7 +379,7 @@ class PostgresBackend(BaseBackend):
                   AND job_def = $2
                 """,
                 queue_name,
-                json.dumps(job_def),
+                self._json_serializer.to_json(job_def),
             )
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
@@ -399,7 +401,7 @@ class PostgresBackend(BaseBackend):
                 """,
                 next_dt,
                 queue_name,
-                json.dumps(job_def),
+                self._json_serializer.to_json(job_def),
             )
         return next_ts
 
@@ -570,7 +572,7 @@ class PostgresBackend(BaseBackend):
             # Iterate through each job returned.
             for row in rows:
                 # Deserialize the job data from JSONB.
-                data: dict[str, Any] = json.loads(row["data"])
+                data: dict[str, Any] = self._json_serializer.to_dict(row["data"])
                 # Get the list of dependencies, defaulting to empty if not found.
                 depends_on: list[str] = data.get("depends_on", [])
                 # Check if the current parent_id is in this job's dependencies.
@@ -898,7 +900,7 @@ class PostgresBackend(BaseBackend):
                 queue_name,
                 state,
             )
-            return [json.loads(row["data"]) for row in rows]
+            return [self._json_serializer.to_dict(row["data"]) for row in rows]
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -1048,7 +1050,7 @@ class PostgresBackend(BaseBackend):
 
         # Process the retrieved rows. The 'data' column is returned as a JSON string.
         # It needs to be parsed into a Python dictionary.
-        return [{"queue_name": row["queue_name"], "job_data": json.loads(row["data"])} for row in rows]
+        return [{"queue_name": row["queue_name"], "job_data": self._json_serializer.to_dict(row["data"])} for row in rows]
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """
