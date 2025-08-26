@@ -5,7 +5,6 @@ try:
 except ImportError:
     raise ImportError("Please install asyncpg: `pip install asyncpg`") from None
 
-import json
 from typing import Any, cast
 
 from asyncmq.stores.base import BaseJobStore
@@ -49,6 +48,9 @@ class PostgresJobStore(BaseJobStore):
         # Initialize the connection pool to None; it will be created on first connection.
         self.pool: asyncpg.Pool | None = None
         self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
+
+        # Get JSON serializer from settings
+        self._json_serializer = self._settings.json_serializer
 
     async def connect(self) -> None:
         """
@@ -100,7 +102,7 @@ class PostgresJobStore(BaseJobStore):
                 # Pass parameters to the query to prevent SQL injection.
                 queue_name,
                 job_id,
-                json.dumps(data),  # Serialize data dictionary to JSON string.
+                self._json_serializer.to_json(data),  # Serialize data dictionary to JSON string.
                 data.get("status"),
             )
 
@@ -134,7 +136,7 @@ class PostgresJobStore(BaseJobStore):
             # If a row was found, return the data column (which is JSONB and decoded by asyncpg).
             # Otherwise, return None.
             if row:
-                return cast(dict[str, Any], json.loads(row["data"]))
+                return cast(dict[str, Any], self._json_serializer.to_dict(row["data"]))
             return None
 
     async def delete(self, queue_name: str, job_id: str) -> None:
@@ -185,7 +187,7 @@ class PostgresJobStore(BaseJobStore):
                 queue_name,
             )
             # Extract and return the 'data' column (JSONB) from each row as a list of dictionaries.
-            return [json.loads(row["data"]) for row in rows]
+            return [self._json_serializer.to_dict(row["data"]) for row in rows]
 
     async def jobs_by_status(self, queue_name: str, status: str) -> list[dict[str, Any]]:
         """
@@ -214,7 +216,7 @@ class PostgresJobStore(BaseJobStore):
                 status,
             )
             # Extract and return the 'data' column (JSONB) from each row as a list of dictionaries.
-            return [json.loads(row["data"]) for row in rows]
+            return [self._json_serializer.to_dict(row["data"]) for row in rows]
 
     async def filter(self, queue: str, state: str) -> list[dict[str, Any]]:
         await self.connect()
@@ -223,4 +225,4 @@ class PostgresJobStore(BaseJobStore):
             WHERE queue_name = $1 AND status = $2
         """
         rows = await self.pool.fetch(query, queue, state)
-        return [json.loads(row["data"]) for row in rows]
+        return [self._json_serializer.to_dict(row["data"]) for row in rows]

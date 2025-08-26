@@ -1,6 +1,7 @@
-import json
 import time
 from typing import Any, cast
+
+from asyncmq.core.dependencies import get_settings
 
 try:
     import aio_pika
@@ -43,6 +44,11 @@ class RabbitMQBackend(BaseBackend):
             prefetch_count: The maximum number of messages that the channel will
                 proactively dispatch to consumers. This helps with flow control.
         """
+        self._settings = get_settings()
+
+        # Initialize custom JSON functions from settings
+        self._json_serializer = self._settings.json_serializer
+
         self.rabbit_url = rabbit_url
         self.prefetch_count = prefetch_count
         # Initialize the job store, using RabbitMQJobStore if none is provided.
@@ -108,7 +114,7 @@ class RabbitMQBackend(BaseBackend):
             self._queues[queue_name] = queue
 
         # 4) build and publish the message
-        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        msg = Message(self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
         await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
         return job_id
@@ -142,7 +148,7 @@ class RabbitMQBackend(BaseBackend):
 
         # 4) process (ack) and return its payload
         async with msg.process():
-            payload = json.loads(msg.body.decode())
+            payload = self._json_serializer.to_dict(msg.body.decode())
             return {"job_id": msg.message_id, "payload": payload}
 
     async def ack(self, queue_name: str, job_id: str) -> None:
@@ -195,7 +201,7 @@ class RabbitMQBackend(BaseBackend):
             self._queues[dlq_name] = q
 
         # 4) publish via the default exchange (routes to the queue named dlq_name)
-        msg = Message(json.dumps(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        msg = Message(self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
         await self._chan.default_exchange.publish(msg, routing_key=dlq_name)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
