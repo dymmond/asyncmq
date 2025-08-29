@@ -45,7 +45,7 @@ class JSONSerializer:
         """
         try:
             # Try to get the underlying function for partial functions
-            dumps = self._json_dumps.__func__ # noqa
+            dumps = self._json_dumps.__func__  # noqa
         except AttributeError:
             # Not a partial function, use directly
             dumps = self._json_dumps
@@ -70,7 +70,7 @@ class JSONSerializer:
         """
         try:
             # Try to get the underlying function for partial functions
-            loads = self._json_loads.__func__ # noqa
+            loads = self._json_loads.__func__  # noqa
         except AttributeError:
             # Not a partial function, use directly
             loads = self._json_loads

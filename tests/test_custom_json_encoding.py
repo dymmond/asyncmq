@@ -19,7 +19,7 @@ def custom_json_encoder(obj: Any) -> Any:
 def custom_json_decoder(dct: dict[str, Any]) -> dict[str, Any]:
     """Custom decoder that converts UUID strings back to UUID objects."""
     for key, value in dct.items():
-        if isinstance(value, str) and key.endswith('_id'):
+        if isinstance(value, str) and key.endswith("_id"):
             try:
                 # Try to parse as UUID if the key suggests it's an ID
                 dct[key] = uuid.UUID(value)
@@ -38,6 +38,7 @@ def test_default_json_functions():
     assert settings.json_dumps == json.dumps
     assert settings.json_loads == json.loads
 
+
 def test_can_configure_custom_json_parser():
     custom_dumps = partial(json.dumps, default=custom_json_encoder)
     custom_loads = partial(json.loads, object_hook=custom_json_decoder)
@@ -47,6 +48,7 @@ def test_can_configure_custom_json_parser():
 
     assert settings.json_dumps == custom_dumps
     assert settings.json_loads == custom_loads
+
 
 class TestBaseBackend:
     @pytest.fixture(autouse=True)
@@ -60,7 +62,6 @@ class TestBaseBackend:
 
         settings.json_dumps = original_dumps
         settings.json_loads = original_loads
-
 
     def test_serialize_json_with_uuid(self):
         backend = InMemoryBackend()
@@ -93,10 +94,7 @@ class TestBaseBackend:
             "user_id": uuid.uuid4(),
             "session_id": uuid.uuid4(),
             "task": "process_data",
-            "metadata": {
-                "correlation_id": uuid.uuid4(),
-                "timestamp": 1234567890
-            }
+            "metadata": {"correlation_id": uuid.uuid4(), "timestamp": 1234567890},
         }
 
         json_str = backend._json_serializer.to_json(original_data)
@@ -114,7 +112,6 @@ class TestBaseBackend:
         assert restored_data["task"] == original_data["task"]
         assert restored_data["metadata"]["timestamp"] == original_data["metadata"]["timestamp"]
 
-
     @pytest.mark.asyncio
     async def test_memory_backend_with_uuid_jobs(self):
         backend = InMemoryBackend()
@@ -124,7 +121,7 @@ class TestBaseBackend:
             "id": "test-job-1",
             "user_id": test_uuid,
             "task": "process_user_data",
-            "metadata": {"session_id": uuid.uuid4()}
+            "metadata": {"session_id": uuid.uuid4()},
         }
 
         await backend.enqueue("test_queue", job_payload)

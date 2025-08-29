@@ -1050,7 +1050,9 @@ class PostgresBackend(BaseBackend):
 
         # Process the retrieved rows. The 'data' column is returned as a JSON string.
         # It needs to be parsed into a Python dictionary.
-        return [{"queue_name": row["queue_name"], "job_data": self._json_serializer.to_dict(row["data"])} for row in rows]
+        return [
+            {"queue_name": row["queue_name"], "job_data": self._json_serializer.to_dict(row["data"])} for row in rows
+        ]
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
         """

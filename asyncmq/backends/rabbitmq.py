@@ -114,7 +114,9 @@ class RabbitMQBackend(BaseBackend):
             self._queues[queue_name] = queue
 
         # 4) build and publish the message
-        msg = Message(self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        msg = Message(
+            self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT
+        )
         await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
         return job_id
@@ -201,7 +203,9 @@ class RabbitMQBackend(BaseBackend):
             self._queues[dlq_name] = q
 
         # 4) publish via the default exchange (routes to the queue named dlq_name)
-        msg = Message(self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT)
+        msg = Message(
+            self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT
+        )
         await self._chan.default_exchange.publish(msg, routing_key=dlq_name)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:

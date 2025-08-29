@@ -5,6 +5,24 @@ hide:
 
 # Release Notes
 
+## 0.4.2
+
+### Added
+
+- Add config option for custom JSON loads/dumps [#73](https://github.com/dymmond/asyncmq/pull/73) by [chbndrhnns](https://github.com/chbndrhnns).
+- No negative numbers on workers list pagination [#69](https://github.com/dymmond/asyncmq/pull/69) by [chbndrhnns](https://github.com/chbndrhnns).
+
+### Changed
+
+- Accept a Redis client instance for RedisBackend [#67](https://github.com/dymmond/asyncmq/pull/67) by [chbndrhnns](https://github.com/chbndrhnns).
+
+### Fixed
+
+- Lazy loading for the global settings was pointing to the wrong location.
+- Error when parsing Boolean values from environment variables.
+- Do not reload dashboard test files [#64](https://github.com/dymmond/asyncmq/pull/64) by [chbndrhnns](https://github.com/chbndrhnns).
+- No negative numbers on workers list pagination [#68](https://github.com/dymmond/asyncmq/pull/68) by [chbndrhnns](https://github.com/chbndrhnns).
+
 ## 0.4.1
 
 ### Changed

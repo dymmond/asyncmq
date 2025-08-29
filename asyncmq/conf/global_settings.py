@@ -117,7 +117,7 @@ class BaseSettings:
                 else:
                     raise ValueError(f"Cannot cast to ambiguous Union type: {typ}")
 
-            if typ is bool:
+            if typ is bool or str(typ) == "bool":
                 return value.lower() in self.__truthy__
             return typ(value)
         except Exception:
@@ -433,6 +433,7 @@ class Settings(BaseSettings):
         """
         if self._backend is None:
             from asyncmq.backends.redis import RedisBackend
+
             self._backend = RedisBackend()
         return self._backend
 
