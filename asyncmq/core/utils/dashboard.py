@@ -31,8 +31,7 @@ def get_effective_prefix(request: Request) -> str:
 
     # If the mount prefix already includes the configured prefix, don't double it.
     if configured_prefix and (
-        mount_prefix.endswith(configured_prefix)
-        or f"{mount_prefix}/".endswith(f"{configured_prefix}/")
+        mount_prefix.endswith(configured_prefix) or f"{mount_prefix}/".endswith(f"{configured_prefix}/")
     ):
         base = mount_prefix
     else:
