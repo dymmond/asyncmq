@@ -142,8 +142,10 @@ async def test_list_jobs_filters_correctly():
     assert all(j["task"] == "delayed.job" for j in delayed)
     assert all(j["task"] == "failed.job" for j in failed)
 
+
 async def test_queue_list_is_populated_when_starting_a_worker():
     from asyncmq.conf import settings
+
     backend = RedisBackend()
 
     settings.backend = backend

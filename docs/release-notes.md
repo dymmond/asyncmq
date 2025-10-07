@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.4.3
+
+### Added
+
+- Python 3.14 support.
+
 ## 0.4.2
 
 ### Added
