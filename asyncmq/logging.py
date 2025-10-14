@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from functools import lru_cache
 from typing import Annotated, Any, cast
 
 # Assuming typing_extensions is available for Annotated and Doc in this context.
@@ -10,7 +9,6 @@ from typing import Annotated, Any, cast
 # and Doc would be from a specific library or convention.
 from typing_extensions import Doc
 
-from asyncmq.core.dependencies import get_settings
 from asyncmq.protocols.logging import LoggerProtocol
 
 
@@ -68,16 +66,14 @@ class LoggerProxy:
         Raises:
             RuntimeError: If the logger has not been bound via `bind_logger`.
         """
-        # Acquire the lock before accessing the internal logger reference.
-        with self._lock:
-            # Check if the real logger has been bound.
-            if not self._logger:
-                enable_logging()
-                # If not bound, raise an error.
-                return getattr(self._logger, item)
-            # If bound, get and return the requested attribute from the real logger.
-            return getattr(self._logger, item)
-
+        # Check if the real logger has been bound.
+        if not self._logger:
+            # Acquire the lock before accessing the internal logger reference.
+            with self._lock:
+                # Double-check if the logger is still not bound.
+                if not self._logger:
+                    setup_logging()
+        return getattr(self._logger, item)
 
 # Create a global instance of the LoggerProxy. This instance is used throughout
 # the application to log messages, regardless of when the real logger is configured.
@@ -143,6 +139,8 @@ class LoggingConfig(ABC):
         self.level = level.upper()
         # Store any additional keyword arguments.
         self.options = kwargs
+        self.skip_setup_configure: bool = kwargs.get("skip_setup_configure", False)
+        self.name = kwargs.get("name", "asyncmq")
 
     @abstractmethod
     def configure(self) -> None:
@@ -204,34 +202,11 @@ def setup_logging(logging_config: LoggingConfig | None = None) -> None:
     # Use the provided config or instantiate the default StandardLoggingConfig.
     config = logging_config or StandardLoggingConfig()
     # Call the configure method of the chosen logging config.
-    config.configure()
+
+    if not config.skip_setup_configure:
+        config.configure()
 
     # Get the logger instance from the configured object.
     _logger = config.get_logger()
     # Bind the obtained logger instance to the global logger proxy.
     logger.bind_logger(_logger)
-
-
-@lru_cache
-def enable_logging() -> None:
-    """
-    Ensures the application's logging system is configured, running only once.
-
-    This function uses the `@lru_cache` decorator to guarantee that its body
-    is executed a maximum of one time across the application's lifespan. Inside,
-    it checks the `monkay.settings.is_logging_setup` flag. If the logging system
-    has not already been set up according to the settings, it calls the
-    `setup_logging` function (imported from `asyncmq.logging`) using the
-    logging configuration specified in `monkay.settings.logging_config`.
-
-    The imports are placed inside the function to potentially support lazy
-    loading or manage import dependencies.
-    """
-    # Check if the logging system is already marked as set up in the monkay.settings.
-    # This flag is typically managed by the `setup_logging` function itself.
-    settings = get_settings()
-    if not settings.is_logging_setup:
-        # If logging is not set up, call the setup function using the
-        # logging configuration from monkay.settings.
-        setup_logging(settings.logging_config)
-        settings.is_logging_setup = True
