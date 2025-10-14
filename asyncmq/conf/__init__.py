@@ -10,7 +10,7 @@ from monkay import Monkay
 def get_asyncmq_monkay() -> Monkay[None, Any]:
     from asyncmq import monkay
 
-    monkay.evaluate_settings(on_conflict="error", ignore_import_errors=False)
+    monkay.evaluate_settings(ignore_import_errors=False)
     return monkay
 
 
