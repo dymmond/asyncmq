@@ -1,10 +1,35 @@
 import logging
 from typing import Any
+import logging.config
 
 from asyncmq.logging import LoggingConfig
 
 
 class StandardLoggingConfig(LoggingConfig):
+    def __init__(self, config: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.config = config if config is not None else self.default_config()
+
+    def default_config(self) -> dict[str, Any]:  # noqa
+        return {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "[%(asctime)s] %(levelname)s in %(module)s: %(message)s",
+                },
+            },
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "default",
+                },
+            },
+            "root": {
+                "level": self.level,
+                "handlers": ["console"],
+            },
+        }
 
     def configure(self) -> None:
         """
@@ -14,14 +39,7 @@ class StandardLoggingConfig(LoggingConfig):
         2. Configures a simple console handler with a timestamped format.
         3. Applies the level to the 'asyncmq' logger and all submodules.
         """
-        # Convert string to logging constant
-        lvl = getattr(logging, self.level.upper(), logging.INFO)
-        # Basic console format
-        fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        logging.basicConfig(level=lvl, format=fmt)
-
-        # Ensure AsyncMQ loggers inherit this level
-        logging.getLogger("asyncmq").setLevel(lvl)
+        logging.config.dictConfig(self.config)
 
     def get_logger(self) -> Any:
         return logging.getLogger("asyncmq")

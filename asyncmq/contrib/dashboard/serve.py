@@ -3,7 +3,7 @@ from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
 from lilya.routing import Include
 
-from asyncmq.conf import monkay
+from asyncmq import monkay
 from asyncmq.contrib.dashboard.application import dashboard
 
 dash_app = Lilya(

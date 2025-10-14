@@ -1,5 +1,3 @@
-from asyncmq.core.dependencies import get_settings
-
 try:
     import asyncpg
 except ImportError:
@@ -7,6 +5,7 @@ except ImportError:
 
 from typing import Any, cast
 
+import asyncmq
 from asyncmq.stores.base import BaseJobStore
 
 
@@ -38,7 +37,7 @@ class PostgresJobStore(BaseJobStore):
             ValueError: If neither `dsn` nor `monkay.settings.asyncmq_postgres_backend_url`
                         is provided.
         """
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
         # Check if a DSN is provided or available in monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             # Raise an error if no DSN source is available.

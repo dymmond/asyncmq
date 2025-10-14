@@ -75,6 +75,7 @@ class LoggerProxy:
                     setup_logging()
         return getattr(self._logger, item)
 
+
 # Create a global instance of the LoggerProxy. This instance is used throughout
 # the application to log messages, regardless of when the real logger is configured.
 logger: LoggerProtocol = cast(LoggerProtocol, LoggerProxy())

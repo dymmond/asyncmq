@@ -1,7 +1,7 @@
 import anyio
 
+from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
 

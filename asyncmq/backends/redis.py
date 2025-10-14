@@ -5,9 +5,9 @@ from typing import Any, Union, cast
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
+import asyncmq
+from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
-from asyncmq.conf import monkay
-from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -101,7 +101,7 @@ class RedisBackend(BaseBackend):
                                 instance or an async Redis client instance.
                                 Defaults to "redis://localhost".
         """
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
 
         # Initialize JSON serializer from settings
         self._json_serializer = self._settings.json_serializer

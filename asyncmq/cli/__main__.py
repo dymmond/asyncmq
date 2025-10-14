@@ -48,7 +48,6 @@ def app(ctx: click.Context) -> None:
         click.echo(ctx.get_help())
 
 
-# Register subcommands
 app.add_command(queue_app, name="queue")
 app.add_command(job_app, name="job")
 app.add_command(worker_app, name="worker")

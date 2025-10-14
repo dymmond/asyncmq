@@ -6,7 +6,7 @@ from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq.conf import monkay, settings
+from asyncmq import monkay, settings
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 

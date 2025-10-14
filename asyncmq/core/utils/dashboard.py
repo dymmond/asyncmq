@@ -1,11 +1,16 @@
 import secrets
 from dataclasses import dataclass
 
-from lilya.middleware import DefineMiddleware
-from lilya.middleware.sessions import SessionMiddleware
-from lilya.requests import Request
+try:
+    from lilya.middleware import DefineMiddleware
+    from lilya.middleware.sessions import SessionMiddleware
+    from lilya.requests import Request
+except ImportError:
+    raise ModuleNotFoundError(
+        "The dashboard functionality requires the 'lilya' package. " "Please install it with 'pip install lilya'."
+    ) from None
 
-from asyncmq.conf import monkay
+from asyncmq import monkay
 
 
 @dataclass

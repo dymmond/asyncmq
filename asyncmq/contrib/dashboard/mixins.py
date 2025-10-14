@@ -2,7 +2,7 @@ from typing import Any
 
 from lilya.requests import Request
 
-from asyncmq.conf import monkay
+from asyncmq import monkay
 from asyncmq.contrib.dashboard.engine import templates
 from asyncmq.contrib.dashboard.messages import get_messages
 from asyncmq.core.utils.dashboard import get_effective_prefix

@@ -1,19 +1,17 @@
-from __future__ import annotations  # Enable postponed evaluation of type hints
+from __future__ import annotations
 
-import os
-from typing import TYPE_CHECKING, Any, cast
+from functools import lru_cache
+from typing import Any
 
 from monkay import Monkay
 
-ENVIRONMENT_VARIABLE = "ASYNCMQ_SETTINGS_MODULE"
 
-if TYPE_CHECKING:
-    from asyncmq.conf.global_settings import Settings
+@lru_cache
+def get_asyncmq_monkay() -> Monkay[None, Any]:
+    from asyncmq import monkay
 
-monkay: Monkay[None, Settings] = Monkay(
-    globals(),
-    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"),
-)
+    monkay.evaluate_settings(on_conflict="error", ignore_import_errors=False)
+    return monkay
 
 
 class SettingsForward:
@@ -41,21 +39,8 @@ class SettingsForward:
         Returns:
             The value of the attribute from the underlying settings object.
         """
+        monkay = get_asyncmq_monkay()
         return getattr(monkay.settings, name)
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        """
-        Intercepts attribute setting (e.g., `monkay.settings.DEBUG = True`).
 
-        This method is called whenever an attribute is set on an instance
-        of SettingsForward. It retrieves the actual settings object from Monkay
-        and sets the attribute on it with the provided value.
-
-        Args:
-            name: The name of the attribute being set.
-            value: The value to set the attribute to.
-        """
-        return setattr(monkay.settings, name, value)
-
-
-settings: Settings = cast("Settings", SettingsForward())
+settings = SettingsForward()

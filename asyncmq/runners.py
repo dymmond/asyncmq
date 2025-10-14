@@ -5,8 +5,8 @@ from typing import Any
 
 import anyio
 
+from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import Worker, handle_job, process_job

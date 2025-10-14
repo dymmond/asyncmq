@@ -13,13 +13,13 @@ except ImportError:
     raise ImportError("Please install motor: `pip install motor`") from None
 
 # Import necessary components from asyncmq.
+import asyncmq
 from asyncmq.backends.base import (
     BaseBackend,
     DelayedInfo,
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -52,7 +52,7 @@ class MongoDBBackend(BaseBackend):
             database: The name of the MongoDB database to use for storing data.
                       Defaults to "asyncmq".
         """
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
 
         # Initialize custom JSON functions from settings
         self._json_serializer = self._settings.json_serializer
@@ -73,7 +73,7 @@ class MongoDBBackend(BaseBackend):
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
         self._workers = self.store.db["worker_heartbeats"]
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
 
     async def connect(self) -> None:
         """

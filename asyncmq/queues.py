@@ -3,8 +3,8 @@ from typing import Any
 
 import anyio
 
+import asyncmq
 from asyncmq.backends.base import BaseBackend, RepeatableInfo
-from asyncmq.core.dependencies import get_settings
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
 
@@ -58,7 +58,7 @@ class Queue:
                            Defaults to `monkay.settings.scan_interval`.
         """
         self.name: str = name
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
         # Use the provided backend or fall back to the default configured backend.
         self.backend: BaseBackend = backend or self._settings.backend
         # Internal list to store configurations for repeatable jobs.

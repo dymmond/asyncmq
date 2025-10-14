@@ -6,7 +6,7 @@ from lilya.controllers import Controller
 from lilya.requests import Request
 from lilya.responses import StreamingResponse
 
-from asyncmq.conf import monkay
+from asyncmq import monkay
 
 
 class SSEController(Controller):

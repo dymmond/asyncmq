@@ -1,6 +1,6 @@
 from typing import Any
 
-from asyncmq.core.dependencies import get_settings
+import asyncmq
 
 try:
     import asyncpg
@@ -29,7 +29,7 @@ async def install_or_drop_postgres_backend(
         >>> import asyncio
         >>> asyncio.run(install_postgres_backend("postgresql://user:pass@host/dbname"))
     """
-    settings = get_settings()
+    settings = asyncmq.monkay.settings
     # Define the SQL schema for the jobs table and its indexes.
     # The table name is pulled from settings, but index names are hardcoded.
     if not connection_string and not settings.asyncmq_postgres_backend_url:
