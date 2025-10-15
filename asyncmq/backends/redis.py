@@ -5,7 +5,6 @@ from typing import Any, Union, cast
 import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
-import asyncmq
 from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
@@ -101,11 +100,6 @@ class RedisBackend(BaseBackend):
                                 instance or an async Redis client instance.
                                 Defaults to "redis://localhost".
         """
-        self._settings = asyncmq.monkay.settings
-
-        # Initialize JSON serializer from settings
-        self._json_serializer = self._settings.json_serializer
-
         if isinstance(redis_url_or_client, str):
             # Connect to the Redis instance using the provided URL.
             # decode_responses=True ensures Redis returns strings instead of bytes.

@@ -9,12 +9,13 @@ from monkay import Monkay
 def create_monkay(global_dict: dict) -> Any:
     monkay: Monkay = Monkay[None, Any](
         global_dict,
-        with_extensions=True,
-        settings_path=lambda: os.environ.get("ASYNCMQ_SETTINGS_MODULE", "asyncmq.conf.global_settings.Settings") or "",
-        # uncached_imports={"settings"},
+        # enable if we want to have extensions. The second line is only relevant if they should be loaded from settings
+        # with_extensions=True,
+        # settings_extensions_name="extensions",
+        settings_path=lambda: os.environ.get("ASYNCMQ_SETTINGS_MODULE", "asyncmq.conf.global_settings.Settings"),
         lazy_imports={
-            "settings": lambda: monkay.settings,  # Lazy import for application settings
-            # "settings": "asyncmq.conf.settings",  # Lazy import for application settings
+            # this way we have always fresh settings because of the forward
+            "settings": "asyncmq.conf.settings",  # Lazy import for application settings
             "BaseJobStore": "asyncmq.stores.base.BaseJobStore",
             "InMemoryBackend": "asyncmq.backends.memory.InMemoryBackend",
             "Job": "asyncmq.jobs.Job",
@@ -22,9 +23,10 @@ def create_monkay(global_dict: dict) -> Any:
             "RedisBackend": "asyncmq.backends.redis.RedisBackend",
             "Worker": "asyncmq.workers.Worker",
             "Settings": "asyncmq.conf.global_settings.Settings",
+            "task": "asyncmq.tasks.task",
         },
-        skip_all_update=True,
+        # TODO: enable it if we have a test for it, otherwise it is safer to leave the skip of
+        # skip_all_update=True,
         package="asyncmq",
     )
-    monkay.add_lazy_import("task", "asyncmq.tasks.task")
     return monkay

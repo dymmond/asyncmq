@@ -52,10 +52,6 @@ class MongoDBBackend(BaseBackend):
             database: The name of the MongoDB database to use for storing data.
                       Defaults to "asyncmq".
         """
-        self._settings = asyncmq.monkay.settings
-
-        # Initialize custom JSON functions from settings
-        self._json_serializer = self._settings.json_serializer
         # Initialize the MongoDB store for persistent job data storage.
         self.store: MongoDBStore = MongoDBStore(mongo_url, database)
         # In-memory representation of waiting queues: maps queue names to lists of job payloads.
@@ -73,7 +69,6 @@ class MongoDBBackend(BaseBackend):
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
         self._workers = self.store.db["worker_heartbeats"]
-        self._settings = asyncmq.monkay.settings
 
     async def connect(self) -> None:
         """

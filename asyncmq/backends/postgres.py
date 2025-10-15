@@ -9,7 +9,6 @@ from typing import Any, cast
 
 from asyncpg import Pool, Record
 
-import asyncmq
 from asyncmq import monkay
 from asyncmq.backends.base import (
     BaseBackend,
@@ -46,10 +45,7 @@ class PostgresBackend(BaseBackend):
             dsn: The connection DSN for the PostgreSQL database. If None,
                  `monkay.settings.asyncmq_postgres_backend_url` is used.
         """
-        self._settings = asyncmq.monkay.settings
 
-        # Initialize JSON serializer from settings
-        self._json_serializer = self._settings.json_serializer
         # Ensure a DSN is provided either directly or via monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")

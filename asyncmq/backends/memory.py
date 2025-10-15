@@ -3,7 +3,6 @@ from typing import Any, cast
 
 import anyio
 
-import asyncmq
 from asyncmq.backends.base import (
     BaseBackend,
     DelayedInfo,
@@ -32,8 +31,6 @@ class InMemoryBackend(BaseBackend):
         """
         Initializes the in-memory backend with empty data structures.
         """
-        # Initialize custom JSON functions from settings
-        self._json_serializer = asyncmq.monkay.settings.json_serializer
         # Waiting queues: queue_name -> list of job payloads
         self.queues: dict[str, list[dict[str, Any]]] = {}
         # Dead-letter queues: queue_name -> list of failed job payloads

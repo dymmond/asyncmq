@@ -42,5 +42,35 @@ class SettingsForward:
         monkay = get_asyncmq_monkay()
         return getattr(monkay.settings, name)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """
+        Intercepts attribute set.
+
+        This method is called whenever an attribute is set on the instance
+        of SettingsForward. It retrieves the actual settings object from Monkay
+        and sets the requested attribute.
+
+        Args:
+            name: The name of the attribute being set.
+            value: The value passed.
+        """
+        monkay = get_asyncmq_monkay()
+        setattr(monkay.settings, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """
+        Intercepts attribute delete.
+
+        This method is called whenever an attribute is deleted on the instance
+        of SettingsForward. It retrieves the actual settings object from Monkay
+        and deletes the requested attribute.
+
+        Args:
+            name: The name of the attribute being set.
+            value: The value passed.
+        """
+        monkay = get_asyncmq_monkay()
+        delattr(monkay.settings, name)
+
 
 settings = SettingsForward()
