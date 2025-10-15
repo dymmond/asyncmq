@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING
 
 from monkay import Monkay
 
+if TYPE_CHECKING:
+    from asyncmq.conf.global_settings import Settings
 
-def create_monkay(global_dict: dict) -> Any:
-    monkay: Monkay = Monkay[None, Any](
+
+def create_monkay(global_dict: dict) -> Monkay[None, Settings]:
+    monkay: Monkay[None, Settings] = Monkay(
         global_dict,
         # enable if we want to have extensions. The second line is only relevant if they should be loaded from settings
         # with_extensions=True,

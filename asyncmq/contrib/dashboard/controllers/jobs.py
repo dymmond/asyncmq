@@ -111,17 +111,17 @@ class JobActionController(Controller):
     Returns JSON { ok: true } on success or { ok: false, error: '...' }.
     """
 
-    async def post(self, request: Request, job_id: str | int, action: str) -> Any:
+    async def post(self, request: Request, job_id: str, action: str) -> Any:
         queue = request.path_params.get("name")
         backend = monkay.settings.backend
 
         try:
             if action == "retry":
-                await backend.retry_job(queue, job_id)  # type: ignore
+                await backend.retry_job(queue, job_id)
             elif action == "remove":
-                await backend.remove_job(queue, job_id)  # type: ignore
+                await backend.remove_job(queue, job_id)
             elif action == "cancel":
-                await backend.cancel_job(queue, job_id)  # type: ignore
+                await backend.cancel_job(queue, job_id)
             else:
                 return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
         except Exception as e:

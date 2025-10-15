@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from monkay import Monkay
 
+if TYPE_CHECKING:
+    from .global_settings import Settings
+
 
 @lru_cache
-def get_asyncmq_monkay() -> Monkay[None, Any]:
+def get_asyncmq_monkay() -> Monkay[None, Settings]:
     from asyncmq import monkay
 
     monkay.evaluate_settings(ignore_import_errors=False)
@@ -73,4 +76,4 @@ class SettingsForward:
         delattr(monkay.settings, name)
 
 
-settings = SettingsForward()
+settings = cast(Settings, SettingsForward())
