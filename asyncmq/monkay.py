@@ -25,8 +25,7 @@ def create_monkay(global_dict: dict) -> Any:
             "Settings": "asyncmq.conf.global_settings.Settings",
             "task": "asyncmq.tasks.task",
         },
-        # TODO: enable it if we have a test for it, otherwise it is safer to leave the skip of
-        # skip_all_update=True,
+        skip_all_update=True,
         package="asyncmq",
     )
     return monkay
