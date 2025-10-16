@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "asyncmq"
 description = "Async task queue with BullMQ-like features"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dynamic = ['version']
 authors = [{ name = "Tiago Silva", email = "tiago@tarsild.io" }]
 classifiers = [
