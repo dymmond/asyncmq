@@ -16,7 +16,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_create_with_url(redis):
     backend = RedisBackend()
-    assert backend.redis.client().ping()
+    assert await backend.redis.client().ping()
 
 
 async def test_create_with_client(redis):
