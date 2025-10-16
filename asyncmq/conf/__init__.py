@@ -76,4 +76,4 @@ class SettingsForward:
         delattr(monkay.settings, name)
 
 
-settings = cast(Settings, SettingsForward())
+settings = cast("Settings", SettingsForward())
