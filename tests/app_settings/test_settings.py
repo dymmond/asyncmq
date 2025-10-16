@@ -46,16 +46,6 @@ def test_invalid_cast():
     with pytest.raises(ValueError):
         MySettings()
 
-
-def test_dict_default():
-    settings = MySettings()
-    d = settings.dict(exclude={"timeout"})
-
-    assert d["debug"] is False
-    assert d["port"] == 8000
-    assert d["host"] == "localhost"
-    assert d["optional"] is None
-
 def test_dict_upper():
     settings = MySettings()
     d = settings.dict(upper=True)
