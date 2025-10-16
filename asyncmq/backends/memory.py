@@ -9,12 +9,10 @@ from asyncmq.backends.base import (
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.core.dependencies import get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
 
-# Type alias for a job key, which is a tuple of (queue_name, job_id).
 _JobKey = tuple[str, str]
 
 
@@ -33,10 +31,6 @@ class InMemoryBackend(BaseBackend):
         """
         Initializes the in-memory backend with empty data structures.
         """
-        self._settings = get_settings()
-
-        # Initialize custom JSON functions from settings
-        self._json_serializer = self._settings.json_serializer
         # Waiting queues: queue_name -> list of job payloads
         self.queues: dict[str, list[dict[str, Any]]] = {}
         # Dead-letter queues: queue_name -> list of failed job payloads
@@ -873,7 +867,7 @@ class InMemoryBackend(BaseBackend):
         Returns:
             A list of WorkerInfo objects representing the active workers.
         """
-        from asyncmq.conf import monkay
+        from asyncmq import monkay
 
         now = time.time()
         return [

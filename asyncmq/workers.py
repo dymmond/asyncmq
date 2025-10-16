@@ -8,10 +8,9 @@ from typing import Any, cast
 import anyio
 from anyio import CapacityLimiter
 
-from asyncmq import sandbox
+import asyncmq
+from asyncmq import monkay, sandbox
 from asyncmq.backends.base import BaseBackend
-from asyncmq.conf import monkay
-from asyncmq.core.dependencies import get_backend, get_settings
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.exceptions import JobCancelled
@@ -67,7 +66,7 @@ async def process_job(
                  storage. Defaults to the backend specified in monkay.settings.
     """
     # Use the provided backend or the one from settings
-    settings = get_settings()
+    settings = asyncmq.monkay.settings
     backend = backend or settings.backend
 
     # Create a task group to manage concurrent job handling tasks
@@ -152,7 +151,7 @@ async def handle_job(
                  storage. Defaults to the backend specified in monkay.settings.
     """
     # Use the provided backend or the one from settings
-    settings = get_settings()
+    settings = asyncmq.monkay.settings
     backend = backend or settings.backend
 
     # Convert the raw job dictionary into a Job object
@@ -315,7 +314,7 @@ class Worker:
     ) -> None:
         from asyncmq.queues import Queue
 
-        self._settings = get_settings()
+        self._settings = asyncmq.monkay.settings
         self.queue = queue if not isinstance(queue, str) else Queue(queue)
         self.id = str(uuid.uuid4())
         self._cancel_scope: anyio.CancelScope | None = None
@@ -323,7 +322,7 @@ class Worker:
         self.heartbeat_interval = heartbeat_interval or self._settings.heartbeat_ttl
 
     async def _run_with_scope(self) -> None:
-        backend = get_backend()
+        backend = asyncmq.monkay.settings.backend
 
         if monkay.settings.tasks:
             # Trigger the auto discover tasks

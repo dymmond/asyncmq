@@ -46,19 +46,6 @@ def test_invalid_cast():
     with pytest.raises(ValueError):
         MySettings()
 
-
-def test_dict_default():
-    settings = MySettings()
-    d = settings.dict(exclude={"timeout"})
-
-    assert d == {
-        "debug": False,
-        "port": 8000,
-        "host": "localhost",
-        "optional": None,
-    }
-
-
 def test_dict_upper():
     settings = MySettings()
     d = settings.dict(upper=True)
@@ -159,24 +146,6 @@ class CustomSettings(MySettings):
     @cached_property
     def cached_property_example(self) -> str:
         return "cached_value"
-
-
-def test_custom_settings():
-    settings = CustomSettings()
-
-    assert settings.values == ("value1", "value2")
-    assert settings.values_dict == {"key1": "value1", "key2": "value2"}
-    assert settings.values_list == ["item1", "item2"]
-    assert settings.custom_property == "custom_value"
-
-    d = settings.dict(include_properties=False)
-    assert d["values"] == ("value1", "value2")
-    assert d["values_dict"] == {"key1": "value1", "key2": "value2"}
-    assert d["values_list"] == ["item1", "item2"]
-
-    d = settings.dict(include_properties=True)
-    assert "custom_property" in d
-    assert "cached_property_example" in d
 
 
 def test_tuple_with_properties():

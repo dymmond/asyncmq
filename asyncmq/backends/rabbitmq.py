@@ -1,14 +1,13 @@
 import time
 from typing import Any, cast
 
-from asyncmq.core.dependencies import get_settings
-
 try:
     import aio_pika
     from aio_pika import DeliveryMode, Message
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
+import asyncmq
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.event import event_emitter
 from asyncmq.stores.base import BaseJobStore
@@ -44,10 +43,6 @@ class RabbitMQBackend(BaseBackend):
             prefetch_count: The maximum number of messages that the channel will
                 proactively dispatch to consumers. This helps with flow control.
         """
-        self._settings = get_settings()
-
-        # Initialize custom JSON functions from settings
-        self._json_serializer = self._settings.json_serializer
 
         self.rabbit_url = rabbit_url
         self.prefetch_count = prefetch_count

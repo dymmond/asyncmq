@@ -1,5 +1,3 @@
-from asyncmq.core.dependencies import get_settings
-
 try:
     import asyncpg
 except ImportError:
@@ -11,13 +9,13 @@ from typing import Any, cast
 
 from asyncpg import Pool, Record
 
+from asyncmq import monkay
 from asyncmq.backends.base import (
     BaseBackend,
     DelayedInfo,
     RepeatableInfo,
     WorkerInfo,
 )
-from asyncmq.conf import monkay
 from asyncmq.core.enums import State
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
@@ -47,10 +45,7 @@ class PostgresBackend(BaseBackend):
             dsn: The connection DSN for the PostgreSQL database. If None,
                  `monkay.settings.asyncmq_postgres_backend_url` is used.
         """
-        self._settings = get_settings()
 
-        # Initialize JSON serializer from settings
-        self._json_serializer = self._settings.json_serializer
         # Ensure a DSN is provided either directly or via monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")

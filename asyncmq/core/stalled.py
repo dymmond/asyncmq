@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 
+import asyncmq
 from asyncmq.backends.base import BaseBackend
-from asyncmq.core.dependencies import get_backend, get_settings
 
 if TYPE_CHECKING:
     from asyncmq.backends.base import BaseBackend
@@ -14,7 +14,7 @@ async def record_heartbeat(queue_name: str, job_id: str, backend: BaseBackend | 
     """
     Record the timestamp of the last heartbeat for a running job.
     """
-    backend = backend or get_backend()
+    backend = backend or asyncmq.monkay.settings.backend
     timestamp = time.time()
     await backend.save_heartbeat(queue_name, job_id, timestamp)
 
@@ -24,7 +24,7 @@ async def get_stalled_jobs(threshold: float, backend: BaseBackend | None = None)
     Retrieve all jobs whose last heartbeat is older than now - threshold.
     Returns a list of dicts with keys 'queue' and 'job_data'.
     """
-    backend = backend or get_backend()
+    backend = backend or asyncmq.monkay.settings.backend
     cutoff = time.time() - threshold
     return await backend.fetch_stalled_jobs(cutoff)
 
@@ -35,8 +35,8 @@ async def stalled_recovery_scheduler(
     """
     Periodically checks for stalled jobs and re-enqueues them.
     """
-    settings = get_settings()
-    backend = backend or get_settings().backend
+    settings = asyncmq.monkay.settings
+    backend = backend or asyncmq.monkay.settings.backend
     check_interval = check_interval or settings.stalled_check_interval
     threshold = threshold or settings.stalled_threshold
 

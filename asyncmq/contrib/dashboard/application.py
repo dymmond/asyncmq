@@ -5,7 +5,7 @@ from lilya.requests import Request
 from lilya.routing import Include, RoutePath
 from lilya.staticfiles import StaticFiles
 
-from asyncmq.conf import monkay
+from asyncmq import monkay
 from asyncmq.contrib.dashboard.controllers import (
     dlq,
     home,

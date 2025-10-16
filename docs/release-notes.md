@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.4.4
+
+### Fixed
+
+- Lazy loading of the settings via Monkay.
+
 ## 0.4.3
 
 ### Added

@@ -1,19 +1,20 @@
-from __future__ import annotations  # Enable postponed evaluation of type hints
+from __future__ import annotations
 
-import os
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
 
 from monkay import Monkay
 
-ENVIRONMENT_VARIABLE = "ASYNCMQ_SETTINGS_MODULE"
-
 if TYPE_CHECKING:
-    from asyncmq.conf.global_settings import Settings
+    from .global_settings import Settings
 
-monkay: Monkay[None, Settings] = Monkay(
-    globals(),
-    settings_path=lambda: os.environ.get(ENVIRONMENT_VARIABLE, "asyncmq.conf.global_settings.Settings"),
-)
+
+@lru_cache
+def get_asyncmq_monkay() -> Monkay[None, Settings]:
+    from asyncmq import monkay
+
+    monkay.evaluate_settings(ignore_import_errors=False)
+    return monkay
 
 
 class SettingsForward:
@@ -41,21 +42,38 @@ class SettingsForward:
         Returns:
             The value of the attribute from the underlying settings object.
         """
+        monkay = get_asyncmq_monkay()
         return getattr(monkay.settings, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """
-        Intercepts attribute setting (e.g., `monkay.settings.DEBUG = True`).
+        Intercepts attribute set.
 
-        This method is called whenever an attribute is set on an instance
+        This method is called whenever an attribute is set on the instance
         of SettingsForward. It retrieves the actual settings object from Monkay
-        and sets the attribute on it with the provided value.
+        and sets the requested attribute.
 
         Args:
             name: The name of the attribute being set.
-            value: The value to set the attribute to.
+            value: The value passed.
         """
-        return setattr(monkay.settings, name, value)
+        monkay = get_asyncmq_monkay()
+        setattr(monkay.settings, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """
+        Intercepts attribute delete.
+
+        This method is called whenever an attribute is deleted on the instance
+        of SettingsForward. It retrieves the actual settings object from Monkay
+        and deletes the requested attribute.
+
+        Args:
+            name: The name of the attribute being set.
+            value: The value passed.
+        """
+        monkay = get_asyncmq_monkay()
+        delattr(monkay.settings, name)
 
 
-settings: Settings = cast("Settings", SettingsForward())
+settings = cast("Settings", SettingsForward())
