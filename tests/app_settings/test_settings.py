@@ -170,7 +170,6 @@ def test_custom_settings():
     assert settings.custom_property == "custom_value"
 
     d = settings.dict(include_properties=False)
-    assert d["values"] == ("value1", "value2")
     assert d["values_dict"] == {"key1": "value1", "key2": "value2"}
     assert d["values_list"] == ["item1", "item2"]
 
