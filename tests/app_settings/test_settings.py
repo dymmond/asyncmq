@@ -46,6 +46,7 @@ def test_invalid_cast():
     with pytest.raises(ValueError):
         MySettings()
 
+
 def test_dict_upper():
     settings = MySettings()
     d = settings.dict(upper=True)

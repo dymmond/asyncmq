@@ -5,7 +5,6 @@ except ImportError:
 
 from typing import Any, cast
 
-import asyncmq
 from asyncmq.stores.base import BaseJobStore
 
 
@@ -37,7 +36,6 @@ class PostgresJobStore(BaseJobStore):
             ValueError: If neither `dsn` nor `monkay.settings.asyncmq_postgres_backend_url`
                         is provided.
         """
-        self._settings = asyncmq.monkay.settings
         # Check if a DSN is provided or available in monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             # Raise an error if no DSN source is available.
@@ -47,9 +45,6 @@ class PostgresJobStore(BaseJobStore):
         # Initialize the connection pool to None; it will be created on first connection.
         self.pool: asyncpg.Pool | None = None
         self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
-
-        # Get JSON serializer from settings
-        self._json_serializer = self._settings.json_serializer
 
     async def connect(self) -> None:
         """

@@ -13,7 +13,6 @@ except ImportError:
     raise ImportError("Please install motor: `pip install motor`") from None
 
 # Import necessary components from asyncmq.
-import asyncmq
 from asyncmq.backends.base import (
     BaseBackend,
     DelayedInfo,

@@ -101,9 +101,11 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         # The lambda function wraps the start_worker call to be compatible with anyio.run.
         log(f"Starting worker for queue '{queue}' with concurrency {concurrency}")
         run_cmd(lambda: start_worker(queue_name=queue, concurrency=concurrency))
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]Worker shutting down gracefully...[/bold yellow]")
     except anyio.get_cancelled_exc_class():
         # Handle KeyboardInterrupt (Ctrl+C) for graceful shutdown.
-        console.print("[yellow]Worker shutdown requested (Ctrl+C). Exiting...[/yellow]")
+        console.print("\n[bold yellow]Worker shutting down gracefully...[/bold yellow]")
     except Exception as e:
         # Catch any other exceptions during worker execution.
         console.print(f"[red]Worker crashed: {e}[/red]")
