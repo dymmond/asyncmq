@@ -7,7 +7,6 @@ try:
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
-import asyncmq
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.event import event_emitter
 from asyncmq.stores.base import BaseJobStore

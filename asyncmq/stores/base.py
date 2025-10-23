@@ -1,5 +1,13 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import asyncmq
+
+if TYPE_CHECKING:
+    from asyncmq.conf.global_settings import Settings
+    from asyncmq.core.json_serializer import JSONSerializer
 
 
 class BaseJobStore(ABC):
@@ -87,3 +95,11 @@ class BaseJobStore(ABC):
         """
         # Abstract method - requires implementation in subclasses.
         ...
+
+    @property
+    def _settings(self) -> Settings:
+        return asyncmq.monkay.settings
+
+    @property
+    def _json_serializer(self) -> JSONSerializer:
+        return self._settings.json_serializer

@@ -2,7 +2,6 @@ from typing import Any, cast
 
 import redis.asyncio as redis
 
-import asyncmq
 from asyncmq.stores.base import BaseJobStore
 
 
@@ -30,10 +29,6 @@ class RedisJobStore(BaseJobStore):
             self.redis: redis.Redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
         else:
             self.redis = None  # to be set externally
-
-        # Get JSON serializer from settings
-        self._settings = asyncmq.monkay.settings
-        self._json_serializer = self._settings.json_serializer
 
     def _key(self, queue_name: str, job_id: str) -> str:
         """

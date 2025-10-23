@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.4.5
+
+### Fixed
+
+- Lazy loading of the settings via Monkay on stores.
+
 ## 0.4.4
 
 ### Fixed
