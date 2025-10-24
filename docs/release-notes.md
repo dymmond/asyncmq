@@ -5,6 +5,14 @@ hide:
 
 # Release Notes
 
+## 0.4.6
+
+### Fixed
+
+Due to some internals, Lilya was missing for the dashboard dependency and causing a regression.
+
+- Added Lilya as dependency for AsyncMQ and remove several redundant others.
+
 ## 0.4.5
 
 ### Fixed
