@@ -37,9 +37,9 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = [
-    "anyio>=4.9.0,<6.0.0",
-    "lilya[standard]>=0.22.6",
     "croniter>=6.0.0,<7.0.0",
+    "lilya[standard]>=0.22.6",
+    "redis>=7.0.0",
 ]
 keywords = [
     "asyncio",
