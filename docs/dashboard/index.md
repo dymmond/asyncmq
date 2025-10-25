@@ -12,7 +12,7 @@ and voilà, you've got real-time insights into queues, workers, jobs, and metric
 !!! Note
     This is the first version of the AsyncMQ Admin Dashboard documentation, created to gather user feedback and understand user needs.
 
-You eill need to install the dashboard.
+You will need to install the dashboard.
 
 The dashboard also requires the `SessionMiddleware` to be used due to messages being sent.
 
@@ -129,7 +129,7 @@ from asyncmq.contrib.dashboard.application import dashboard
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="your-secret")
-app.mount("/fastapi", dashboard, name="asyncmq-admin")
+app.mount("/", dashboard, name="asyncmq-admin")
 ```
 
 ### Explanation
