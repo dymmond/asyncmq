@@ -5,6 +5,23 @@ hide:
 
 # Release Notes
 
+## 0.4.7
+
+### Added
+
+- Parallel DAG execution fixes for backend via `FlowProducer` and `process_job`.
+- Backward-compatible serialization improvements for `Job` to support both `task_id` and legacy `task` fields.
+- Automatic dependency resolution fallback when atomic flow addition is not supported by the backend.
+
+### Changed
+
+- Improved worker and flow orchestration stability under mixed backends.
+
+### Fixed
+
+- Timeout issues when running parallel DAG flows due to backend event-loop mismatches.
+- Various minor concurrency edge cases in job scanning and dependency unlocking logic.
+
 ## 0.4.6
 
 ### Fixed
