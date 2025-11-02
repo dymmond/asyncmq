@@ -183,6 +183,7 @@ async def run_worker(
         # worker tasks, means running until cancelled or an error occurs).
         await asyncio.gather(*tasks)
     except (anyio.get_cancelled_exc_class(), Exception):
+        await backend.deregister_worker(worker_id)
         raise
     finally:
         # Always attempt to deregister and then run shutdown hooks

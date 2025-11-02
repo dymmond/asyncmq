@@ -26,6 +26,7 @@ hide:
 - Timeout issues when running parallel DAG flows due to backend event-loop mismatches.
 - Various minor concurrency edge cases in job scanning and dependency unlocking logic.
 - Fix `BaseSettings` for python 3.14 and more complex inheritances.
+- Sandbox task discovery.
 
 ## 0.4.6
 
