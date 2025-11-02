@@ -148,7 +148,11 @@ Below is a distilled breakdown of each setting, why it matters, and tips for tun
 | **scan_interval**                      | `float`         | `1.0`                      | Global frequency to poll delayed & repeatable jobs. Override per-queue if needed.          |
 | **json_dumps**                         | `Callable`      | `json.dumps`               | Custom JSON serialization function. Configure to handle custom data types like UUID, datetime, Decimal. |
 | **json_loads**                         | `Callable`      | `json.loads`               | Custom JSON deserialization function. Configure to restore custom data types from JSON.     |
-| **json_serializer**                    | `JSONSerializer` | Auto-created              | Centralized JSON serializer that handles both regular and partial functions correctly.      |
+| **json_serializer**                    | `JSONSerializer` | Auto-created               | Centralized JSON serializer that handles both regular and partial functions correctly.      |
+| **worker_on_startup**                  | `Lifespan | list[Lifespan]             | tuple[Lifespan, ...] | None` | `None` | One or more hook functions executed **once** when a worker process starts. Accepts sync or async callables, lists, or tuples. |
+| **worker_on_shutdown**                 | `Lifespan | list[Lifespan]             | tuple[Lifespan, ...] | None` | `None` | One or more hook functions executed **once** when a worker process is shutting down. Accepts sync or async callables, lists, or tuples. |
+| **logging_config**                     | `LoggingConfig | None` | Auto-created | Provides the configured logging setup based on the current `logging_level`. Automatically instantiates a standard logging configuration object, typically `StandardLoggingConfig(level=logging_level)`. |
+| **json_serializer**                    | `JSONSerializer` | Auto-created | Centralized JSON serializer that handles both regular and partial functions correctly. |
 
 !!! Note
     Fields like `asyncmq_postgres_pool_options` and table names exist for advanced customizations.
