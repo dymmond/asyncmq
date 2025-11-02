@@ -14,6 +14,7 @@ hide:
 - Automatic dependency resolution fallback when atomic flow addition is not supported by the backend.
 - Lifecycle hooks for worker startup and shutdown via `worker_on_startup` and `worker_on_shutdown`, supporting both sync and async callables.
 - New reusable `lifecycle.py` module providing utilities like `normalize_hooks`, `run_hooks`, and `run_hooks_safely`.
+- New section in the [workers for hooks](./features/workers.md#8-worker-lifecycle-hooks) and lifecycle.
 
 ### Changed
 
