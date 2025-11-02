@@ -13,6 +13,7 @@ from asyncmq import monkay, sandbox
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
@@ -338,6 +339,14 @@ class Worker:
             # Trigger the auto discover tasks
             autodiscover_tasks()
 
+        # Start the lifecycle hooks if required
+        await run_hooks(
+            monkay.settings.worker_on_startup,
+            backend=backend,
+            worker_id=self.id,
+            queue=self.queue.name,
+        )
+
         # Initial registration
         await backend.register_worker(
             worker_id=self.id,
@@ -384,6 +393,14 @@ class Worker:
             except anyio.get_cancelled_exc_class():
                 # On shutdown, deregister
                 await backend.deregister_worker(self.id)
+            finally:
+                # Run the hooks on shutdown
+                await run_hooks_safely(
+                    monkay.settings.worker_on_shutdown,
+                    backend=backend,
+                    worker_id=self.id,
+                    queue=self.queue.name,
+                )
 
     def start(self) -> None:
         """Blocking entrypoint."""

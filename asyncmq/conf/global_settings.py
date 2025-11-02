@@ -19,6 +19,7 @@ from typing import (
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.utils.dashboard import DashboardConfig
+from asyncmq.protocols.lifespan import Lifespan
 
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig  # noqa
@@ -422,6 +423,40 @@ class Settings(BaseSettings):
         from functools import partial
 
         json_loads = partial(json.loads, object_hook=custom_decoder)
+    """
+    worker_on_startup: Lifespan | list[Lifespan] | tuple[Lifespan, ...] | None = None
+    """
+    One or more hook functions to be executed once when the **worker process starts up**.
+
+    Accepts:
+      - a single callable, or
+      - a list/tuple of callables.
+
+    Each callable can be sync or async and will be awaited if it returns an awaitable.
+    They are executed in the order provided.
+
+    Example:
+        async def connect_db(): ...
+        def warm_cache(): ...
+
+        worker_on_startup = [connect_db, warm_cache]
+    """
+    worker_on_shutdown: Lifespan | list[Lifespan] | tuple[Lifespan, ...] | None = None
+    """
+    One or more hook functions to be executed once when the **worker process is shutting down**.
+
+    Accepts:
+      - a single callable, or
+      - a list/tuple of callables.
+
+    Each callable can be sync or async and will be awaited if it returns an awaitable.
+    They are executed in the order provided.
+
+    Example:
+        async def disconnect_db(): ...
+        def flush_metrics(): ...
+
+        worker_on_shutdown = (disconnect_db, flush_metrics)
     """
 
     @property

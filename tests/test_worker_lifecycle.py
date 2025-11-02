@@ -60,7 +60,9 @@ async def test_failed_job_goes_to_dlq():
     )
 
     await wait_for_state(backend, "test", raw["id"], State.FAILED)
+
     state = await backend.get_job_state("test", raw["id"])
+
     assert state == State.FAILED
 
 
@@ -71,15 +73,20 @@ async def echo_task(value):
 
 async def test_echo_result():
     backend = InMemoryBackend()
+
     await echo_task.enqueue("hello", backend=backend)
+
     raw = await backend.dequeue("test")
+
     await handle_job(
         "test",
         raw,
         backend=backend,
     )
     await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+
     result = await backend.get_job_result("test", raw["id"])
+
     assert result == "hello"
 
 
@@ -90,8 +97,11 @@ async def sum_list(lst):
 
 async def test_sum_list_task():
     backend = InMemoryBackend()
+
     await sum_list.enqueue([1, 2, 3, 4], backend=backend)
+
     raw = await backend.dequeue("test")
+
     await handle_job(
         "test",
         raw,
@@ -141,15 +151,21 @@ async def test_return_id_on_delay():
 
 async def test_upper_case_no_backend():
     backend = InMemoryBackend()
+
     await upper_case.enqueue("test", backend=backend)
+
     raw = await backend.dequeue("test")
+
     await handle_job(
         "test",
         raw,
         backend=backend,
     )
+
     await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+
     result = await backend.get_job_result("test", raw["id"])
+
     assert result == "TEST"
 
 
@@ -160,9 +176,14 @@ async def multiply(a, b):
 
 async def test_multiply_task():
     backend = InMemoryBackend()
+
     await multiply.enqueue(6, 7, backend=backend)
+
     raw = await backend.dequeue("test")
+
     await handle_job("test", raw, backend=backend)
     await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+
     result = await backend.get_job_result("test", raw["id"])
+
     assert result == 42
