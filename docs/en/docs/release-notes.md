@@ -228,7 +228,7 @@ in *beta* mode so any feedback is welcomed.
 
     * `list-queues` — list all queues known to the backend
     * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
-    * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
+    * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker's heartbeat **and** concurrency
     * `deregister-worker <worker_id>` — remove a worker from the registry.
     * `AsyncMQGroup` to `cli` ensuring the `ASYNCMQ_SETTINGS_MODULE` is always evaluated beforehand.
 
@@ -259,7 +259,7 @@ in *beta* mode so any feedback is welcomed.
 
 * **General Pause–Check Safety**
 
-    * `process_job` now guards against backends that don’t implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
+    * `process_job` now guards against backends that don't implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
 
 ### Fixed
 
@@ -374,6 +374,6 @@ Welcome to the **first official release** of **AsyncMQ**!
 
 ---
 
-Thank you for choosing AsyncMQ! We can’t wait to see what you build.
+Thank you for choosing AsyncMQ! We can't wait to see what you build.
 
 Happy tasking! 🚀

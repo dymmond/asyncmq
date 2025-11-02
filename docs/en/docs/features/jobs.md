@@ -86,7 +86,7 @@ restored = Job.from_dict(data)
 
 ## 4. Time-to-Live (TTL)
 
-A TTL ensures stale jobs don’t linger:
+A TTL ensures stale jobs don't linger:
 
 ```python
 if job.is_expired():
@@ -134,7 +134,7 @@ Pitfall: rapid retries can overwhelm downstream systems—tune backoff according
 
 ## 6. Dependencies & Repeatables
 
-* **`depends_on`**: List of job IDs; this job won’t run until dependencies complete.
+* **`depends_on`**: List of job IDs; this job won't run until dependencies complete.
 * **`repeat_every`**: If set, indicates a repeatable job definition; the scheduler uses this to re-enqueue.
 
 Use `FlowProducer` for DAGs or `Queue.add_repeatable()` for simple intervals.

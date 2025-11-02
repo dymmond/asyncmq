@@ -45,7 +45,7 @@ No additional dependencies are required to enable the dashboard beyond the ASGI 
 
 ## Configuration
 
-Before mounting, you can tweak the dashboard’s appearance and behavior by adjusting settings.dashboard_config.
+Before mounting, you can tweak the dashboard's appearance and behavior by adjusting settings.dashboard_config.
 Import the settings from asyncmq.conf and apply your own `DashboardConfig` values:
 
 ```python
@@ -99,8 +99,8 @@ You can now mount it into any ASGI server or framework.
 ## Embedding in Your ASGI App
 
 Because the dashboard relies on HTTP cookies to track flash messages and user state, you must add a SessionMiddleware.
-If you’re using FastAPI or Starlette, you can use starlette.middleware.sessions.SessionMiddleware, or thanks to the
-dashboard’s ASGI-agnostic design—any Lilya compatible middleware will do:
+If you're using FastAPI or Starlette, you can use starlette.middleware.sessions.SessionMiddleware, or thanks to the
+dashboard's ASGI-agnostic design—any Lilya compatible middleware will do:
 
 ### Esmerald
 
@@ -179,7 +179,7 @@ The dashboard exposes the following routes (prefix as configured by `dashboard_u
 All Jinja2 templates are bundled under `asyncmq/contrib/dashboard/templates/`, and static files
 (JavaScript, CSS, icons) live in `asyncmq/contrib/dashboard/statics/`.
 
-To override any asset, simply place a template or file with the same name in your application’s search path.
+To override any asset, simply place a template or file with the same name in your application's search path.
 This lets you rebrand, restyle, or extend the dashboard without touching the core code.
 
 * **Templates** are located in `asyncmq/contrib/dashboard/templates/`.

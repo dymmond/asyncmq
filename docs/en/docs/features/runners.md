@@ -1,7 +1,7 @@
 # Runners & Worker Loops
 
 Runners are the heartbeats of AsyncMQ workers—they keep the show running by fetching jobs, handling them, and scheduling
-delayed or repeatable tasks. 
+delayed or repeatable tasks.
 
 This guide breaks down:
 

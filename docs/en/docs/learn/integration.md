@@ -1,7 +1,7 @@
 # Esmerald Integration Tutorial
 
 Welcome to a hands-on, behind-the-scenes guide for integrating **AsyncMQ** into your **Esmerald** application.
-We’ll sprinkle in professional insights and a dash of humor, because who said documentation has to be dry?
+We'll sprinkle in professional insights and a dash of humor, because who said documentation has to be dry?
 
 We will be running examples using [Esmerald](https://esmerald.dev) because AsyncMQ is from the same authors so it makes
 sense to use the tools of the ecosystem but this is not **mandatory** as you can replace Esmerald with any other
@@ -9,7 +9,7 @@ ASGI framework such as FastAPI, Sanic, Quartz... You name it :rocket:.
 
 ---
 
-By the end of this tutorial, you’ll know how to:
+By the end of this tutorial, you'll know how to:
 
 * Configure AsyncMQ in your Esmerald app with custom settings
 * Define and register tasks that run in the background
@@ -23,7 +23,7 @@ By the end of this tutorial, you’ll know how to:
 
 ## 1. Project Setup
 
-First things first: let’s get your project scaffolded and dependencies squared away.
+First things first: let's get your project scaffolded and dependencies squared away.
 
 ```bash
 mkdir asyncmq-esmerald-example
@@ -50,10 +50,10 @@ asyncmq_esmerald/
 
 ### 1.1. The custom `settings.py`
 
-Centralize your AsyncMQ settings so you don’t lose sleep over environment drift.
+Centralize your AsyncMQ settings so you don't lose sleep over environment drift.
 
 ```python
-{!> ../docs_src/tutorial/settings.py !}
+{!> ../../../docs_src/tutorial/settings.py !}
 ```
 
 Load your custom settings before anything else runs:
@@ -68,7 +68,7 @@ introducing the separation of concerns and environments without polluting your c
 This allows you to simply isolate each settings by its corresponding responsabilities.
 
 !!! Tip
-    **Pro tip:** Export this in your shell’s startup file (e.g., `~/.bashrc`) or `.env` file.
+    **Pro tip:** Export this in your shell's startup file (e.g., `~/.bashrc`) or `.env` file.
 
 ---
 
@@ -77,7 +77,7 @@ This allows you to simply isolate each settings by its corresponding responsabil
 Tasks are your building blocks—think of them as mini-applications that run outside the request/response cycle.
 
 ```python
-{!> ../docs_src/tutorial/tasks.py !}
+{!> ../../../docs_src/tutorial/tasks.py !}
 ```
 
 ### Why these parameters?
@@ -98,7 +98,7 @@ Your Esmerald endpoint becomes the order desk for background work: submit a requ
 and let AsyncMQ handle the prep.
 
 ```python
-{!> ../docs_src/tutorial/app.py !}
+{!> ../../../docs_src/tutorial/app.py !}
 ```
 
 ### What just happened?
@@ -106,7 +106,7 @@ and let AsyncMQ handle the prep.
 1. **Signup Endpoint**: Accepts a JSON payload, calls `send_welcome.enqueue(...)`, and returns immediately with a `job_id`.
 2. **Health Endpoint**: Uses `queue_stats()` to expose counts of `waiting`, `active`, `completed`, and `failed` jobs,
 ideal for monitoring dashboards.
-3. **Lifespan Hooks**: Leverage Esmerald’s ASGI lifespan to spin up `email_queue.run()` right after startup and shut it down
+3. **Lifespan Hooks**: Leverage Esmerald's ASGI lifespan to spin up `email_queue.run()` right after startup and shut it down
 cleanly on server stop.
 
 !!! Check
@@ -123,7 +123,7 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 
 * **Cancellation**: We cancel the worker task, which triggers cleanup in `run_worker`.
 * **In-flight Jobs**: Worker waits for currently processing jobs to finish or hit a retry count before exiting.
-* **Avoid Data Loss**: Unacknowledged jobs stay in the queue; they’ll be picked up by the next worker.
+* **Avoid Data Loss**: Unacknowledged jobs stay in the queue; they'll be picked up by the next worker.
 
 ### 4.2. Health Checks & Metrics
 
@@ -131,7 +131,7 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 * Hook into `event_emitter` for granular metrics:
 
     ```python
-    {!> ../docs_src/tutorial/emitter.py !}
+    {!> ../../../docs_src/tutorial/emitter.py !}
     ```
 
 * Gauge queue length, processing time, failure rates, know your bottlenecks!
@@ -146,14 +146,14 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
    ```bash
    asyncmq job list --queue email --state failed
    ```
-3. **Manual Replay**: Resurrect failed jobs once you’ve fixed the root cause:
+3. **Manual Replay**: Resurrect failed jobs once you've fixed the root cause:
 
    ```bash
    asyncmq job retry <failed_job_id> --queue email
    ```
 
 !!! Check
-    **Humorous moment:** Treat your DLQ like voicemail, don’t ignore it forever, or you’ll miss urgent messages! 📬
+    **Humorous moment:** Treat your DLQ like voicemail, don't ignore it forever, or you'll miss urgent messages! 📬
 
 ---
 
@@ -168,5 +168,5 @@ A robust app handles traffic spikes, failures, and deployments without dropping 
 
 ---
 
-Congratulations, you’ve mastered AsyncMQ in Esmerald!
-In the next chapter, we’ll explore **Advanced Patterns** like custom backends, DAG orchestration, and Kubernetes scaling.
+Congratulations, you've mastered AsyncMQ in Esmerald!
+In the next chapter, we'll explore **Advanced Patterns** like custom backends, DAG orchestration, and Kubernetes scaling.

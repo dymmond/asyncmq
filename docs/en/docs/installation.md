@@ -79,7 +79,7 @@ To override these defaults, define a custom settings class in your project. For 
 
 ```python
 # project/settings.py
-{!> ../docs_src/installation/custom_settings.py !}
+{!> ../../../docs_src/installation/custom_settings.py !}
 ```
 
 Then set the `ASYNCMQ_SETTINGS_MODULE` environment variable to point at your settings:
@@ -149,4 +149,4 @@ You can also do `asyncmq` directly in the command line and you should see someth
 
 <img src="https://res.cloudinary.com/dymmond/image/upload/v1746168744/asyncmq/docs/cpnmhbed53jnlrriciof.png" alt="AsyncMQ CLI Help"/>
 
-Next up: **[Quickstart](features/quickstart.md)**. Let’s enqueue your first job!
+Next up: **[Quickstart](features/quickstart.md)**. Let's enqueue your first job!

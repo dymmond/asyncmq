@@ -1,6 +1,6 @@
 # Features
 
-Welcome to the **Features** section of the AsyncMQ documentation! Here you’ll find detailed guides on each core
+Welcome to the **Features** section of the AsyncMQ documentation! Here you'll find detailed guides on each core
 capability of AsyncMQ. Click through to learn how to wield each feature like a pro:
 
 * [Settings & Configuration](./settings.md)

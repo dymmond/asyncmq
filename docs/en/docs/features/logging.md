@@ -2,7 +2,7 @@ from typing import Any
 
 # Logging
 
-AsyncMQ’s logging system provides a **consistent**, **configurable**, and **extensible** way to capture insights from
+AsyncMQ's logging system provides a **consistent**, **configurable**, and **extensible** way to capture insights from
 every component, from task producers to workers and schedulers.
 
 This guide dives deep into the **`LoggingConfig`** protocol, the built‑in **`StandardLoggingConfig`**,
@@ -17,7 +17,7 @@ Located in `asyncmq.logging`, `LoggingConfig` defines the interface for configur
 Any implementation must:
 
 * **Expose a `level` attribute** (`str`, e.g., "INFO", "DEBUG").
-* **Implement a `configure()` method** that applies the configuration to Python’s `logging` module and a `get_logger()`
+* **Implement a `configure()` method** that applies the configuration to Python's `logging` module and a `get_logger()`
 that returns the instance of the logging being used.
 
 This abstraction lets AsyncMQ treat logging setup as a pluggable component.
@@ -29,13 +29,13 @@ This abstraction lets AsyncMQ treat logging setup as a pluggable component.
 Provided in `asyncmq.core.utils.logging`, `StandardLoggingConfig` is the default implementation:
 
 ```python
-{!> ../docs_src/logging/logging.py !}
+{!> ../../../docs_src/logging/logging.py !}
 ```
 
 ### Why It Matters
 
 * **Uniform Output**: All modules log with the same format and level.
-* **Quick Setup**: One call to `configure()` and `get_logger()` and you’re done.
+* **Quick Setup**: One call to `configure()` and `get_logger()` and you're done.
 * **Extensible**: Build your own class if you need JSON, file logging, or third‑party handlers.
 
 ---
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
 If you need advanced behavior (e.g., JSON output, file rotation), implement `LoggingConfig`:
 
 ```python
-{!> ../docs_src/logging/custom.py !}
+{!> ../../../docs_src/logging/custom.py !}
 ```
 
 Then override the `logging_config` property in your settings:

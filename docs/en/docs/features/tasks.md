@@ -12,7 +12,7 @@ A **task** in AsyncMQ is simply a Python function (sync or async) that you mark 
 2. **Attaches** an `enqueue()` helper (and alias `delay()`) so you can schedule jobs in one line.
 3. **Wraps** your function so it plays nicely with both `asyncio` and threads, and emits progress events if requested.
 
-> 🎩 **Magician’s Note:** Decorating doesn’t run your function—only `.enqueue()` does. No accidental background jobs!
+> 🎩 **Magician's Note:** Decorating doesn't run your function—only `.enqueue()` does. No accidental background jobs!
 
 ## 1.1 Automatic Task Discovery
 
@@ -40,7 +40,7 @@ decorators actually run and populate the global `TASK_REGISTRY`.
     * Recursively loads every .py module under it
     * Runs each `@task(…)` decorator so `TASK_REGISTRY` is populated
 
-If a module in tasks can’t be imported, you’ll get a warning but discovery will continue for the others.
+If a module in tasks can't be imported, you'll get a warning but discovery will continue for the others.
 
 ---
 
@@ -49,7 +49,7 @@ If a module in tasks can’t be imported, you’ll get a warning but discovery w
 ### 2.1. Defining and Registering a Task
 
 ```python
-{!> ../docs_src/tasks/task.py !}
+{!> ../../../docs_src/tasks/task.py !}
 ```
 
 * **`queue`**: Logical grouping—workers listening to the "default" queue will pick this up.
@@ -88,13 +88,13 @@ logger.info(f"Scheduled email job: {job_id}")
 To stream progress from long-running tasks:
 
 ```python
-{!> ../docs_src/tasks/task_simple.py !}
+{!> ../../../docs_src/tasks/task_simple.py !}
 ```
 
 Workers will emit `job:progress` events via the `event_emitter`, which you can subscribe to:
 
 ```python
-{!> ../docs_src/tasks/event.py !}
+{!> ../../../docs_src/tasks/event.py !}
 ```
 
 ### 3.2. Dependency Chaining
@@ -102,7 +102,7 @@ Workers will emit `job:progress` events via the `event_emitter`, which you can s
 Chain jobs so that one runs after another:
 
 ```python
-{!> ../docs_src/tasks/chain.py !}
+{!> ../../../docs_src/tasks/chain.py !}
 ```
 
 Under the hood, tasks with `depends_on` call `backend.add_dependencies()` before enqueue.
@@ -112,7 +112,7 @@ Under the hood, tasks with `depends_on` call `backend.add_dependencies()` before
 Auto-reenqueue tasks at intervals:
 
 ```python
-{!> ../docs_src/tasks/requeue.py !}
+{!> ../../../docs_src/tasks/requeue.py !}
 ```
 
 Or use `cron` (via `FlowProducer` for DAGs)—see the advanced patterns guide.
@@ -150,7 +150,7 @@ logger.info(list_tasks())
 * **Naming**: Use clear, module-qualified IDs (e.g., `reports.generate_report`) to avoid collisions.
 
 !!! Tip
-    Combine `pytest`’s `monkeypatch` and AsyncMQ’s `InMemoryBackend` to simulate delays, failures, and concurrency
+    Combine `pytest`'s `monkeypatch` and AsyncMQ's `InMemoryBackend` to simulate delays, failures, and concurrency
     without spinning up Redis or Postgres.
 
 ---
@@ -161,7 +161,7 @@ logger.info(list_tasks())
 Always use `send_email.enqueue(...)` for background jobs.
 * **Missing `ASYNCMQ_SETTINGS_MODULE`**: If you forget to set it, tasks will default to `RedisBackend()`
 surprise if you intended Postgres!
-* **Progress without Workers**: Enqueueing with `progress=True` alone doesn’t stream updates unless workers invoke the event emitter.
+* **Progress without Workers**: Enqueueing with `progress=True` alone doesn't stream updates unless workers invoke the event emitter.
 * **Overlapping Retries**: If your retry backoff is zero, failing jobs can spam your backend. Add `backoff`
 (future feature) or custom delays.
 
@@ -179,4 +179,4 @@ surprise if you intended Postgres!
 
 ---
 
-That’s a wrap on tasks! Now you can write, schedule, and monitor AsyncMQ tasks like a seasoned pro—with a grin 😁.
+That's a wrap on tasks! Now you can write, schedule, and monitor AsyncMQ tasks like a seasoned pro—with a grin 😁.

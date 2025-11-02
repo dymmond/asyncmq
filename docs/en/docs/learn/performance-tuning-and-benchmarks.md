@@ -3,7 +3,7 @@
 Welcome to the deep-dive where we squeeze every last drop of performance out of AsyncMQ because milliseconds matter,
 and bragging rights at benchmark time are essential. 🏎️💨
 
-In this chapter you’ll learn how to:
+In this chapter you'll learn how to:
 1. Measure baseline performance with realistic workloads.
 2. Tune worker concurrency and rate limits.
 3. Optimize delayed-job scanning and cron scheduling.
@@ -18,7 +18,7 @@ In this chapter you’ll learn how to:
 Before you tune, you must measure! Use a representative workload:
 
 ```python
-{!> ../docs_src/tutorial/bench/benchmarks.py !}
+{!> ../../../docs_src/tutorial/bench/benchmarks.py !}
 ```
 
 * **Metric Separation**: Track enqueue vs. processing durations independently.
@@ -75,13 +75,13 @@ backend load. You now have two configuration options:
 1. **Global Setting** via your `Settings` class (applies to all queues):
 
    ```python
-   {!> ../docs_src/tutorial/bench/settings.py !}
+   {!> ../../../docs_src/tutorial/bench/settings.py !}
    ```
 
 2. **Per-Queue Override** using the new `scan_interval` parameter on `Queue` (applies only to that instance):
 
    ```python
-   {!> ../docs_src/tutorial/bench/per_queue.py !}
+   {!> ../../../docs_src/tutorial/bench/per_queue.py !}
    ```
 
 #### Latency vs. Scan Frequency Tradeoff
@@ -168,6 +168,6 @@ With `scan_interval=0.2`, jobs will fire within \~200ms of each minute boundary.
 
 ---
 
-With these strategies, you’ll wield AsyncMQ like a power tool, fast, reliable, and scalable.
+With these strategies, you'll wield AsyncMQ like a power tool, fast, reliable, and scalable.
 
 Next up: **Security & Compliance**—locking down your pipeline end-to-end.

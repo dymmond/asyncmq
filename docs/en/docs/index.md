@@ -10,7 +10,7 @@ hide:
 </p>
 
 <p align="center">
-  <span>⚡ Supercharge your async applications with tasks so fast, you’ll think you’re bending time itself. ⚡</span>
+  <span>⚡ Supercharge your async applications with tasks so fast, you'll think you're bending time itself. ⚡</span>
 </p>
 
 <p align="center">
@@ -64,7 +64,7 @@ Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexib
    A feature-rich CLI for managing queues, jobs, and workers—intuitive commands, JSON output support, and built-in help for every scenario.
 
 10. **Seamless ASGI Integration**
-    Out-of-the-box compatibility with FastAPI, Esmerald, or any ASGI application. Manage workers within your app’s lifecycle events.
+    Out-of-the-box compatibility with FastAPI, Esmerald, or any ASGI application. Manage workers within your app's lifecycle events.
 
 ---
 
@@ -199,7 +199,7 @@ ASGI framework as well.
 
 ---
 
-AsyncMQ is more than just a task queue, it’s the swiss army knife of async background processing.
+AsyncMQ is more than just a task queue, it's the swiss army knife of async background processing.
 Dive into the **Learn** section to master every feature, or jump into the **Features** docs for quick reference.
 
 Ready to bend time?

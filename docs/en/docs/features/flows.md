@@ -17,7 +17,7 @@ The `FlowProducer` (in `asyncmq.flow.`) is your high-level API for:
 * **Backend-optimized** operations: uses `atomic_add_flow` when available, else a robust fallback
 
 !!! Metaphor
-    Imagine you’re casting a spell—`FlowProducer` is your wand, aligning all the magical runes (jobs) in the
+    Imagine you're casting a spell—`FlowProducer` is your wand, aligning all the magical runes (jobs) in the
     right order so the incantation executes flawlessly.
 
 ---
@@ -57,7 +57,7 @@ Behind the scenes, `FlowProducer`:
 | Feature          | Atomic (`atomic_add_flow`)      | Fallback (sequential)      |
 | ---------------- | ------------------------------- | -------------------------- |
 | Consistency      | All-or-nothing enqueue & link   | Jobs may appear one-by-one |
-| Dependency Reg’n | Handled server-side in one call | Multiple calls per job     |
+| Dependency Reg'n | Handled server-side in one call | Multiple calls per job     |
 | Performance      | Fast & network-efficient        | More round-trips           |
 | Backend Support  | Requires custom implementation  | Works on any `BaseBackend` |
 
@@ -82,7 +82,7 @@ await producer.add_flow("default", [start, branch1, branch2, join])
 
 ### 4.2. Mixed Dependencies & Repeatables
 
-Flows can include repeatable definitions by setting `repeat_every` on a `Job`, but remember the scheduler will re-enqueue those based on your queue’s `scan_interval`.
+Flows can include repeatable definitions by setting `repeat_every` on a `Job`, but remember the scheduler will re-enqueue those based on your queue's `scan_interval`.
 
 ### 4.3. Custom Dependency Logic
 
@@ -131,5 +131,5 @@ No—flows are one-off enqueue operations. For dynamic graphs, use `FlowProducer
 
 ---
 
-With `FlowProducer`, you can orchestrate robust job graphs effortlessly, whether you’re building ETL pipelines,
+With `FlowProducer`, you can orchestrate robust job graphs effortlessly, whether you're building ETL pipelines,
 CI/CD workflows, or any multi-step background process.

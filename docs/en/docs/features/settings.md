@@ -1,7 +1,7 @@
 # Settings
 
 The **`Settings`** dataclass is the beating heart of your AsyncMQ installation.
-It centralizes every configuration option, think of it as the master control panel for AsyncMQ’s behavior.
+It centralizes every configuration option, think of it as the master control panel for AsyncMQ's behavior.
 Customize this once, and your entire queueing system behaves predictably across environments.
 
 
@@ -41,7 +41,7 @@ from asyncmq import Settings
 * **Observability**: Control logging levels and hook into audit trails with minimal code.
 
 !!! Tip
-    Treat `Settings` like a vehicle’s dashboard: know where each dial lives and what happens when you turn it! 😉
+    Treat `Settings` like a vehicle's dashboard: know where each dial lives and what happens when you turn it! 😉
 
 ---
 
@@ -158,7 +158,7 @@ Below is a distilled breakdown of each setting, why it matters, and tips for tun
 
 ## 6. Pros & Advantages
 
-* **Rapid Iteration**: Changing settings doesn’t require code redeploy, just point at a new `Settings` subclass.
+* **Rapid Iteration**: Changing settings doesn't require code redeploy, just point at a new `Settings` subclass.
 * **Environment Parity**: Keep staging & prod configs in code, reducing *“it works only locally”* surprises.
 * **Self-Documentation**: Dataclass defaults and docstrings serve as living API docs.
 * **Extensibility**: Add new fields easily without rewriting initialization logic.
@@ -339,4 +339,4 @@ def test_round_trip():
 
 ---
 
-Now you’re a Settings maestro, tune every aspect of AsyncMQ with confidence and style! 🎶
+Now you're a Settings maestro, tune every aspect of AsyncMQ with confidence and style! 🎶
