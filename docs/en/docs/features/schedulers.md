@@ -1,6 +1,6 @@
 # Schedulers & Cron Utilities
 
-Schedulers are the metronomes of AsyncMQ, ensuring your repeatable jobs fire on time—whether it’s every few seconds or according to a cron expression. In this guide, we’ll explore:
+Schedulers are the metronomes of AsyncMQ, ensuring your repeatable jobs fire on time—whether it's every few seconds or according to a cron expression. In this guide, we'll explore:
 
 1. **`repeatable_scheduler`**: the async loop that reads your definitions and enqueues due jobs.
 2. **`compute_next_run`**: a handy utility for calculating the next timestamp.
@@ -53,11 +53,11 @@ async def repeatable_scheduler(
     * Create `croniter` instances for all `cron` jobs, storing next-run times.
     * Set a `check_interval` (either `interval` or default 30s).
 2. **Scheduler Loop**
-    * **Dynamic sleep** ensures you don’t miss a cron boundary by sleeping too long.
+    * **Dynamic sleep** ensures you don't miss a cron boundary by sleeping too long.
     * **Minimum sleep** of 0.1s prevents busy loops.
 
 !!! Tip
-    For sub-second accuracy on high-frequency repeatables, set `interval` (or your queue’s `scan_interval`) to a small
+    For sub-second accuracy on high-frequency repeatables, set `interval` (or your queue's `scan_interval`) to a small
     value, but beware of increased backend load.
 
 ---
@@ -99,7 +99,7 @@ def compute_next_run(job_def: dict[str, Any]) -> float: ...
 * **Delayed Scanner** handles once-off `delay` jobs.
 * **Repeatable Scheduler** handles cyclic jobs.
 
-> 🚀 **Pro Tip:** Keep your repeatable definitions idempotent—if a job accidentally enqueues twice (e.g., at exact boundary), it shouldn’t cause chaos.
+> 🚀 **Pro Tip:** Keep your repeatable definitions idempotent—if a job accidentally enqueues twice (e.g., at exact boundary), it shouldn't cause chaos.
 
 ---
 
@@ -127,10 +127,10 @@ def compute_next_run(job_def: dict[str, Any]) -> float: ...
 * **Missing Keys**: Definitions must include either `cron` or `every`—or they silently never run.
 * **Time Zones**: `croniter` uses system local time; if your app crosses DST boundaries, cron triggers adjust accordingly.
 * **Long-Running Jobs**: If your scheduled job takes longer than its interval, you may see overlap—consider guarding with job-level locks.
-* **Scheduler Crash**: Exceptions inside the scheduler loop can kill it—wrap body in `try/except` or let run_worker’s gather propagate cancellation.
+* **Scheduler Crash**: Exceptions inside the scheduler loop can kill it—wrap body in `try/except` or let run_worker's gather propagate cancellation.
 
 **FAQ:** *What if I need a one-off job at a specific timestamp?*
-Use `queue.add(..., delay=timestamp - time.time())` or leverage your backend’s `enqueue_delayed` directly.
+Use `queue.add(..., delay=timestamp - time.time())` or leverage your backend's `enqueue_delayed` directly.
 
 ---
 

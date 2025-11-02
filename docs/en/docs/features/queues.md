@@ -26,7 +26,7 @@ Behind the scenes, `Queue` delegates to a `BaseBackend` for persistence and uses
 ## 2. Constructor Parameters
 
 ```python
-{!> ../docs_src/queues/queue.py !}
+{!> ../../../docs_src/queues/queue.py !}
 ```
 
 | Param           | Type                  | Default                  | Purpose & Tuning Tips                                                                        |
@@ -49,7 +49,7 @@ Behind the scenes, `Queue` delegates to a `BaseBackend` for persistence and uses
 Schedules a single job:
 
 ```python
-{!> ../docs_src/queues/job.py !}
+{!> ../../../docs_src/queues/job.py !}
 ```
 
 * **Returns** `job_id` (UUID).
@@ -76,7 +76,7 @@ ids = await queue.add_bulk([
 Register repeatable definitions:
 
 ```python
-{!> ../docs_src/queues/repeatable.py !}
+{!> ../../../docs_src/queues/repeatable.py !}
 ```
 
 * **`every`**: interval in seconds or a cron-like string.
@@ -198,7 +198,7 @@ For full cron support, see the **Advanced Patterns** guide. You can also registe
 * **Assert Stats**: `stats = await q.queue_stats()`.
 
 !!! Warning
-    Don’t call `queue.run()` in tests without a timeout—tests will hang!
+    Don't call `queue.run()` in tests without a timeout—tests will hang!
 
 ---
 

@@ -1,14 +1,11 @@
-from typing import Awaitable, Callable  # Ensure Any is imported from typing
+from typing import Awaitable, Callable
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.dependencies import add_dependencies
 from asyncmq.jobs import Job
 
-# Define the expected signature for the dependency adder callable.
-# It should be an awaitable function that takes a BaseBackend instance,
-# a queue name (str), and a Job instance, and returns None.
-_AddDependenciesCallable = Callable[[BaseBackend, str, Job], Awaitable[None]]
+_AddDependenciesCallable = Callable[[str, Job, BaseBackend], Awaitable[None]]
 
 
 class FlowProducer:
@@ -35,7 +32,7 @@ class FlowProducer:
         # Use the provided backend instance or fall back to the configured default.
         self.backend: BaseBackend = backend or asyncmq.monkay.settings.backend
         # Assign the dependency adder function.
-        self._add_dependencies: _AddDependenciesCallable = add_dependencies  # type: ignore
+        self._add_dependencies: _AddDependenciesCallable = add_dependencies
 
     async def add_flow(self, queue: str, jobs: list[Job]) -> list[str]:
         """
@@ -76,15 +73,22 @@ class FlowProducer:
             return await self.backend.atomic_add_flow(queue, payloads, deps)
         except (AttributeError, NotImplementedError):
             # If atomic_add_flow is not supported, execute the fallback logic.
-            # Fallback: sequential enqueue + dependency registration.
             created: list[str] = []
-            # Iterate through each job in the flow.
             for job in jobs:
-                # Add the job ID to the list of created IDs.
-                created.append(job.id)
-                # Enqueue the job individually.
-                await self.backend.enqueue(queue, job.to_dict())
-                # Register the job's dependencies individually using the helper callable.
-                await self._add_dependencies(self.backend, queue, job)
+                if not job.depends_on:
+                    await self.backend.enqueue(queue, job.to_dict())
+                    created.append(job.id)
+
+            # Iterate through each job in the flow.
+            # Fallback: sequential enqueue + dependency registration.
+            for job in jobs:
+                if job.depends_on:
+                    await self._add_dependencies(queue, job, self.backend)
+                    # Add the job ID to the list of created IDs.
+                    # Enqueue the job individually.
+                    await self.backend.enqueue(queue, job.to_dict())
+                    # Register the job's dependencies individually using the helper callable.
+                    created.append(job.id)
+
             # Return the list of IDs for the jobs that were enqueued via the fallback.
             return created

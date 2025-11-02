@@ -583,7 +583,7 @@ class BaseBackend(ABC):
 
     @abstractmethod
     async def register_worker(self, worker_id: str, queue: str, concurrency: int, timestamp: float) -> None:
-        """Register or update a worker’s heartbeat and metadata."""
+        """Register or update a worker's heartbeat and metadata."""
         ...
 
     @abstractmethod

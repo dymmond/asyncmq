@@ -1,3 +1,4 @@
+import importlib
 import inspect
 import multiprocessing as mp
 import traceback
@@ -7,6 +8,39 @@ import anyio
 
 import asyncmq
 from asyncmq.tasks import TASK_REGISTRY
+
+
+def _get_task_func(task_id: str) -> Any:
+    """
+    Retrieves the executable function associated with a registered task ID.
+
+    This function implements a **two-step lookup strategy** crucial for dynamic task systems:
+    1. **Direct Lookup:** Checks if the task is already registered (e.g., if the module was previously imported).
+    2. **Module Import and Retry:** If not found, it attempts to **dynamically import the module** part of the `task_id`. This triggers module-level side effects (like task decorators) which register the task in the `TASK_REGISTRY`. It then retries the lookup.
+
+    Args:
+        task_id: The unique identifier for the task (e.g., 'tasks.notifications.send_email').
+
+    Returns:
+        The callable function (`Callable[..., Any]`) registered under the given `task_id`.
+
+    Raises:
+        KeyError: If the task ID is not found in the registry even after attempting the module import.
+    """
+    try:
+        # First attempt: check if the task is already registered
+        return TASK_REGISTRY[task_id]["func"]
+    except KeyError:
+        # If not found, extract the module name and attempt dynamic import
+
+        # Determine the module name by splitting on the last dot
+        module_name: str = task_id.rsplit(".", 1)[0]
+
+        # This import is a side-effect that populates TASK_REGISTRY
+        importlib.import_module(module_name)
+
+        # Second attempt: check registry again after successful module import
+        return TASK_REGISTRY[task_id]["func"]
 
 
 def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: mp.Queue) -> None:
@@ -29,7 +63,7 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
     """
     try:
         # Retrieve the task function registered under the given task_id
-        func = TASK_REGISTRY[task_id]["func"]
+        func = _get_task_func(task_id)
 
         # Execute the handler function
         # Handle TaskWrapper instances which have async __call__ methods
@@ -136,7 +170,7 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
         # If a TimeoutError occurred and fallback is enabled
         if fallback:
             # Retrieve the handler function
-            handler = TASK_REGISTRY[task_id]["func"]
+            handler = _get_task_func(task_id)
             # Run the handler directly in the current process
             # Handle TaskWrapper instances which have async __call__ methods
             if callable(handler) and inspect.iscoroutinefunction(handler.__call__):

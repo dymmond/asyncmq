@@ -1,7 +1,7 @@
 # Security & Compliance
 
 Welcome to the chapter where we lock down your AsyncMQ pipeline tighter than Fort Knox—without losing the wit
-and professionalism that makes our docs delightful. In this guide, we’ll cover:
+and professionalism that makes our docs delightful. In this guide, we'll cover:
 
 1. **Authentication & Authorization**
 2. **Encryption (In Transit & At Rest)**
@@ -24,7 +24,7 @@ Securing who can enqueue and process jobs is critical—lest random scripts star
 #### Example (Esmerald):
 
 ```python
-{!> ../docs_src/tutorial/security/example.py !}
+{!> ../../../docs_src/tutorial/security/example.py !}
 ```
 
 ### 1.2. Who Can Process Jobs?
@@ -95,7 +95,7 @@ RedisBackend(redis_url_or_client="rediss://redis.example.com:6379/0?ssl_cert_req
 Example HMAC signing:
 
 ```python
-{!> ../docs_src/tutorial/security/event.py !}
+{!> ../../../docs_src/tutorial/security/event.py !}
 ```
 
 ---

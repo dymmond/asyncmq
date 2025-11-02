@@ -39,7 +39,7 @@ async def delayed_job_scanner(
         try:
             jobs = await backend.pop_due_delayed(queue_name)
         except AttributeError:
-            # Fallback for backends that don’t support pop
+            # Fallback for backends that don't support pop
             jobs = await backend.get_due_delayed(queue_name)
             for job_data in jobs:
                 await backend.remove_delayed(queue_name, job_data["id"])

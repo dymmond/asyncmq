@@ -13,6 +13,7 @@ from asyncmq import monkay, sandbox
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
@@ -156,6 +157,16 @@ async def handle_job(
 
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(raw_job)
+
+    # Dependency gating (backend-agnostic)
+    # If this job depends on other jobs, ensure all parents are COMPLETED before executing.
+    if job.depends_on:
+        for parent_id in job.depends_on:
+            parent_state = await backend.get_job_state(queue_name, parent_id)
+            if parent_state != State.COMPLETED:
+                # Parent not done yet, requeue this job slightly in the future to avoid hot loops.
+                await backend.enqueue_delayed(queue_name, job.to_dict(), time.time() + 0.05)
+                return
 
     if await backend.is_job_cancelled(queue_name, job.id):
         await backend.ack(queue_name, job.id)
@@ -328,6 +339,14 @@ class Worker:
             # Trigger the auto discover tasks
             autodiscover_tasks()
 
+        # Start the lifecycle hooks if required
+        await run_hooks(
+            monkay.settings.worker_on_startup,
+            backend=backend,
+            worker_id=self.id,
+            queue=self.queue.name,
+        )
+
         # Initial registration
         await backend.register_worker(
             worker_id=self.id,
@@ -374,6 +393,14 @@ class Worker:
             except anyio.get_cancelled_exc_class():
                 # On shutdown, deregister
                 await backend.deregister_worker(self.id)
+            finally:
+                # Run the hooks on shutdown
+                await run_hooks_safely(
+                    monkay.settings.worker_on_shutdown,
+                    backend=backend,
+                    worker_id=self.id,
+                    queue=self.queue.name,
+                )
 
     def start(self) -> None:
         """Blocking entrypoint."""

@@ -106,7 +106,7 @@ await some_task.enqueue(..., backend=backend, timeout=5.0)
 
 * **Zombie Processes**: Ensure `.join()` after `.terminate()` to avoid zombies.
 * **Queue Full**: If `out_q` blocks (full), parent may hang—use a large enough buffer or non-blocking read.
-* **Pickle Failures**: Functions or arguments must be pickleable; lambdas or local functions won’t work.
+* **Pickle Failures**: Functions or arguments must be pickleable; lambdas or local functions won't work.
 * **Inconsistent Context**: Using `fork` on Mac can duplicate file descriptors—use `spawn` where unpredictable behavior occurs.
 
 > ❓ **FAQ:** *What if my task needs access to globals or modules loaded in the parent?*

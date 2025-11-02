@@ -1429,7 +1429,7 @@ class RedisBackend(BaseBackend):
 
             _, queue_name, _ = key_str.split(":", 2)
 
-            # fetch all worker_id→timestamp mappings
+            # fetch all worker_id->timestamp mappings
             heartbeats = await self.redis.hgetall(full_key)
             for wid, data in heartbeats.items():
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid

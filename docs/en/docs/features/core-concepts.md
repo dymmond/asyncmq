@@ -12,7 +12,7 @@ A `Queue` object ties together the queue **name**, **backend storage**, **concur
 * Optionally tune concurrency (defaults to 3) and rate limit (disabled by default).
 
 ```python
-{!> ../docs_src/concepts/queue.py !}
+{!> ../../../docs_src/concepts/queue.py !}
 ```
 
 * **Why `.concurrency=3` by default?** Balances throughput without overwhelming your event loop or external resources.
@@ -89,7 +89,7 @@ The `@task` decorator wraps your function to:
 3. **Wrap** execution logic so workers can call your function uniformly.
 
 ```python
-{!> ../docs_src/concepts/register_task.py !}
+{!> ../../../docs_src/concepts/register_task.py !}
 ```
 
 * **Why explicit `.enqueue()`?** Separates function invocation from scheduling, preventing accidental background jobs.
@@ -100,7 +100,7 @@ The `@task` decorator wraps your function to:
 You don't need to specify a `backend` if you already have one declared in the `settings.backend` which by default is `redis`.
 
 ```python
-{!> ../docs_src/concepts/register_task_no_backend.py !}
+{!> ../../../docs_src/concepts/register_task_no_backend.py !}
 ```
 
 ---
@@ -113,7 +113,7 @@ Workers consist of three concurrent coroutines (via `asyncio.gather` in `run_wor
 
 1. **`process_job`**: dequeues and handles jobs, respecting concurrency via semaphore and rate limits.
 2. **`delayed_job_scanner`**: polls delayed storage (every `interval`, default 2s) to re-enqueue due jobs.
-3. **`repeatable_scheduler`** (optional): if you’ve added repeatable jobs via `Queue.add_repeatable` or `FlowProducer`.
+3. **`repeatable_scheduler`** (optional): if you've added repeatable jobs via `Queue.add_repeatable` or `FlowProducer`.
 
 ### 3.2. Job Lifecycle in `process_job` (`asyncmq.workers.process_job`)
 
@@ -183,7 +183,7 @@ Beyond individual tasks and delays, AsyncMQ lets you orchestrate multiple, inter
 This is ideal for batch pipelines, DAGs, or any scenario where jobs must run in a specific order.
 
 ```python
-{!> ../docs_src/concepts/flow.py !}
+{!> ../../../docs_src/concepts/flow.py !}
 ```
 
 * **Atomic Flow**: Backends like PostgresBackend can enqueue all jobs and link dependencies in a single transaction
@@ -209,10 +209,10 @@ AsyncMQ emits structured events at key points:
 Subscribe to events to integrate metrics, logging, or side-effects:
 
 ```python
-{!> ../docs_src/concepts/event_emmiter.py !}
+{!> ../../../docs_src/concepts/event_emmiter.py !}
 ```
 Events use `anyio.EventStream` for async-safe pub/sub.
 
 ---
 
-That concludes a precise, code-verified exploration of AsyncMQ’s core.
+That concludes a precise, code-verified exploration of AsyncMQ's core.

@@ -13,7 +13,7 @@ Apply the `@task` decorator to an async function, which does **not** automatical
 ##  Create your backend (Redis as default)
 
 ```python
-{!> ../docs_src/start/quickstart.py !}
+{!> ../../../docs_src/start/quickstart.py !}
 ```
 
 !!! Warning
@@ -31,7 +31,7 @@ Use the generated `enqueue` helper on your task. All optional parameters have se
 * `backend` is optional, you can pass here the instance or it will load the default from the settings.
 
 ```python
-{!> ../docs_src/start/enqueue.py !}
+{!> ../../../docs_src/start/enqueue.py !}
 ```
 
 Run it:

@@ -4,10 +4,12 @@ import uuid
 from typing import Any
 
 import anyio
+from anyio import CapacityLimiter
 
 from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.delayed_scanner import delayed_job_scanner
+from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import Worker, handle_job, process_job
 
@@ -114,11 +116,20 @@ async def run_worker(
     # Use the provided backend or fall back to the default configured backend.
     backend = backend or monkay.settings.backend
     scan_interval = scan_interval or monkay.settings.scan_interval
-    # Create an asyncio Semaphore to limit the number of concurrent tasks.
-    semaphore: asyncio.Semaphore = asyncio.Semaphore(concurrency)
+
+    # Use anyio's CapacityLimiter to coordinate with process_job
+    limiter: CapacityLimiter = CapacityLimiter(concurrency)
 
     worker_id = str(uuid.uuid4())
     timestamp = time.time()
+
+    # Run lifecycle startup hooks for this worker
+    await run_hooks(
+        monkay.settings.worker_on_startup,
+        backend=backend,
+        worker_id=worker_id,
+        queue=queue_name,
+    )
     await backend.register_worker(worker_id, queue_name, concurrency, timestamp)
 
     try:
@@ -154,7 +165,7 @@ async def run_worker(
         # 1. The main process_job task that pulls jobs from the queue and handles them.
         # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
         tasks: list[Any] = [
-            process_job(queue_name, semaphore, backend=backend, rate_limiter=rate_limiter),  # type: ignore
+            process_job(queue_name, limiter, backend=backend, rate_limiter=rate_limiter),
             delayed_job_scanner(queue_name, backend, interval=scan_interval),
         ]
 
@@ -175,4 +186,13 @@ async def run_worker(
         await backend.deregister_worker(worker_id)
         raise
     finally:
-        await backend.deregister_worker(worker_id)
+        # Always attempt to deregister and then run shutdown hooks
+        try:
+            await backend.deregister_worker(worker_id)
+        finally:
+            await run_hooks_safely(
+                monkay.settings.worker_on_shutdown,
+                backend=backend,
+                worker_id=worker_id,
+                queue=queue_name,
+            )

@@ -3,14 +3,14 @@
 Welcome to the secret sauce of AsyncMQ where we go beyond the basics into **Custom Backends**,
 **DAG Orchestration**, and **Kubernetes Scaling**.
 
-If you thought AsyncMQ was cool before, strap in: it’s about to get wild.
+If you thought AsyncMQ was cool before, strap in: it's about to get wild.
 
 ---
 
 ## 1. Custom Backends
 
-Sometimes Redis, Postgres, or MongoDB just don’t cut it. Maybe you need to push tasks into an SQS queue, or write to
-Kafka, or integrate with a proprietary message bus. Here’s how:
+Sometimes Redis, Postgres, or MongoDB just don't cut it. Maybe you need to push tasks into an SQS queue, or write to
+Kafka, or integrate with a proprietary message bus. Here's how:
 
 ### 1.1. Understand `BaseBackend`
 
@@ -28,7 +28,7 @@ async def get_jobs(self, queue: str, state: State) -> list[dict]: ...
 ### 1.2. Implementing Your Backend
 
 ```python
-{!> ../docs_src/tutorial/custom_backend.py !}
+{!> ../../../docs_src/tutorial/custom_backend.py !}
 ```
 
 You must implement the remaining methods: `enqueue_delayed` (using SQS DelaySeconds), add_dependencies
@@ -43,7 +43,7 @@ Everything is in the `BaseBackend` and `BaseStore` to follow.
 * Offload scaling concerns to a managed service
 
 !!! Tip
-    If your queuing system doesn’t support delayed messages natively, emulate delays by storing messages in a secondary
+    If your queuing system doesn't support delayed messages natively, emulate delays by storing messages in a secondary
     store (Redis sorted set, DynamoDB TTL) and poll for ready items in a custom scanner.
 
 ---
@@ -55,7 +55,7 @@ Chaining tasks into multi-step pipelines, no more ad-hoc glue scripts.
 ### 2.1. Building a DAG
 
 ```python
-{!> ../docs_src/tutorial/flow_producer.py !}
+{!> ../../../docs_src/tutorial/flow_producer.py !}
 ```
 
 ### 2.2. Conditional and Parallel Steps
@@ -95,7 +95,7 @@ await flow.add_flow("maintenance", [job_cleanup])
 
 ## 3. Kubernetes Scaling
 
-Your AsyncMQ workers can scale elegantly in Kubernetes. Let’s break down a typical setup:
+Your AsyncMQ workers can scale elegantly in Kubernetes. Let's break down a typical setup:
 
 ### 3.1. Redis Deployment
 
@@ -192,9 +192,9 @@ spec:
 * **Logging & Monitoring**: Combine `event_emitter` hooks with Prometheus or ELK stack for real-time insights.
 
 !!! Joke
-    **Final joke**: If your cluster autoscaler has better reflexes than you do on Monday mornings, you’re doing it right.
+    **Final joke**: If your cluster autoscaler has better reflexes than you do on Monday mornings, you're doing it right.
 
 ---
 
-That’s a wrap on Advanced Patterns! Up next: **Performance Tuning & Benchmarking** We’ll squeeze every last millisecond
+That's a wrap on Advanced Patterns! Up next: **Performance Tuning & Benchmarking** We'll squeeze every last millisecond
 out of AsyncMQ.

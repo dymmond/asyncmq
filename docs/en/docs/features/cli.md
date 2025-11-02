@@ -99,7 +99,7 @@ Run `asyncmq <group> --help` to see usage for each group.
 
 ## `asyncmq info`
 
-Displays the configured backend’s Python import path (and settings module).
+Displays the configured backend's Python import path (and settings module).
 
 ```bash
 asyncmq info

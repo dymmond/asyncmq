@@ -13,8 +13,8 @@ from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
 
-# Clear AsyncMQ’s global task‐registry and listeners
-# so this module’s @task decorator actually registers `sum_task`
+# Clear AsyncMQ's global task‐registry and listeners
+# so this module's @task decorator actually registers `sum_task`
 TASK_REGISTRY.clear()
 event_emitter._listeners.clear()
 

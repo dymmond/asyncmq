@@ -93,6 +93,7 @@ async def test_handle_job_import_fallback(monkeypatch):
             self.delay_until = None
             self.retries = 0
             self.max_retries = 0
+            self.depends_on = []
 
         def is_expired(self):
             return False

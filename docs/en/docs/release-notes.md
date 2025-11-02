@@ -5,6 +5,29 @@ hide:
 
 # Release Notes
 
+## 0.5.0
+
+### Added
+
+- Parallel DAG execution fixes for backend via `FlowProducer` and `process_job`.
+- Backward-compatible serialization improvements for `Job` to support both `task_id` and legacy `task` fields.
+- Automatic dependency resolution fallback when atomic flow addition is not supported by the backend.
+- Lifecycle hooks for worker startup and shutdown via `worker_on_startup` and `worker_on_shutdown`, supporting both sync and async callables.
+- New reusable `lifecycle.py` module providing utilities like `normalize_hooks`, `run_hooks`, and `run_hooks_safely`.
+
+### Changed
+
+- Improved worker and flow orchestration stability under mixed backends.
+- Worker startup now runs `worker_on_startup` hooks before registering heartbeats.
+- Worker shutdown now runs `worker_on_shutdown` hooks safely after deregistration.
+
+### Fixed
+
+- Timeout issues when running parallel DAG flows due to backend event-loop mismatches.
+- Various minor concurrency edge cases in job scanning and dependency unlocking logic.
+- Fix `BaseSettings` for python 3.14 and more complex inheritances.
+- Sandbox task discovery.
+
 ## 0.4.6
 
 ### Fixed
@@ -205,7 +228,7 @@ in *beta* mode so any feedback is welcomed.
 
     * `list-queues` — list all queues known to the backend
     * `list-workers` — show all registered workers with queue, concurrency, and last heartbeat
-    * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker’s heartbeat **and** concurrency
+    * `register-worker <worker_id> <queue> [--concurrency N]` — register or bump a worker's heartbeat **and** concurrency
     * `deregister-worker <worker_id>` — remove a worker from the registry.
     * `AsyncMQGroup` to `cli` ensuring the `ASYNCMQ_SETTINGS_MODULE` is always evaluated beforehand.
 
@@ -236,7 +259,7 @@ in *beta* mode so any feedback is welcomed.
 
 * **General Pause–Check Safety**
 
-    * `process_job` now guards against backends that don’t implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
+    * `process_job` now guards against backends that don't implement `is_queue_paused` by checking with `hasattr`, avoiding `AttributeError` on simple in-memory or dummy backends.
 
 ### Fixed
 
@@ -351,6 +374,6 @@ Welcome to the **first official release** of **AsyncMQ**!
 
 ---
 
-Thank you for choosing AsyncMQ! We can’t wait to see what you build.
+Thank you for choosing AsyncMQ! We can't wait to see what you build.
 
 Happy tasking! 🚀

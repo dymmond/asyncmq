@@ -19,6 +19,7 @@ from typing import (
 from asyncmq import __version__  # noqa
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.utils.dashboard import DashboardConfig
+from asyncmq.protocols.lifespan import Lifespan
 
 if TYPE_CHECKING:
     from asyncmq.logging import LoggingConfig  # noqa
@@ -60,15 +61,12 @@ class BaseSettings:
         If an environment variable is not set, it will use the default value
         defined in the class attributes.
         """
-        cls = self.__class__
-        if cls.__type_hints__ is None:
-            cls.__type_hints__ = safe_get_type_hints(cls)
 
         if kwargs:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-        for key, typ in cls.__type_hints__.items():
+        for key, typ in self.__type_hints__.items():
             base_type = self._extract_base_type(typ)
 
             env_value = os.getenv(key.upper(), None)
@@ -80,6 +78,11 @@ class BaseSettings:
 
         # Call post_init if it exists
         self.post_init()
+
+    def __init_subclass__(cls) -> None:
+        # the direct class dict has not the key
+        if cls.__dict__.get("__type_hints__") is None:
+            cls.__type_hints__ = safe_get_type_hints(cls)
 
     def post_init(self) -> None:
         """
@@ -140,7 +143,7 @@ class BaseSettings:
         result = {}
         exclude = exclude or set()
 
-        for key in self.__annotations__:
+        for key in self.__type_hints__:
             if key in exclude:
                 continue
             value = getattr(self, key, None)
@@ -157,7 +160,7 @@ class BaseSettings:
                     (property, cached_property),
                 ),
             ):
-                if name in exclude or name in self.__annotations__:
+                if name in exclude or name in self.__type_hints__:
                     continue
                 try:
                     value = getattr(self, name)
@@ -420,6 +423,40 @@ class Settings(BaseSettings):
         from functools import partial
 
         json_loads = partial(json.loads, object_hook=custom_decoder)
+    """
+    worker_on_startup: Lifespan | list[Lifespan] | tuple[Lifespan, ...] | None = None
+    """
+    One or more hook functions to be executed once when the **worker process starts up**.
+
+    Accepts:
+      - a single callable, or
+      - a list/tuple of callables.
+
+    Each callable can be sync or async and will be awaited if it returns an awaitable.
+    They are executed in the order provided.
+
+    Example:
+        async def connect_db(): ...
+        def warm_cache(): ...
+
+        worker_on_startup = [connect_db, warm_cache]
+    """
+    worker_on_shutdown: Lifespan | list[Lifespan] | tuple[Lifespan, ...] | None = None
+    """
+    One or more hook functions to be executed once when the **worker process is shutting down**.
+
+    Accepts:
+      - a single callable, or
+      - a list/tuple of callables.
+
+    Each callable can be sync or async and will be awaited if it returns an awaitable.
+    They are executed in the order provided.
+
+    Example:
+        async def disconnect_db(): ...
+        def flush_metrics(): ...
+
+        worker_on_shutdown = (disconnect_db, flush_metrics)
     """
 
     @property

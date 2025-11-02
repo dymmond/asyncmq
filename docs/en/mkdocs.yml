@@ -1,0 +1,105 @@
+site_name: AsyncMQ
+site_description: The broker you needed for your tasks.
+site_url: https://asyncmq.dymmond.com
+theme:
+  name: material
+  custom_dir: docs/overrides
+  language: en
+  palette:
+  - scheme: default
+    primary: lime
+    accent: pink
+    media: '(prefers-color-scheme: light)'
+    toggle:
+      icon: material/lightbulb
+      name: Switch to dark mode
+  - scheme: slate
+    media: '(prefers-color-scheme: dark)'
+    primary: lime
+    accent: amber
+    toggle:
+      icon: material/lightbulb-outline
+      name: Switch to light mode
+  favicon: statics/favicon.ico
+  logo: statics/asyncmq-white.png
+  features:
+  - search.suggest
+  - search.highlight
+  - content.tabs.link
+  - content.code.copy
+  - content.code.annotate
+  - content.tooltips
+  - content.code.select
+  - navigation.indexes
+  - navigation.path
+  - navigation.tabs
+repo_name: dymmond/asyncmq
+repo_url: https://github.com/dymmond/asyncmq
+edit_uri: ''
+plugins:
+- search
+- meta-descriptions:
+    export_csv: false
+    quiet: false
+    enable_checks: false
+    min_length: 50
+    max_length: 160
+    trim: false
+nav:
+- Introduction: index.md
+- installation.md
+- Features:
+  - features/index.md
+  - features/quickstart.md
+  - features/core-concepts.md
+  - features/settings.md
+  - features/custom-json.md
+  - features/logging.md
+  - features/tasks.md
+  - features/queues.md
+  - features/runners.md
+  - features/schedulers.md
+  - features/sandbox.md
+  - features/workers.md
+  - features/jobs.md
+  - features/flows.md
+  - features/cli.md
+  - Complex backends:
+    - features/backends/postgres-backend.md
+    - features/backends/rabbitmq.md
+- Tutorial:
+  - learn/index.md
+  - learn/integration.md
+  - learn/advanced-patterns.md
+  - learn/performance-tuning-and-benchmarks.md
+  - learn/security-and-compliance.md
+- Dashboard:
+  - dashboard/index.md
+- Contributing: contributing.md
+- Sponsorship: sponsorship.md
+- Release Notes: release-notes.md
+markdown_extensions:
+- toc:
+    permalink: true
+- mdx_include:
+    base_path: docs/
+- admonition
+- extra
+- pymdownx.superfences:
+    custom_fences:
+    - name: mermaid
+      class: mermaid
+      format: !!python/name:pymdownx.superfences.fence_code_format ''
+- pymdownx.tabbed:
+    alternate_style: true
+- attr_list
+- md_in_html
+- pymdownx.emoji:
+    emoji_index: !!python/name:material.extensions.emoji.twemoji ''
+    emoji_generator: !!python/name:material.extensions.emoji.to_svg ''
+extra:
+  alternate:
+  - link: /
+    name: en - English
+hooks:
+- ../../scripts/hooks.py
