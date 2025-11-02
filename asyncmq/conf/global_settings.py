@@ -60,15 +60,12 @@ class BaseSettings:
         If an environment variable is not set, it will use the default value
         defined in the class attributes.
         """
-        cls = self.__class__
-        if cls.__type_hints__ is None:
-            cls.__type_hints__ = safe_get_type_hints(cls)
 
         if kwargs:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-        for key, typ in cls.__type_hints__.items():
+        for key, typ in self.__type_hints__.items():
             base_type = self._extract_base_type(typ)
 
             env_value = os.getenv(key.upper(), None)
@@ -80,6 +77,11 @@ class BaseSettings:
 
         # Call post_init if it exists
         self.post_init()
+
+    def __init_subclass__(cls) -> None:
+        # the direct class dict has not the key
+        if cls.__dict__.get("__type_hints__") is None:
+            cls.__type_hints__ = safe_get_type_hints(cls)
 
     def post_init(self) -> None:
         """
@@ -140,7 +142,7 @@ class BaseSettings:
         result = {}
         exclude = exclude or set()
 
-        for key in self.__annotations__:
+        for key in self.__type_hints__:
             if key in exclude:
                 continue
             value = getattr(self, key, None)
@@ -157,7 +159,7 @@ class BaseSettings:
                     (property, cached_property),
                 ),
             ):
-                if name in exclude or name in self.__annotations__:
+                if name in exclude or name in self.__type_hints__:
                     continue
                 try:
                     value = getattr(self, name)

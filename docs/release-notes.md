@@ -5,7 +5,7 @@ hide:
 
 # Release Notes
 
-## 0.4.7
+## 0.5.0
 
 ### Added
 
@@ -21,6 +21,7 @@ hide:
 
 - Timeout issues when running parallel DAG flows due to backend event-loop mismatches.
 - Various minor concurrency edge cases in job scanning and dependency unlocking logic.
+- Fix `BaseSettings` for python 3.14 and more complex inheritances.
 
 ## 0.4.6
 
