@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-__version__ = "0.4.6"
+__version__ = "0.4.7"
 
 from .monkay import create_monkay
 

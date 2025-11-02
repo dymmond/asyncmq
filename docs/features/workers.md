@@ -57,7 +57,7 @@ async def handle_job(
 6. **Sandbox Integration**: Calls `sandbox.run_handler` if enabled, else direct/async call.
 
 !!! Tip
-Listen to events via `event_emitter.on("job:failed", ...)` for alerting or custom fallback logic.
+    Listen to events via `event_emitter.on("job:failed", ...)` for alerting or custom fallback logic.
 
 ---
 

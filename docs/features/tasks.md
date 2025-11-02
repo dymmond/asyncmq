@@ -122,7 +122,7 @@ Or use `cron` (via `FlowProducer` for DAGs)—see the advanced patterns guide.
 ## 4. Under the Hood
 
 1. **Decorator**: Creates `enqueue_task()` and `wrapper()` functions.
-2. **`TASK_REGISTRY`**: Maps `task_id` → metadata (function, queue, retries, ttl, progress).
+2. **`TASK_REGISTRY`**: Maps `task_id` -> metadata (function, queue, retries, ttl, progress).
 3. **`wrapper()`**:
     * Injects `report_progress` if needed.
     * Calls original `func`, awaiting async or using `anyio.to_thread` for sync functions.

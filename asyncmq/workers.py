@@ -157,6 +157,16 @@ async def handle_job(
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(raw_job)
 
+    # Dependency gating (backend-agnostic)
+    # If this job depends on other jobs, ensure all parents are COMPLETED before executing.
+    if job.depends_on:
+        for parent_id in job.depends_on:
+            parent_state = await backend.get_job_state(queue_name, parent_id)
+            if parent_state != State.COMPLETED:
+                # Parent not done yet, requeue this job slightly in the future to avoid hot loops.
+                await backend.enqueue_delayed(queue_name, job.to_dict(), time.time() + 0.05)
+                return
+
     if await backend.is_job_cancelled(queue_name, job.id):
         await backend.ack(queue_name, job.id)
         await event_emitter.emit("job:cancelled", job.to_dict())
