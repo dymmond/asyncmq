@@ -5,6 +5,10 @@ hide:
 
 # Release Notes
 
+## 0.5.1
+
+- Allow `enqueue`, `enqueue_delayed` and `delay` to return the job id directly.
+
 ## 0.5.0
 
 ### Added
