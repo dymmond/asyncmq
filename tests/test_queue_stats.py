@@ -191,6 +191,22 @@ async def test_queue_enqueue_and_delayed_redis(redis):
 
 
 @pytest.mark.asyncio
+async def test_queue_send_and_delayed_redis(redis):
+    backend = RedisBackend(redis_url_or_client=REDIS_URL)
+    q = Queue("qa-redis", backend=backend)
+
+    jid = await q.send({"task_id": "t", "args": [], "kwargs": {}})
+    assert isinstance(jid, str) and len(jid) > 0
+
+    run_at = time.time() + 45
+    djid = await q.delay({"task_id": "t", "args": [], "kwargs": {}}, run_at)
+    assert isinstance(djid, str)
+
+    stats = await backend.queue_stats("qa-redis")
+    assert stats == {"waiting": 1, "delayed": 1, "failed": 0}
+
+
+@pytest.mark.asyncio
 async def test_queue_enqueue_and_delayed_postgres():
     await install_or_drop_postgres_backend()
     backend = PostgresBackend()

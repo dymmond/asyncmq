@@ -373,6 +373,12 @@ class Queue:
             return await self.enqueue(payload)
         return await self.enqueue_delayed(payload, run_at)
 
+    async def send(self, payload: dict[str, Any]) -> str:
+        """
+        The same as enqueue but under a different interface name.
+        """
+        return await self.enqueue(payload)
+
     async def get_due_delayed(self) -> list[dict[str, Any]]:
         """
         Pop & return any jobs whose run_at ≤ now.

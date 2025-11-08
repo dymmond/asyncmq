@@ -7,6 +7,12 @@ hide:
 
 ## 0.5.1
 
+### Add
+
+- `send()` as alternative to `enqueue`.
+
+### Changed
+
 - Allow `enqueue`, `enqueue_delayed` and `delay` to return the job id directly.
 
 ## 0.5.0
