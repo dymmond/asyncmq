@@ -195,6 +195,7 @@ class TaskWrapper(Generic[P, R]):
 
     # Alias for enqueue
     delay = enqueue
+    send = enqueue
 
 
 def task(

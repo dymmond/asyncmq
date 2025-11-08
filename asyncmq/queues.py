@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, cast
 
 import anyio
 
@@ -316,26 +316,68 @@ class Queue:
         # Run the asynchronous 'run' method within an AnyIO event loop.
         anyio.run(self.run)
 
-    async def enqueue(self, payload: dict[str, Any]) -> None:
+    async def enqueue(self, payload: dict[str, Any]) -> str:
         """
         Enqueue a job for immediate processing.
         """
-        await self.backend.enqueue(self.name, payload)
+        job_id = payload.get("id")
+        if job_id is None:
+            # Create a Job to mint an id and normalize the payload.
+            job = Job(
+                task_id=payload["task_id"],
+                args=payload.get("args", []),
+                kwargs=payload.get("kwargs", {}),
+                retries=0,
+                max_retries=payload.get("retries", 0),
+                backoff=payload.get("backoff"),
+                ttl=payload.get("ttl"),
+                priority=payload.get("priority", 5),
+            )
+            payload = job.to_dict()
+            job_id = job.id
 
-    async def enqueue_delayed(self, payload: dict[str, Any], run_at: float) -> None:
+        await self.backend.enqueue(self.name, payload)
+        return cast(str, job_id)
+
+    async def enqueue_delayed(self, payload: dict[str, Any], run_at: float) -> str:
         """
         Schedule a job to run at a future UNIX timestamp.
         """
-        await self.backend.enqueue_delayed(self.name, payload, run_at)
+        job_id = payload.get("id")
+        if job_id is None:
+            job = Job(
+                task_id=payload["task_id"],
+                args=payload.get("args", []),
+                kwargs=payload.get("kwargs", {}),
+                retries=0,
+                max_retries=payload.get("retries", 0),
+                backoff=payload.get("backoff"),
+                ttl=payload.get("ttl"),
+                priority=payload.get("priority", 5),
+            )
+            job.delay_until = run_at
+            payload = job.to_dict()
+            job_id = job.id
+        else:
+            # Ensure the run_at is present if caller minted their own id/payload
+            payload["delay_until"] = run_at
 
-    async def delay(self, payload: dict[str, Any], run_at: float | None = None) -> None:
+        await self.backend.enqueue_delayed(self.name, payload, run_at)
+        return cast(str, job_id)
+
+    async def delay(self, payload: dict[str, Any], run_at: float | None = None) -> str:
         """
         The same of enqueue with enqueue_delayed combined in one place.
         """
-        if not run_at:
-            await self.enqueue(payload)
-        else:
-            await self.enqueue_delayed(payload, run_at)
+        if run_at is None:
+            return await self.enqueue(payload)
+        return await self.enqueue_delayed(payload, run_at)
+
+    async def send(self, payload: dict[str, Any]) -> str:
+        """
+        The same as enqueue but under a different interface name.
+        """
+        return await self.enqueue(payload)
 
     async def get_due_delayed(self) -> list[dict[str, Any]]:
         """
