@@ -75,6 +75,42 @@ job_id = await send_email.enqueue(
 logger.info(f"Scheduled email job: {job_id}")
 ```
 
+Or using the delay
+
+```python
+from asyncmq.logging import logger
+
+job_id = await send_email.delay(
+    "alice@example.com",
+    "Welcome!",
+    "Thanks for joining.",
+    backend=backend,       # Optional: AsyncMQSettings.backend if omitted
+    delay=5.0,             # run 5 seconds from now
+    priority=3,            # higher urgency
+    depends_on=[prev_job_id],  # wait for another job
+    repeat_every=None       # no repeats
+)
+logger.info(f"Scheduled email job: {job_id}")
+```
+
+Or using the `send`
+
+```python
+from asyncmq.logging import logger
+
+job_id = await send_email.send(
+    "alice@example.com",
+    "Welcome!",
+    "Thanks for joining.",
+    backend=backend,       # Optional: AsyncMQSettings.backend if omitted
+    delay=5.0,             # run 5 seconds from now
+    priority=3,            # higher urgency
+    depends_on=[prev_job_id],  # wait for another job
+    repeat_every=None       # no repeats
+)
+logger.info(f"Scheduled email job: {job_id}")
+```
+
 * **`backend`** parameter defaults to global settings, no need to pass it everywhere.
 * **`delay`**, **`priority`**, **`depends_on`**, and **`repeat_every`** cover most scheduling needs.
 * The helper returns the **`job_id`**, so you can track or cancel it later.
