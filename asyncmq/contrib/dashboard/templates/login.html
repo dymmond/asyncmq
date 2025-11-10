@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" href="{{ favicon }}"/>
+  <title>AsyncMQ | Sign in</title>
+
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Project assets -->
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
+  <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            asyncmq: {
+              green: "{{ sidebar_bg_colour }}"
+            }
+          },
+          boxShadow: {
+            soft: "0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06)"
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    .focus-ring:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(59,130,246,.45);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 text-gray-900 antialiased">
+  {% include "shared/loading.html" %}
+  {% include "shared/messages.html" %}
+
+  <!-- Centered auth layout -->
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="w-full max-w-md">
+      <!-- Brand -->
+      <div class="flex items-center justify-center gap-3 mb-6">
+        <div class="h-11 w-11 rounded-2xl bg-asyncmq-green text-white flex items-center justify-center shadow-soft">
+          <!-- Spark icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5l-9 9m5.25-8.25L19.5 15M6.75 19.5 19.5 6.75" />
+          </svg>
+        </div>
+        <div class="text-2xl font-semibold tracking-tight">AsyncMQ Admin</div>
+      </div>
+
+      <div class="bg-white/80 backdrop-blur rounded-2xl shadow-soft border border-gray-200">
+        <div class="p-6 sm:p-7">
+          <h1 class="text-xl font-semibold tracking-tight mb-1">Sign in</h1>
+          <p class="text-sm text-gray-600 mb-5">Access your AsyncMQ dashboard</p>
+
+          {% if error %}
+            <div class="mb-4 rounded-lg border px-3 py-2 text-sm bg-red-50 border-red-200 text-red-900">
+              {{ error }}
+            </div>
+          {% endif %}
+
+          <form method="post" action="{{ url_prefix }}/login" class="space-y-4">
+            <input type="hidden" name="next" value="{{ next or '' }}"/>
+
+            <div>
+              <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
+              <div class="mt-1 relative">
+                <input id="username" name="username" autocomplete="username" required
+                       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm focus-ring"
+                       placeholder="you@example.com" />
+                <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 12a4 4 0 10-8 0 4 4 0 008 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 14v7m0-7a7 7 0 100-14 7 7 0 000 14z"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+              <div class="mt-1 relative">
+                <input id="password" name="password" type="password" autocomplete="current-password" required
+                       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm focus-ring"
+                       placeholder="••••••••" />
+                <button type="button" aria-label="Toggle password visibility"
+                        class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-500 hover:text-gray-700"
+                        onclick="const i=document.getElementById('password'); i.type = (i.type==='password' ? 'text':'password')">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12z"/>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="pt-2">
+              <button type="submit"
+                      class="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-asyncmq-green text-white px-4 py-2.5 font-medium shadow-soft hover:opacity-95 focus-ring transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25h-7.5a3 3 0 00-3 3v7.5a3 3 0 003 3h7.5a3 3 0 003-3v-7.5a3 3 0 00-3-3z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v4.5m-2.25-2.25h4.5"/>
+                </svg>
+                Sign in
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Footer links -->
+      <div class="mt-6 text-center text-sm text-gray-600">
+        <a href="{{ url_prefix }}" class="underline hover:no-underline">Back to Dashboard</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

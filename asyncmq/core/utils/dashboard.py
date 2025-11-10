@@ -1,5 +1,6 @@
 import secrets
 from dataclasses import dataclass
+from typing import Literal
 
 try:
     from lilya.middleware import DefineMiddleware
@@ -16,12 +17,71 @@ from asyncmq import monkay
 @dataclass
 class DashboardConfig:
     title: str = "Dashboard"
+    """The title displayed in the browser tab/window header."""
+
     header_title: str = "AsyncMQ"
+    """The main title displayed within the dashboard application header."""
+
     description: str = "A simple dashboard for monitoring AsyncMQ jobs."
+    """A brief description of the dashboard's purpose."""
+
     favicon: str = "https://raw.githubusercontent.com/dymmond/asyncmq/refs/heads/main/docs/statics/favicon.ico"
+    """URL path or external URL for the favicon."""
+
     dashboard_url_prefix: str = "/admin"
+    """The base URL prefix where the dashboard is mounted in the host application."""
+
     sidebar_bg_colour: str = "#CBDC38"
-    session_middleware: DefineMiddleware = DefineMiddleware(SessionMiddleware, secret_key=secrets.token_hex(32))
+    """The CSS color value for the sidebar background."""
+
+    secret_key: str | None = None
+    """
+    The cryptographic key used to sign the session cookie. Must be kept secret.
+    If `None`, a secure key is generated automatically on first access.
+    """
+
+    session_cookie: str = "asyncz_admin"
+    """The name of the session cookie to be set on the client."""
+
+    max_age: int | None = 14 * 24 * 60 * 60  # 14 days, in seconds
+    """
+    The maximum age (lifetime) of the session cookie in seconds.
+    `None` means the cookie expires when the browser closes.
+    """
+
+    path: str = "/"
+    """The path scope for which the cookie is valid."""
+
+    same_site: Literal["lax", "strict", "none"] = "lax"
+    """Controls when cookies are sent in cross-site requests, balancing security and usability."""
+
+    https_only: bool = False
+    """If `True`, the cookie will only be transmitted over HTTPS connections (requires secure context)."""
+
+    domain: str | None = None
+    """The domain scope for which the cookie is valid."""
+
+    @property
+    def session_middleware(self) -> DefineMiddleware:
+        """
+        Dynamically creates and returns a `DefineMiddleware` instance configured with the
+        necessary `SessionMiddleware` parameters.
+
+        A secure key is generated using `secrets.token_urlsafe` if `secret_key` is `None`.
+
+        Returns:
+            A `DefineMiddleware` instance ready to be included in an ASGI application.
+        """
+        return DefineMiddleware(
+            SessionMiddleware,
+            secret_key=self.secret_key or secrets.token_urlsafe(32),
+            session_cookie=self.session_cookie,
+            max_age=self.max_age,
+            path=self.path,
+            same_site=self.same_site,
+            https_only=self.https_only,
+            domain=self.domain,
+        )
 
 
 def get_effective_prefix(request: Request) -> str:

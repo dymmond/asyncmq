@@ -80,10 +80,11 @@ tasks:
   # --------------------------- TEST ------------------------------------
 
   dashboard:
-    desc: Run BE for admin
+    desc: Starts the dashboard in development mode
+    env:
+      ASYNCMQ_SETTINGS_MODULE: asyncmq.contrib.dashboard.development.settings.Settings
     cmds:
-      - cd asyncmq/contrib/dashboard && python -m serve
-
+      - python asyncmq/contrib/dashboard/development/run.py
 
   test:
     desc: Runs the suite tests

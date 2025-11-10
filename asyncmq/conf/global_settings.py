@@ -458,6 +458,10 @@ class Settings(BaseSettings):
 
         worker_on_shutdown = (disconnect_db, flush_metrics)
     """
+    secret_key: str | None = None
+    """
+    The secret used for cryptography and for the Dashboard to use sessions.
+    """
 
     @property
     def backend(self) -> BaseBackend:
@@ -481,7 +485,17 @@ class Settings(BaseSettings):
 
     @property
     def dashboard_config(self) -> DashboardConfig | None:
-        return DashboardConfig()
+        """
+        Retrieves the default configuration settings for the AsyncMQ management dashboard.
+
+        This property dynamically imports and returns an instance of the `DashboardConfig`
+        class, providing access to settings like the authentication backend, template
+        directory, and static files location.
+
+        Returns:
+            An instance of `DashboardConfig`.
+        """
+        return DashboardConfig(secret_key=self.secret_key)
 
     @property
     def logging_config(self) -> "LoggingConfig | None":
