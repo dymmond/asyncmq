@@ -5,6 +5,8 @@ from lilya.conf.global_settings import Settings as LilyaSettings
 from lilya.middleware import DefineMiddleware, Middleware
 from lilya.middleware.sessions import SessionMiddleware
 
+from asyncmq.backends.base import BaseBackend
+from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.conf.global_settings import Settings
 from asyncmq.core.utils.dashboard import DashboardConfig
 
@@ -35,6 +37,7 @@ class TestSettings(Settings):
     stalled_threshold: float = test_scanner_interval
     scan_interval: float = 0.1
     asyncmq_postgres_pool_options: dict[str, int] = {"min_size": 1, "max_size": 4}
+    backend: BaseBackend = InMemoryBackend()
 
     @property
     def dashboard_config(self) -> DashboardConfig | None:
