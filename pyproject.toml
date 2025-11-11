@@ -106,6 +106,7 @@ testing = [
     "structlog>=25.3.0",
     "uvicorn>=0.34.2",
     "httpx",
+    "pyjwt",
     "ipdb",
 ]
 postgres = ["asyncpg>=0.30.0"]
