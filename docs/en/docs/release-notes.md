@@ -12,11 +12,14 @@ hide:
 - Implemented `AuthGateMiddleware` to protect dashboard routes and handle HTMX redirects.
 - Added CORS and session middleware support in `AsyncMQAdmin` with customizable options.
 - Integrated `DashboardConfig` access via global settings (`settings.dashboard_config`).
-- Introduced detailed documentation and examples for custom `AuthBackend` implementations.
+- Introduced `JWTAuthBackend` and database-backed authentication backends for enhanced security.
+- Expanded documentation with detailed examples for custom `AuthBackend` implementations and integration guides.
 
 ### Changed
 
-- Revamped the [Dashboard](./dashboard/index.md) and now allows backends for logins.
+- Updated the [Dashboard](./dashboard/index.md) documentation to reflect new authentication flows and backend integrations.
+- Clarified upgrade instructions to assist users transitioning from previous dashboard versions.
+- Improved authentication-related documentation for better clarity and usability.
 
 #### Breaking
 
