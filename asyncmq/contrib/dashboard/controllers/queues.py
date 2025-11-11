@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lilya.datastructures import FormData
+from lilya.datastructures import URL, FormData
 from lilya.requests import Request
 from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
@@ -21,6 +21,10 @@ class QueueController(DashboardMixin, TemplateController):
     """
 
     template_name: str = "queues/queues.html"
+
+    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> URL:
+        """Calculates the URL path for redirecting back to this controller."""
+        return request.url_path_for(reverse_name, **params)
 
     async def get_queues(self) -> list[dict[str, Any]]:
         """
@@ -106,8 +110,7 @@ class QueueController(DashboardMixin, TemplateController):
             add_message(request, "success", f"Queue '{q}' resumed.")
 
         # Redirect to the queue detail using the named route
-        target = request.path_for("queue-detail", name=q)
-        return RedirectResponse(target, status_code=303)
+        return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)
 
 
 class QueueDetailController(DashboardMixin, TemplateController):
@@ -117,6 +120,10 @@ class QueueDetailController(DashboardMixin, TemplateController):
     """
 
     template_name: str = "queues/info.html"
+
+    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> URL:
+        """Calculates the URL path for redirecting back to this controller."""
+        return request.url_path_for(reverse_name, **params)
 
     async def get(self, request: Request) -> Response:
         """
@@ -175,5 +182,4 @@ class QueueDetailController(DashboardMixin, TemplateController):
             add_message(request, "success", f"Queue '{q}' resumed.")
 
         # Redirect back to the detail page itself
-        target = request.url_path_for("queue-detail", name=q)
-        return RedirectResponse(target, status_code=303)
+        return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from lilya.datastructures import URL, FormData
 from lilya.requests import Request
@@ -52,25 +52,25 @@ class DLQController(DashboardMixin, TemplateController):
             created = "N/A"
         return created
 
-    async def _fetch_and_format_jobs(self, queue: str, page: int, size: int) -> tuple[List[FormattedJob], int, int]:
+    async def _fetch_and_format_jobs(self, queue: str, page: int, size: int) -> tuple[list[FormattedJob], int, int]:
         """
         Fetches all failed jobs for the queue, handles slicing, and formats them for the template.
 
-        Returns: (List of formatted jobs, Total job count, Total page count)
+        Returns: (list of formatted jobs, Total job count, Total page count)
         """
         backend = monkay.settings.backend
 
         # Fetch all failed jobs (Backend must support this)
-        all_jobs: List[RawJobData] = await backend.list_jobs(queue, "failed")
+        all_jobs: list[RawJobData] = await backend.list_jobs(queue, "failed")
         total: int = len(all_jobs)
         total_pages: int = (total + size - 1) // size
 
         # Apply pagination slice
         start: int = (page - 1) * size
         end: int = start + size
-        page_jobs: List[RawJobData] = all_jobs[start:end]
+        page_jobs: list[RawJobData] = all_jobs[start:end]
 
-        formatted_jobs: List[FormattedJob] = []
+        formatted_jobs: list[FormattedJob] = []
         for raw in page_jobs:
             created_at: str = self._format_job_timestamp(raw)
             formatted_jobs.append(
@@ -88,14 +88,14 @@ class DLQController(DashboardMixin, TemplateController):
         self,
         request: Request,
         queue: str,
-        jobs: List[FormattedJob],
+        jobs: list[FormattedJob],
         page: int,
         size: int,
         total: int,
         total_pages: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Assembles the final context dictionary for the template renderer."""
-        context: Dict[str, Any] = await super().get_context_data(request)
+        context: dict[str, Any] = await super().get_context_data(request)
         context.update(
             {
                 "page_header": f"DLQ {queue}",
@@ -140,7 +140,7 @@ class DLQController(DashboardMixin, TemplateController):
 
         try:
             # 1. Safely extract job IDs regardless of single/multi-select form structure
-            job_ids: List[str]
+            job_ids: list[str]
             if hasattr(form, "getall"):
                 # Standard for multiple same-name inputs
                 job_ids = form.getall("job_id")
