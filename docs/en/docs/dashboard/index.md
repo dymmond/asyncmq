@@ -6,7 +6,7 @@ hide:
 # AsyncMQ Admin Dashboard
 
 The AsyncMQ Admin Dashboard is a sleek, ASGI powered interface that lets you peek under the hood of your background job system.
-Whether you're cruising with FastAPI, Esmerald, or Starlette, simply mount the dashboard, plug in a session middleware,
+Whether you're cruising with FastAPI, Ravyn, Lilya or Starlette, simply mount the dashboard, plug in a session middleware,
 and voilà, you've got real-time insights into queues, workers, jobs, and metrics without writing a single JavaScript line.
 
 !!! Note
@@ -16,7 +16,7 @@ You will need to install the dashboard.
 
 The dashboard also requires the `SessionMiddleware` to be used due to messages being sent.
 
-If you use FastAPI or Esmerald you can simply use the one from Starlette or Lilya.
+If you use FastAPI or Ravyn you can simply use the one from Starlette or Lilya.
 
 The reason for all of this was to make the dashboard as ASGI friendly as possible and since Lilya and Starlette use Pure ASGI middlewares, that means you can also use them anywhere else but you are also free to use your own.
 
@@ -25,7 +25,7 @@ The reason for all of this was to make the dashboard as ASGI friendly as possibl
 When you install the dashboard, it will also install [Lilya](https://lilya.dev) as its used internally for this purpose.
 
 ```python
-from lilya.middleware.session import SessionMiddleware
+from lilya.middleware.sessions import SessionMiddleware
 ```
 
 ## The installation
@@ -102,35 +102,44 @@ Because the dashboard relies on HTTP cookies to track flash messages and user st
 If you're using FastAPI or Starlette, you can use starlette.middleware.sessions.SessionMiddleware, or thanks to the
 dashboard's ASGI-agnostic design—any Lilya compatible middleware will do:
 
-### Esmerald
+### Ravyn
 
 ```python
-from esmerald import Esmerald, Include
-from esmerald.core.config.session import SessionConfig
-from esmerald.conf import settings
-from asyncmq.contrib.dashboard.application import dashboard
+from ravyn import Ravyn, Include
+from ravyn.core.config.session import SessionConfig
+from ravyn.conf import settings
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 
 session_config = SessionConfig(secret_key=settings.secret_key)
+asyncmq_admin = AsyncMQAdmin(enable_login=False)
 
-app = Esmerald(
+app = Ravyn(
     routes=[
-        Include(path="/", app=dashboard, name="dashboard-admin")
+        Include("/", app=asyncmq_admin.get_asgi_app(with_url_prefix=True))
     ],
     session_config=session_config,
 )
 ```
+
+!!! Warning
+    Don't pass the `name` in the `Include` as you were doing before. The reason for it its to allow the statics to be discovered automatically.
 
 ### FastAPI
 
 ```python
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
-from asyncmq.contrib.dashboard.application import dashboard
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 
+asyncmq_admin = AsyncMQAdmin(enable_login=False)
 app = FastAPI()
+
 app.add_middleware(SessionMiddleware, secret_key="your-secret")
-app.mount("/", dashboard, name="asyncmq-admin")
+app.mount("/", asyncmq_admin.get_asgi_app(with_url_prefix=True))
 ```
+
+!!! Warning
+    Don't pass the `name` in the `mount` as you were doing before. The reason for it its to allow the statics to be discovered automatically.
 
 ### Explanation
 
@@ -201,12 +210,13 @@ the context provided by `DashboardMixin`.
 
 ```python
 from fastapi import FastAPI
-from asyncmq.contrib.dashboard.application import dashboard
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 
+asyncmq_admin = AsyncMQAdmin(enable_login=False)
 app = FastAPI()
 
 # Mount under "/fastapi/admin"
-app.mount("/fastapi", dashboard, name="asyncmq-admin")
+app.mount("/fastapi", asyncmq_admin.get_asgi_app(with_url_prefix=True))
 ```
 
 ### Customizing Appearance

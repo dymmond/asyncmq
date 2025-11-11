@@ -96,6 +96,29 @@
           <span class="ml-3">Workers</span>
         </a>
       </nav>
+
+    <!-- Logout (bottom) -->
+      <div class="mt-auto px-2 pb-4 pt-4 border-t border-[#B0B735]">
+        <!-- POST (recommended) -->
+        <form method="post" action="{{ url_prefix }}/logout">
+          {# If you have CSRF protection, include your token here #}
+          {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>{% endif %}
+          <button type="submit"
+                  class="w-full group flex items-center px-4 py-2 text-sm font-medium rounded-md text-gray-900 hover:bg-gray-200"
+                  aria-label="Logout">
+            <!-- Logout Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <!-- Door -->
+              <path d="M3 4h8a2 2 0 012 2v12a2 2 0 01-2 2H3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- Horizontal line -->
+              <path d="M21 12H7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- Arrow -->
+              <path d="M15 8l4 4-4 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="ml-3">Logout</span>
+          </button>
+        </form>
+      </div>
     </aside>
 
     <!-- Main Content -->
@@ -135,6 +158,9 @@
           }
         });
       });
+
+      // Page lifecycle: hide on page show (e.g., bfcache restores)
+      window.addEventListener('pageshow', hideLoading);
     });
   </script>
 </body>

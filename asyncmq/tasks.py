@@ -29,7 +29,7 @@ class ProgressReporter(Protocol):
 # Type for a function with an optional progress reporter
 # For functions that accept progress reporting
 class TaskWithProgress(Protocol[P, R]):
-    def __call__(self, *args: P.args, report_progress: ProgressReporter, **kwargs: P.kwargs) -> R: ...
+    def __call__(self, *args: Any, report_progress: ProgressReporter, **kwargs: Any) -> R: ...
 
 
 # Wrapper class for task functions that properly exposes attributes to type checker
@@ -129,13 +129,13 @@ class TaskWrapper(Generic[P, R]):
 
     async def enqueue(
         self,
-        *args: P.args,
+        *args: Any,
         backend: BaseBackend | None = None,
         delay: float = 0,
         priority: int = 5,
         depends_on: list[str] | None = None,
         repeat_every: float | None = None,
-        **kwargs: P.kwargs,
+        **kwargs: Any,
     ) -> str | None:
         """
         Helper method to enqueue a new job for this task.
@@ -253,7 +253,12 @@ def task(
 
         # Create the task wrapper
         task_wrapper = TaskWrapper(
-            func=func, task_id=task_id, queue=queue, retries=retries, ttl=ttl, progress_enabled=progress
+            func=func,
+            task_id=task_id,
+            queue=queue,
+            retries=retries,
+            ttl=ttl,
+            progress_enabled=progress,
         )
 
         # Register the task metadata in the global registry.
