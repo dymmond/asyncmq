@@ -74,7 +74,7 @@ nav:
   - learn/performance-tuning-and-benchmarks.md
   - learn/security-and-compliance.md
 - Dashboard:
-  - dashboard/index.md
+  - dashboard/dashboard.md
   - dashboard/jwt.md
 - Contributing: contributing.md
 - Sponsorship: sponsorship.md
