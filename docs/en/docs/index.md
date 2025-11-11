@@ -106,10 +106,6 @@ $ pip install asyncmq[all]
 
 AsyncMQ comes with a dashboard and that requires some additional setup but nothing special but to install it.
 
-```shell
-$ pip install asyncmq[dashboard]
-```
-
 There is a dedicated [Dashboard](./dashboard/index.md) section explaining step by step how to integrate with your favourite
 ASGI framework as well.
 

@@ -32,7 +32,7 @@ def client(app):
 
 def test_home_page(client):
     settings.backend = RedisBackend()
-    response = client.get("/fastapi/admin/")
+    response = client.get("/fastapi/asyncmq/")
     assert response.status_code == 200
     assert config.title.encode() in response.content
 
@@ -41,19 +41,19 @@ def test_sidebar_links_include_mount_prefix(client):
     settings.backend = RedisBackend()
 
     # Load the dashboard home page
-    resp = client.get("/fastapi/admin")
+    resp = client.get("/fastapi/asyncmq")
     assert resp.status_code == 200
 
     html = resp.text
 
     # Expected links with mount prefix
-    assert 'href="/fastapi/admin"' in html
-    assert 'href="/fastapi/admin/queues"' in html
-    assert 'href="/fastapi/admin/metrics"' in html
-    assert 'href="/fastapi/admin/workers"' in html
+    assert 'href="/fastapi/asyncmq"' in html
+    assert 'href="/fastapi/asyncmq/queues"' in html
+    assert 'href="/fastapi/asyncmq/metrics"' in html
+    assert 'href="/fastapi/asyncmq/workers"' in html
 
     # Ensure incorrect, unmounted links are NOT present
-    assert 'href="/admin"' not in html
-    assert 'href="/admin/queues"' not in html
-    assert 'href="/admin/metrics"' not in html
-    assert 'href="/admin/workers"' not in html
+    assert 'href="/asyncmq"' not in html
+    assert 'href="/asyncmq/queues"' not in html
+    assert 'href="/asyncmq/metrics"' not in html
+    assert 'href="/asyncmq/workers"' not in html

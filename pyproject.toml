@@ -38,7 +38,7 @@ classifiers = [
 ]
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
-    "lilya[standard]>=0.22.14",
+    "lilya[standard]>=0.22.15",
     "redis>=7.0.0",
 ]
 
@@ -111,9 +111,8 @@ testing = [
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
 aio-pika = ["aio_pika>=9.5.5"]
-dashboard = ["lilya[standard]>=0.22.14"]
 
-all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[dashboard]", "asyncmq[aio-pika]"]
+all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[aio-pika]"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
@@ -146,7 +145,7 @@ serve_lang = "hatch run docs:update_languages; scripts/docs.py live --lang {args
 new_lang = "hatch run docs:update_languages; scripts/docs.py new-lang --lang {args}"
 
 [tool.hatch.envs.hatch-test]
-features = ["testing", "postgres", "mongo", "dashboard"]
+features = ["testing", "postgres", "mongo"]
 template = "test"
 
 [tool.hatch.envs.hatch-test.env-vars]

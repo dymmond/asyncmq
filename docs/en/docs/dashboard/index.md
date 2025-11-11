@@ -30,11 +30,8 @@ from lilya.middleware.sessions import SessionMiddleware
 
 ## The installation
 
-Getting started is a breeze. Install the AsyncMQ package (which bundles the dashboard) via pip:
+Getting started is a breeze. AsyncMQ package brings all already done for you with Lilya (which bundles the dashboard) via pip:
 
-```shell
-pip install asyncmq[dashboard]
-```
 
 Once installed, the dashboard is ready to roll, no extra dependencies required beyond your preferred ASGI framework
 and a session middleware provider.
