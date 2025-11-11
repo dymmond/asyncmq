@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from lilya.datastructures import FormData
 from lilya.requests import Request
-from lilya.responses import RedirectResponse
+from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
@@ -12,22 +13,44 @@ from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
 class QueueController(DashboardMixin, TemplateController):
-    template_name = "queues/queues.html"
+    """
+    Renders the queue overview page, listing all available queues along with their job counts
+    by state (waiting, active, delayed, failed, completed).
+
+    Also handles POST requests to pause or resume a queue.
+    """
+
+    template_name: str = "queues/queues.html"
 
     async def get_queues(self) -> list[dict[str, Any]]:
-        queues = await monkay.settings.backend.list_queues()
+        """
+        Retrieves all registered queues and fetches the job counts and pause state for each one.
 
-        rows = []
+        Returns:
+            A list of dictionaries, where each dictionary contains the queue name,
+            paused status, and count for all major job states.
+        """
+        backend: Any = monkay.settings.backend
+        queues: list[str] = await backend.list_queues()
+        job_states: tuple[str, ...] = (
+            "waiting",
+            "active",
+            "delayed",
+            "failed",
+            "completed",
+        )
+
+        rows: list[dict[str, Any]] = []
         for q in queues:
-            # paused state (some backends may not support it)
-            paused = False
-            if hasattr(monkay.settings.backend, "is_queue_paused"):
-                paused = await monkay.settings.backend.is_queue_paused(q)
+            # Check for paused state (requires backend support)
+            paused: bool = False
+            if hasattr(backend, "is_queue_paused"):
+                paused = await backend.is_queue_paused(q)
 
-            # counts by state
-            counts = {}
-            for state in ("waiting", "active", "delayed", "failed", "completed"):
-                jobs = await monkay.settings.backend.list_jobs(q, state)
+            # Get counts by state
+            counts: dict[str, int] = {}
+            for state in job_states:
+                jobs: list[Any] = await backend.list_jobs(q, state)
                 counts[state] = len(jobs)
 
             rows.append(
@@ -43,9 +66,13 @@ class QueueController(DashboardMixin, TemplateController):
             )
         return rows
 
-    async def get(self, request: Request) -> Any:
-        context = await super().get_context_data(request)
-        queues = await self.get_queues()
+    async def get(self, request: Request) -> Response:
+        """
+        Handles the GET request, retrieves all queue data, and renders the overview page.
+        """
+        context: dict[str, Any] = await self.get_context_data(request)
+        queues: list[dict[str, Any]] = await self.get_queues()
+
         context.update(
             {
                 "title": "Queues",
@@ -56,13 +83,20 @@ class QueueController(DashboardMixin, TemplateController):
         )
         return await self.render_template(request, context=context)
 
-    async def post(self, request: Request) -> Any:
+    async def post(self, request: Request) -> RedirectResponse:
         """
-        Handles pause/resume form posts.
+        Handles pause/resume actions submitted via POST requests.
+
+        Args:
+            request: The incoming request object containing path and form data.
+
+        Returns:
+            A redirect response back to the queue detail page.
         """
-        backend = monkay.settings.backend
-        q = request.path_params["name"]
-        action = (await request.form()).get("action")
+        backend: Any = monkay.settings.backend
+        q: str = request.path_params["name"]
+        form: FormData = await request.form()
+        action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
             await backend.pause_queue(q)
@@ -71,34 +105,46 @@ class QueueController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        # Redirect to the queue detail using the named route (no state segment)
+        # Redirect to the queue detail using the named route
         target = request.path_for("queue-detail", name=q)
         return RedirectResponse(target, status_code=303)
 
 
 class QueueDetailController(DashboardMixin, TemplateController):
     """
-    Shows detailed info for a single queue, and allows pause/resume.
+    Shows detailed information for a single queue, including job counts by state
+    and its current paused status. Allows form submission for pause/resume actions.
     """
 
-    template_name = "queues/info.html"
+    template_name: str = "queues/info.html"
 
-    async def get(self, request: Request) -> Any:
-        backend = monkay.settings.backend
-        q = request.path_params["name"]
+    async def get(self, request: Request) -> Response:
+        """
+        Handles the GET request, retrieves details and job counts for the specified queue,
+        and renders the detail page.
+        """
+        backend: Any = monkay.settings.backend
+        q: str = request.path_params["name"]
+        job_states: tuple[str, ...] = (
+            "waiting",
+            "active",
+            "delayed",
+            "failed",
+            "completed",
+        )
 
-        # get paused state
-        paused = False
+        # Get paused state
+        paused: bool = False
         if hasattr(backend, "is_queue_paused"):
             paused = await backend.is_queue_paused(q)
 
-        # counts by state
-        counts = {}
-        for state in ("waiting", "active", "delayed", "failed", "completed"):
-            jobs = await backend.list_jobs(q, state)
+        # Get counts by state
+        counts: dict[str, int] = {}
+        for state in job_states:
+            jobs: list[Any] = await backend.list_jobs(q, state)
             counts[state] = len(jobs)
 
-        context = await super().get_context_data(request)
+        context: dict[str, Any] = await self.get_context_data(request)
         context.update(
             {
                 "title": f"Queue '{q}'",
@@ -112,14 +158,14 @@ class QueueDetailController(DashboardMixin, TemplateController):
 
         return await self.render_template(request, context=context)
 
-    async def post(self, request: Request) -> Any:
+    async def post(self, request: Request) -> RedirectResponse:
         """
-        Handles form POSTs from the pause/resume buttons.
+        Handles form POSTs from the pause/resume buttons on the detail page.
         """
-
-        backend = monkay.settings.backend
-        q = request.path_params["name"]
-        action = (await request.form()).get("action")
+        backend: Any = monkay.settings.backend
+        q: str = request.path_params["name"]
+        form: FormData = await request.form()
+        action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
             await backend.pause_queue(q)
@@ -128,6 +174,6 @@ class QueueDetailController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        # Redirect using the named route to avoid prefix mismatches
+        # Redirect back to the detail page itself
         target = request.url_path_for("queue-detail", name=q)
         return RedirectResponse(target, status_code=303)
