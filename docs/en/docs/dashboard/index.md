@@ -1,8 +1,3 @@
----
-hide:
-  - navigation
----
-
 # AsyncMQ Admin Dashboard
 
 A clean, ASGI-native web UI (plus tiny management endpoints) for observing and operating your AsyncMQ queues,

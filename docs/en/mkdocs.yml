@@ -75,6 +75,7 @@ nav:
   - learn/security-and-compliance.md
 - Dashboard:
   - dashboard/index.md
+  - dashboard/jwt.md
 - Contributing: contributing.md
 - Sponsorship: sponsorship.md
 - Release Notes: release-notes.md
