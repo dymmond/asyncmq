@@ -101,10 +101,6 @@ $ pip install asyncmq[all]
 
 AsyncMQ comes with a dashboard and that requires some additional setup but nothing special but to install it.
 
-```shell
-$ pip install asyncmq[dashboard]
-```
-
 ---
 
 ## Comparison with Other Python Task Queues

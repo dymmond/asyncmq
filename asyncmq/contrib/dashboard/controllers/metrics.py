@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from lilya.requests import Request
@@ -8,18 +10,34 @@ from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
 class MetricsController(DashboardMixin, TemplateController):
-    template_name = "metrics/metrics.html"
+    """
+    Controller for the Metrics dashboard page.
+
+    This controller aggregates job statistics across all available queues and job states
+    to provide high-level metrics like throughput and failure counts.
+    """
+
+    template_name: str = "metrics/metrics.html"
 
     async def get(self, request: Request) -> Any:
+        """
+        Handles the GET request, retrieves and aggregates job counts, and renders the metrics dashboard.
+
+        Args:
+            request: The incoming Lilya Request object.
+
+        Returns:
+            The rendered HTML response for the metrics page.
+        """
         # 1. Base context (title, header, favicon)
-        context = await super().get_context_data(request)
+        context: dict[str, Any] = await super().get_context_data(request)
 
         # 2. Fetch all queues
-        backend = monkay.settings.backend
+        backend: Any = monkay.settings.backend
         queues: list[str] = await backend.list_queues()
 
-        # initialize counters
-        counts = {
+        # Initialize counters for job states
+        counts: dict[str, int] = {
             "waiting": 0,
             "active": 0,
             "completed": 0,
@@ -27,14 +45,15 @@ class MetricsController(DashboardMixin, TemplateController):
             "delayed": 0,
         }
 
-        # sum up each state across all queues
+        # 3. Sum up each state across all queues
         for queue in queues:
             for state in counts:
-                jobs = await backend.list_jobs(queue, state)
+                # Assuming backend.list_jobs returns a list of job data
+                jobs: list[Any] = await backend.list_jobs(queue, state)
                 counts[state] += len(jobs)
 
-        # build the metrics payload for the template
-        metrics = {
+        # 4. Build the metrics payload for the template
+        metrics: dict[str, Any] = {
             "throughput": counts["completed"],
             "avg_duration": None,  # TODO: compute from timestamps
             "retries": counts["failed"],
