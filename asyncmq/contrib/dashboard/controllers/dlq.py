@@ -2,17 +2,21 @@ import json
 from datetime import datetime
 from typing import Any
 
+from lilya.datastructures import URL
 from lilya.requests import Request
 from lilya.responses import RedirectResponse
 from lilya.templating.controllers import TemplateController
 
-from asyncmq import monkay, settings
+from asyncmq import monkay
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
 class DLQController(DashboardMixin, TemplateController):
     template_name = "dlqs/dlq.html"
+
+    def get_return_url(self, request: Request, **params: Any) -> URL:
+        return request.url_path_for("dlq", **params)
 
     async def get(self, request: Request) -> Any:
         queue = request.path_params["name"]
@@ -86,9 +90,7 @@ class DLQController(DashboardMixin, TemplateController):
                 add_message(request, "error", "You need to select a job to be deleted first.")
             else:
                 add_message(request, "info", "You need to select a job to be retried first.")
-            return RedirectResponse(
-                f"{settings.dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq", status_code=303
-            )
+            return RedirectResponse(self.get_return_url(request), status_code=303)
 
         for job_id in job_ids:
             if not job_id:
@@ -98,6 +100,4 @@ class DLQController(DashboardMixin, TemplateController):
             elif action == "remove":
                 await backend.remove_job(queue, job_id)
 
-        return RedirectResponse(
-            f"{settings.dashboard_config.dashboard_url_prefix}/queues/{queue}/dlq?page={page}", status_code=303
-        )
+        return RedirectResponse(f"{self.get_return_url(request, name=queue)}?page={page}", status_code=303)

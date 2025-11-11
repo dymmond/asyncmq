@@ -1,5 +1,6 @@
 import datetime
 import math
+from types import SimpleNamespace
 from typing import Any
 
 from lilya.requests import Request
@@ -24,6 +25,8 @@ class WorkerController(DashboardMixin, TemplateController):
 
         all_workers: list[dict[str, Any]] = []
         for wi in worker_info:
+            if isinstance(wi, dict):
+                wi = SimpleNamespace(**wi)  # type: ignore
             hb = datetime.datetime.fromtimestamp(wi.heartbeat)
             all_workers.append(
                 {

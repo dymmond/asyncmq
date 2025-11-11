@@ -22,14 +22,25 @@ class RepeatablesController(DashboardMixin, TemplateController):
 
         rows: list[dict[str, Any]] = []
         for rec in repeatables:
-            jd = rec.job_def
+            if isinstance(rec, dict):
+                jd = rec
+                raw_next_run = rec.get("next_run")
+                paused = bool(rec.get("paused", False))
+            else:
+                jd = getattr(rec, "job_def", {})  # type: ignore
+                raw_next_run = getattr(rec, "next_run", None)
+                paused = bool(getattr(rec, "paused", False))
+
             task_id = jd.get("task_id") or jd.get("name")
             every = jd.get("every")
             cron = jd.get("cron")
 
             # format next run
             try:
-                next_run = datetime.fromtimestamp(rec.next_run).strftime("%Y-%m-%d %H:%M:%S")
+                if raw_next_run:
+                    next_run = datetime.fromtimestamp(raw_next_run).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    next_run = "—"
             except Exception:
                 next_run = "—"
 
@@ -39,8 +50,7 @@ class RepeatablesController(DashboardMixin, TemplateController):
                     "every": every,
                     "cron": cron,
                     "next_run": next_run,
-                    "paused": rec.paused,
-                    # keep the raw job_def around for the form
+                    "paused": paused,
                     **{"job_def": jd},
                 }
             )

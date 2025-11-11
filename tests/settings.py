@@ -30,9 +30,7 @@ class DashConfig(DashboardConfig):
 
 class TestSettings(Settings):
     debug: bool = True
-    asyncmq_postgres_backend_url: str = (
-        "postgresql://postgres:postgres@localhost:5432/postgres"
-    )
+    asyncmq_postgres_backend_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
     stalled_check_interval: float = test_scanner_interval
     stalled_threshold: float = test_scanner_interval
     scan_interval: float = 0.1

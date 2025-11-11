@@ -71,12 +71,9 @@ class QueueController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        # Redirect to the queue detail with state, preserving mount path and configured prefix
-        from asyncmq.core.utils.dashboard import get_effective_prefix
-
-        base = get_effective_prefix(request)
-        state = request.path_params.get("state", "waiting")
-        return RedirectResponse(f"{base}/queues/{q}/{state}")
+        # Redirect to the queue detail using the named route (no state segment)
+        target = request.path_for("queue-detail", name=q)
+        return RedirectResponse(target, status_code=303)
 
 
 class QueueDetailController(DashboardMixin, TemplateController):
@@ -119,6 +116,7 @@ class QueueDetailController(DashboardMixin, TemplateController):
         """
         Handles form POSTs from the pause/resume buttons.
         """
+
         backend = monkay.settings.backend
         q = request.path_params["name"]
         action = (await request.form()).get("action")
@@ -130,8 +128,6 @@ class QueueDetailController(DashboardMixin, TemplateController):
             await backend.resume_queue(q)
             add_message(request, "success", f"Queue '{q}' resumed.")
 
-        # Redirect to queue detail while preserving mount path and configured prefix
-        from asyncmq.core.utils.dashboard import get_effective_prefix
-
-        base = get_effective_prefix(request)
-        return RedirectResponse(f"{base}/queues/{q}", status_code=303)
+        # Redirect using the named route to avoid prefix mismatches
+        target = request.url_path_for("queue-detail", name=q)
+        return RedirectResponse(target, status_code=303)
