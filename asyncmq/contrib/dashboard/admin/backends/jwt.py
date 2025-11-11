@@ -134,9 +134,7 @@ class JWTAuthBackend(AuthBackend):
         Returns:
             An HTML response with guidance on providing a valid JWT header.
         """
-        return HTMLResponse(
-            "This deployment expects a valid 'Authorization: Bearer 'ey.....;' token header."
-        )
+        return HTMLResponse("This deployment expects a valid 'Authorization: Bearer 'ey.....;' token header.")
 
     async def logout(self, request: Request) -> Response:
         """
