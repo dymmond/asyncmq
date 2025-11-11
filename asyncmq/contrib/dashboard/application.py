@@ -107,12 +107,12 @@ def create_dashboard_app() -> ASGIApp:
                     # New SSE endpoint for real-time updates
                     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),
                     # Serve the statics
-                    Include(
-                        "/static",
-                        app=StaticFiles(packages=["asyncmq.contrib.dashboard"], html=True),
-                        name="statics",
-                    ),
                 ],
+            ),
+            Include(
+                "/static",
+                app=StaticFiles(packages=["asyncmq.contrib.dashboard"], html=True),
+                name="statics",
             ),
         ],
         exception_handlers={404: not_found},

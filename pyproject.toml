@@ -38,9 +38,10 @@ classifiers = [
 ]
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
-    "lilya[standard]>=0.22.11",
+    "lilya[standard]>=0.22.14",
     "redis>=7.0.0",
 ]
+
 keywords = [
     "asyncio",
     "anyio",
@@ -109,7 +110,7 @@ testing = [
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
 aio-pika = ["aio_pika>=9.5.5"]
-dashboard = ["lilya[standard]>=0.22.11"]
+dashboard = ["lilya[standard]>=0.22.14"]
 
 all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[dashboard]", "asyncmq[aio-pika]"]
 

@@ -21,7 +21,6 @@ def verify(u: str, p: str) -> User | None:
 
 asynmq_admin = AsyncMQAdmin(enable_login=True, backend=SimpleUsernamePasswordBackend(verify))  # type: ignore
 app = Lilya(routes=[Include(asynmq_admin.url_prefix, app=asynmq_admin.get_asgi_app())])
-asynmq_admin.include_in(app)
 
 
 if __name__ == "__main__":

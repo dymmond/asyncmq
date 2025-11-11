@@ -147,11 +147,16 @@ class AsyncMQAdmin:
         """
         app.add_child_lilya(self.url_prefix, self.child_app)
 
-    def get_asgi_app(self) -> ASGIApp:
+    def get_asgi_app(self, with_url_prefix: bool = False) -> ASGIApp:
         """
         Returns the dashboard's internal `object` application to be mounted in any ASGI framework.
 
         Returns:
             ASGIApp: The application instance.
         """
+        if with_url_prefix:
+            return cast(
+                ASGIApp,
+                Lilya(routes=[Include(path=self.url_prefix, app=self.child_app)]),
+            )
         return cast(ASGIApp, self.child_app)
