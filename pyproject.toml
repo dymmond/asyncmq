@@ -111,9 +111,9 @@ testing = [
 ]
 postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
-aio-pika = ["aio_pika>=9.5.5"]
+aio-pika = ["aio_pika>=9.5.8"]
 
-all = ["asyncmq[postgres]", "asyncmq[mongo]", "asyncmq[aio-pika]"]
+all = ["postgres", "mongo", "aio-pika"]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"

@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.6.1
+
+### Fixed
+
+- Mininum requirements for RabbitMQ.
+
 ## 0.6.0
 
 ### Added

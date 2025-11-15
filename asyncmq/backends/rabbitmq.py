@@ -109,7 +109,9 @@ class RabbitMQBackend(BaseBackend):
 
         # 4) build and publish the message
         msg = Message(
-            self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT
+            self._json_serializer.to_json(payload).encode(),
+            message_id=job_id,
+            delivery_mode=DeliveryMode.PERSISTENT,
         )
         await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
@@ -198,7 +200,9 @@ class RabbitMQBackend(BaseBackend):
 
         # 4) publish via the default exchange (routes to the queue named dlq_name)
         msg = Message(
-            self._json_serializer.to_json(payload).encode(), message_id=job_id, delivery_mode=DeliveryMode.PERSISTENT
+            self._json_serializer.to_json(payload).encode(),
+            message_id=job_id,
+            delivery_mode=DeliveryMode.PERSISTENT,
         )
         await self._chan.default_exchange.publish(msg, routing_key=dlq_name)
 
@@ -218,7 +222,9 @@ class RabbitMQBackend(BaseBackend):
         # Save the job metadata to the job store with 'scheduled' status
         # and the specified 'run_at' timestamp.
         await self._state.save(
-            queue_name, job_id, {"id": job_id, "payload": payload, "status": "scheduled", "run_at": run_at}
+            queue_name,
+            job_id,
+            {"id": job_id, "payload": payload, "status": "scheduled", "run_at": run_at},
         )
 
     async def get_due_delayed(self, queue_name: str) -> list[DelayedInfo]:
@@ -274,7 +280,11 @@ class RabbitMQBackend(BaseBackend):
         ]
 
     async def enqueue_repeatable(
-        self, queue_name: str, payload: dict[str, Any], interval: float, repeat_id: str | None = None
+        self,
+        queue_name: str,
+        payload: dict[str, Any],
+        interval: float,
+        repeat_id: str | None = None,
     ) -> str:
         """
         Enqueues a job that should be repeated at a fixed interval.
@@ -323,7 +333,11 @@ class RabbitMQBackend(BaseBackend):
         # Retrieve all jobs with 'repeatable' status for the given queue
         # and convert them into RepeatableInfo objects.
         return [
-            RepeatableInfo(job_def=j["payload"], next_run=j["next_run"], paused=j.get("paused", False))
+            RepeatableInfo(
+                job_def=j["payload"],
+                next_run=j["next_run"],
+                paused=j.get("paused", False),
+            )
             for j in await self._state.jobs_by_status(queue_name, "repeatable")
         ]
 
@@ -593,7 +607,10 @@ class RabbitMQBackend(BaseBackend):
                 await self._state.delete(queue_name, j["id"])
 
     async def atomic_add_flow(
-        self, queue_name: str, job_dicts: list[dict[str, Any]], dependency_links: list[tuple[str, str]]
+        self,
+        queue_name: str,
+        job_dicts: list[dict[str, Any]],
+        dependency_links: list[tuple[str, str]],
     ) -> list[str]:
         """
         Atomically adds a flow of interconnected jobs with dependencies.
@@ -717,7 +734,14 @@ class RabbitMQBackend(BaseBackend):
         """
         # Save worker information in the 'workers' collection.
         await self._state.save(
-            "workers", worker_id, {"id": worker_id, "queue": queue, "concurrency": concurrency, "heartbeat": timestamp}
+            "workers",
+            worker_id,
+            {
+                "id": worker_id,
+                "queue": queue,
+                "concurrency": concurrency,
+                "heartbeat": timestamp,
+            },
         )
 
     async def deregister_worker(self, worker_id: str) -> None:
@@ -753,12 +777,31 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             A dictionary containing queue statistics, e.g., {'message_count': int}.
         """
-        await self._connect()  # Ensure connection is established.
-        # Declare the queue passively to get its properties without creating it
-        # if it doesn't exist.
-        q = await self._chan.declare_queue(queue_name, durable=True, passive=True)
-        # Return the message count from the declaration result.
-        return {"message_count": q.declaration_result.message_count}
+        await self._connect()
+
+        try:
+            # 1) Get a queue object (declare if needed, but not passive yet)
+            queue = await self._chan.declare_queue(queue_name, durable=True)
+
+            # 2) Ask RabbitMQ passively for the latest stats
+            declare_ok = await queue.declare()
+        except Exception:
+            # Queue missing or channel/broker error -> treat as empty
+            return {"message_count": 0}
+
+        # Preferred path: `declare_ok` is Queue.DeclareOk with message_count
+        if declare_ok is not None:
+            msg_count = int(getattr(declare_ok, "message_count", 0) or 0)
+            return {"message_count": msg_count}
+
+        # Fallback for older aio-pika that uses `q.declaration_result`
+        declare_result = getattr(queue, "declaration_result", None)
+        if declare_result is not None:
+            msg_count = int(getattr(declare_result, "message_count", 0) or 0)
+            return {"message_count": msg_count}
+
+        # Ultimate fallback
+        return {"message_count": 0}
 
     async def drain_queue(self, queue_name: str) -> None:
         """
