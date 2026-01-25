@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import builtins
 import inspect
 import json
 import os
+import sys
 from functools import cached_property
 from types import UnionType
 from typing import (
@@ -92,10 +94,40 @@ class BaseSettings:
         ...
 
     def _extract_base_type(self, typ: Any) -> Any:
+        # 1. Handle standard typing (when get_type_hints works)
         origin = get_origin(typ)
         if origin is Annotated:
             return get_args(typ)[0]
+
+        # 2. Handle String Annotations (when get_type_hints fails)
+        if isinstance(typ, str):
+            # Attempt to resolve the string to an actual class
+            resolved = self._resolve_string_type(typ)
+            if resolved:
+                return resolved
+
         return typ
+
+    def _resolve_string_type(self, type_name: str) -> Any:
+        """
+        Attempts to resolve a string type hint (e.g., 'CacheBackend', 'list[str]')
+        into an actual Python class.
+        """
+        # Clean up generics: "list[str]" -> "list"
+        # We only need the base type for casting/init purposes
+        base_name = type_name.split("[", 1)[0]
+
+        # Look in the Class's Module (for custom classes like CacheBackend)
+        module = sys.modules.get(self.__class__.__module__)
+        if module and hasattr(module, base_name):
+            return getattr(module, base_name)
+
+        # Look in Builtins (for str, int, bool, list, dict)
+        if hasattr(builtins, base_name):
+            return getattr(builtins, base_name)
+
+        # Return None if we can't find it (will trigger the original error downstream)
+        return None
 
     def _cast(self, value: str, typ: type[Any]) -> Any:
         """
