@@ -110,7 +110,7 @@ class JWTAuthBackend(AuthBackend):
                 audience=self.audience,
                 issuer=self.issuer,
                 leeway=self.leeway,
-                options=self.verify_options,  # type: ignore
+                options=self.verify_options,
             )
         except Exception:
             # Any decoding/validation error (signature, expiration, claims) => unauthenticated
@@ -134,7 +134,9 @@ class JWTAuthBackend(AuthBackend):
         Returns:
             An HTML response with guidance on providing a valid JWT header.
         """
-        return HTMLResponse("This deployment expects a valid 'Authorization: Bearer 'ey.....;' token header.")
+        return HTMLResponse(
+            "This deployment expects a valid 'Authorization: Bearer 'ey.....;' token header."
+        )
 
     async def logout(self, request: Request) -> Response:
         """
