@@ -835,7 +835,7 @@ class RedisBackend(BaseBackend):
             A list of strings, where each string is the name of a queue.
         """
 
-        def _name_from_key(key: str | bytes | bytearray) -> str:
+        def _name_from_key(key: str | bytes | bytearray) -> str | None:
             queue_name = None
             key_str = key.decode() if isinstance(key, (bytes, bytearray)) else key
             parts = key_str.split(":", 2)
@@ -848,11 +848,15 @@ class RedisBackend(BaseBackend):
 
         # 1) Queues discovered from worker heartbeats
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
-            queue_names.add(_name_from_key(full_key))
+            queue_name = _name_from_key(full_key)
+            if queue_name is not None:
+                queue_names.add(queue_name)
 
         # 2) Queues discovered from waiting job sorted sets
         async for full_key in self.redis.scan_iter(match="queue:*:waiting"):
-            queue_names.add(_name_from_key(full_key))
+            queue_name = _name_from_key(full_key)
+            if queue_name is not None:
+                queue_names.add(queue_name)
 
         return list(queue_names)
 

@@ -56,7 +56,7 @@ class AsyncMQAdmin:
         config = monkay.settings.dashboard_config
         self.url_prefix: str = (url_prefix or config.dashboard_url_prefix).rstrip("/")
         self.enable_login: bool = enable_login
-        self.backend: AuthBackend = backend
+        self.backend: AuthBackend = cast(AuthBackend, backend)
 
         # Extras
         self.include_session = include_session

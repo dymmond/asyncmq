@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 from lilya.controllers import Controller
 from lilya.datastructures import FormData
@@ -83,7 +83,7 @@ class QueueJobController(DashboardMixin, TemplateController):
         """
         Handles the GET request, retrieves filtered and paginated jobs, and renders the job list template.
         """
-        queue: str = request.path_params.get("name")
+        queue: str = request.path_params["name"]
 
         # 1. Parameter Parsing
         state, page, size = self._get_params(request)
@@ -111,7 +111,7 @@ class QueueJobController(DashboardMixin, TemplateController):
         """
         Handles bulk actions (retry, remove, cancel) on selected job IDs.
         """
-        queue: str = request.path_params.get("name")
+        queue: str = request.path_params["name"]
         backend: Any = monkay.settings.backend
         form: FormData = await request.form()
         action: str | None = form.get("action")
@@ -119,10 +119,10 @@ class QueueJobController(DashboardMixin, TemplateController):
         # Safely extract job IDs regardless of form submission format
         job_ids: list[str]
         if hasattr(form, "getlist"):
-            job_ids = form.getlist("job_id")
+            job_ids = cast(list[str], cast(Any, form).getlist("job_id"))
         else:
             # Fallback for single value or a comma-delimited string
-            raw: str = form.get("job_id") or ""
+            raw: str = str(form.get("job_id") or "")
             job_ids = raw.split(",") if "," in raw else [raw]
 
         for job_id in job_ids:
@@ -158,7 +158,7 @@ class JobActionController(Controller):
         Returns:
             JSONResponse: Status of the operation ({ok: true} on success).
         """
-        queue: str = request.path_params.get("name")
+        queue: str = request.path_params["name"]
         backend: Any = monkay.settings.backend
 
         try:

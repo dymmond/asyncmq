@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from anyio import CapacityLimiter
@@ -165,7 +165,7 @@ async def run_worker(
         # 1. The main process_job task that pulls jobs from the queue and handles them.
         # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
         tasks: list[Any] = [
-            process_job(queue_name, limiter, backend=backend, rate_limiter=rate_limiter),
+            process_job(queue_name, limiter, backend=backend, rate_limiter=cast(Any, rate_limiter)),
             delayed_job_scanner(queue_name, backend, interval=scan_interval),
         ]
 

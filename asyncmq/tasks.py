@@ -102,7 +102,7 @@ class TaskWrapper(Generic[P, R]):
                     # Execute the function with progress reporting based on its type
                     if inspect.iscoroutinefunction(self.func):
                         # For async functions
-                        result = await task_func(*args, report_progress=report, **kwargs)
+                        result = await cast(Any, task_func(*args, report_progress=report, **kwargs))
                     else:
                         # For sync functions - create a wrapper to handle keyword arguments
                         def sync_wrapper() -> R:

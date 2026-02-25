@@ -151,8 +151,11 @@ class Queue:
         payloads: list[dict[str, Any]] = []
         # Iterate through job configurations, create Job objects, and prepare payloads.
         for cfg in jobs:
+            task_id = cfg.get("task_id")
+            if not isinstance(task_id, str):
+                raise ValueError("Each job config must include a string 'task_id'.")
             job = Job(
-                task_id=cfg.get("task_id"),
+                task_id=task_id,
                 args=cfg.get("args", []),
                 kwargs=cfg.get("kwargs", {}),
                 retries=0,

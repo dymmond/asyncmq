@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from lilya.datastructures import FormData
 from lilya.requests import Request
@@ -45,9 +45,10 @@ class RepeatablesController(DashboardMixin, TemplateController):
         for rec in repeatables:
             # Normalize the raw record (rec) into job definition data (jd)
             if isinstance(rec, dict):
-                jd: dict[str, Any] = rec
-                raw_next_run: Any = rec.get("next_run")
-                paused: bool = bool(rec.get("paused", False))
+                rec_dict = cast(dict[str, Any], rec)
+                jd: dict[str, Any] = rec_dict
+                raw_next_run: Any = rec_dict.get("next_run")
+                paused: bool = bool(rec_dict.get("paused", False))
             else:
                 # Handle objects returned by some backends
                 jd = getattr(rec, "job_def", {})
@@ -129,8 +130,9 @@ class RepeatablesController(DashboardMixin, TemplateController):
             pass
 
         # Redirect back to GET, preserving query string (state, page, etc.)
-        qs: str = request.url.query
-        url: str = request.url.path + (f"?{qs}" if qs else "")
+        qs: str = request.url.query or ""
+        path: str = request.url.path or ""
+        url: str = path + (f"?{qs}" if qs else "")
         return RedirectResponse(url, status_code=303)
 
 
@@ -187,7 +189,7 @@ class RepeatablesNewController(DashboardMixin, TemplateController):
         queue.add_repeatable(**data)
 
         # 3. Redirect back to the main list
-        qs: str = request.url.query
+        qs: str = request.url.query or ""
 
         # Remove "/new" from the path
         url: str = request.url.path.rsplit("/new", 1)[0]

@@ -135,7 +135,7 @@ def list_workers() -> None:
     """
     get_print_banner(WORKERS_LOGO, title="AsyncMQ List Workers")
     backend = asyncmq.monkay.settings.backend
-    workers = run_cmd(backend.list_workers)
+    workers = run_cmd(backend.list_workers) or []
     table = Table(title="Workers")
     table.add_column("Worker ID", style="green")
     table.add_column("Queue", style="magenta")

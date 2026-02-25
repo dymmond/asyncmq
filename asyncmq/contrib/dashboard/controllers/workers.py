@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 from types import SimpleNamespace
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
@@ -40,13 +40,13 @@ class WorkerController(DashboardMixin, TemplateController):
 
         backend: Any = monkay.settings.backend
         # worker_info is expected to be a list of dictionaries or objects
-        worker_info: list[dict[str, Any] | Any] = await backend.list_workers()
+        worker_info: list[Any] = await backend.list_workers()
 
         all_workers: list[WorkerDisplayInfo] = []
         for worker in worker_info:
             # Normalize dicts to SimpleNamespace if they aren't already objects
             if isinstance(worker, dict):
-                worker = SimpleNamespace(**worker)
+                worker = SimpleNamespace(**cast(dict[str, Any], worker))
 
             # Format heartbeat timestamp
             hb: dt.datetime = dt.datetime.fromtimestamp(worker.heartbeat)

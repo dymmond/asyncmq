@@ -340,7 +340,7 @@ def cli_list_repeatables(queue: str) -> None:
     q = Queue(queue)
     # Call the queue's list_repeatables method asynchronously using anyio.run
     # and store the returned list of RepeatableInfo dataclass instances.
-    rpts: list[RepeatableInfo] = run_cmd(q.list_repeatables)
+    rpts: list[RepeatableInfo] = run_cmd(q.list_repeatables) or []
 
     # Create a Rich Table to display the repeatable job information.
     table = Table(show_header=True, header_style="bold magenta")
