@@ -50,12 +50,15 @@ class PostgresBackend(BaseBackend):
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")
         # Store the resolved DSN.
-        self.dsn: str = dsn or self._settings.asyncmq_postgres_backend_url
+        resolved_dsn = dsn or self._settings.asyncmq_postgres_backend_url
+        if resolved_dsn is None:
+            raise ValueError("A PostgreSQL DSN must be provided.")
+        self.dsn: str = resolved_dsn
         # Initialize the asyncpg connection pool to None; it will be created on connect.
         self.pool: Pool | None = None
         # Initialize the PostgresJobStore with the DSN.
         self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
-        self.store: PostgresJobStore = PostgresJobStore(dsn=dsn, pool_options=self.pool_options)
+        self.store: PostgresJobStore = PostgresJobStore(dsn=self.dsn, pool_options=self.pool_options)
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """

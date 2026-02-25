@@ -49,7 +49,7 @@ class BaseSettings:
     Base of all the settings for any system.
     """
 
-    __type_hints__: dict[str, Any] = None
+    __type_hints__: builtins.dict[str, Any] | None = None
     __truthy__: set[str] = {"true", "1", "yes", "on", "y"}
 
     def __init__(self, **kwargs: Any) -> None:
@@ -168,14 +168,15 @@ class BaseSettings:
         upper: bool = False,
         exclude: set[str] | None = None,
         include_properties: bool = False,
-    ) -> dict[str, Any]:
+    ) -> builtins.dict[str, Any]:
         """
         Dumps all the settings into a python dictionary.
         """
         result = {}
         exclude = exclude or set()
+        type_hints = self.__type_hints__ or {}
 
-        for key in self.__type_hints__:
+        for key in type_hints:
             if key in exclude:
                 continue
             value = getattr(self, key, None)
@@ -192,7 +193,7 @@ class BaseSettings:
                     (property, cached_property),
                 ),
             ):
-                if name in exclude or name in self.__type_hints__:
+                if name in exclude or name in type_hints:
                     continue
                 try:
                     value = getattr(self, name)
@@ -212,7 +213,7 @@ class BaseSettings:
         upper: bool = False,
         exclude: set[str] | None = None,
         include_properties: bool = False,
-    ) -> list[tuple[str, Any]]:
+    ) -> list[builtins.tuple[str, Any]]:
         """
         Dumps all the settings into a tuple.
         """

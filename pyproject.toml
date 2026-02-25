@@ -79,7 +79,7 @@ path = "asyncmq/__init__.py"
 
 [tool.hatch.envs.default]
 dependencies = [
-    "mypy==1.19.1",
+    "ty",
     "ruff>=0.3.0,<5.0.0",
     "pre-commit>=3.3.1,<4.0.0",
     "devtools>=0.12.2",
@@ -155,34 +155,28 @@ LILYA_SETTINGS_MODULE = "tests.settings.LilyaDashboardSettings"
 
 [tool.hatch.envs.test]
 features = ['testing']
+dependencies = ["ty"]
 
 [tool.hatch.envs.test.scripts]
 # needs docker services running
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
-check_types = "mypy -p asyncmq"
+check_types = "ty check asyncmq"
 
 [tool.isort]
 profile = "black"
 known_third_party = []
 src_paths = ["asyncmq"]
 
-[tool.mypy]
-strict = true
-warn_unused_configs = true
-warn_unreachable = true
-warn_return_any = true
-disallow_untyped_decorators = true
-disallow_any_generics = false
-implicit_reexport = false
-show_error_codes = true
-disallow_incomplete_defs = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-no_implicit_optional = false
-strict_equality = false
-strict_optional = false
-disable_error_code = "attr-defined,has-type,override,misc,safe-super"
+[tool.ty]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.rules]
+invalid-method-override = "ignore"
+unresolved-attribute = "ignore"
+unused-type-ignore-comment = "ignore"
 
 [tool.ruff]
 line-length = 120
@@ -203,19 +197,13 @@ context = '${CONTEXT}'
 source = ["tests", "asyncmq"]
 # omit = []
 
-[[tool.mypy.overrides]]
-module = "asyncmq.tests.*"
-ignore_missing_imports = true
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = "docs_src.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = ["motor.*", "asyncpg.*", "lilya.templating.*", "redis.*"]
-ignore_missing_imports = true
-ignore_errors = true
+[tool.ty.analysis]
+replace-imports-with-any = [
+    "motor.**",
+    "asyncpg.**",
+    "lilya.templating.**",
+    "redis.**",
+]
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]

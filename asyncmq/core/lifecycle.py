@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Iterable, Sequence
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 from asyncmq.protocols.lifespan import Lifespan
 
@@ -39,10 +39,11 @@ def normalize_hooks(hooks: Hook) -> list[Lifespan]:
     # Convert to a flat list, handling the case where hooks is a single hook or a sequence.
     if _is_iterable_but_not_callable(hooks):
         # Cast hooks to a sequence for iteration
-        seq: list[Lifespan | None] = [hook for hook in hooks if hook is not None]  # type: ignore
+        iterable_hooks = cast(Sequence[Lifespan | None], hooks)
+        seq: list[Lifespan] = [hook for hook in iterable_hooks if hook is not None]
     else:
         # Hooks is a single Lifespan or None (already handled above)
-        seq = [hooks]  # type: ignore
+        seq = [cast(Lifespan, hooks)]
 
     # De-duplicate based on object identity (the function object itself)
     seen_ids: set[int] = set()
@@ -50,10 +51,6 @@ def normalize_hooks(hooks: Hook) -> list[Lifespan]:
 
     # Use object identity (id()) for stable and reliable function de-duplication
     for fn in seq:
-        # Since we pre-filtered None above, fn should be a Lifespan
-        if fn is None:
-            continue
-
         key: int = id(fn)
         if key not in seen_ids:
             seen_ids.add(key)

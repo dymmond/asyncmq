@@ -130,7 +130,7 @@ class DLQController(DashboardMixin, TemplateController):
         """
         Handles actions (retry or remove) on selected job IDs in the DLQ.
         """
-        queue: str | None = request.path_params.get("name")
+        queue: str = request.path_params["name"]
         backend = monkay.settings.backend
         form: FormData = await request.form()
         action: str | None = form.get("action")

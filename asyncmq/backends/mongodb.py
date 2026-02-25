@@ -754,7 +754,9 @@ class MongoDBBackend(BaseBackend):
             # Remove the heartbeat entry for this job as it's no longer running.
             # Use .pop with a default of None to avoid errors if the heartbeat was
             # already removed or if 'id' is missing.
-            self.heartbeats.pop((queue_name, job_data.get("id")), None)
+            job_id = job_data.get("id")
+            if isinstance(job_id, str):
+                self.heartbeats.pop((queue_name, job_id), None)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """

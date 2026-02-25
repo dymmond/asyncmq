@@ -176,8 +176,9 @@ class RabbitMQBackend(BaseBackend):
         job_id = str(payload["id"])
 
         # 1) persist failure in your state store
-        if hasattr(self._state, "move_to_dlq"):
-            await self._state.move_to_dlq(queue_name, payload)
+        move_to_dlq = getattr(self._state, "move_to_dlq", None)
+        if callable(move_to_dlq):
+            await cast(Any, move_to_dlq)(queue_name, payload)
         else:
             await self._state.save(
                 queue_name,
@@ -354,6 +355,8 @@ class RabbitMQBackend(BaseBackend):
         """
         # Load the existing entry for the repeatable job.
         entry = await self._state.load(queue_name, job_def["id"])
+        if entry is None:
+            return
         # Set the 'paused' flag to True.
         entry["paused"] = True
         # Save the updated entry back to the job store.
@@ -376,6 +379,8 @@ class RabbitMQBackend(BaseBackend):
         """
         # Load the existing entry for the repeatable job.
         entry = await self._state.load(queue_name, job_def["id"])
+        if entry is None:
+            return None
         # Remove the 'paused' flag if it exists.
         entry.pop("paused", None)
         # Recalculate the next run time based on the job's interval.
