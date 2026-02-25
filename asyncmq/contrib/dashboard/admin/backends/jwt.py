@@ -110,7 +110,7 @@ class JWTAuthBackend(AuthBackend):
                 audience=self.audience,
                 issuer=self.issuer,
                 leeway=self.leeway,
-                options=self.verify_options,  # type: ignore
+                options=self.verify_options,
             )
         except Exception:
             # Any decoding/validation error (signature, expiration, claims) => unauthenticated
