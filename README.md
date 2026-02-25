@@ -18,6 +18,9 @@
   <a href="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" target="_blank">
     <img src="https://img.shields.io/pypi/pyversions/asyncmq.svg?color=%2334D058" alt="Supported Python versions">
   </a>
+  <a href="https://codspeed.io/dymmond/asyncmq?utm_source=badge" target="_blank">
+    <img src="https://img.shields.io/badge/CodSpeed-measured-blue" alt="CodSpeed">
+  </a>
 </p>
 
 ---
