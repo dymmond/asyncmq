@@ -24,6 +24,6 @@ app = Lilya(routes=[Include(asynmq_admin.url_prefix, app=asynmq_admin.get_asgi_a
 
 
 if __name__ == "__main__":
-    import uvicorn
+    import palfrey
 
-    uvicorn.run("run:app", host="0.0.0.0", port=8000, reload=True)
+    palfrey.run("run:app", host="0.0.0.0", port=8000, reload=True)
