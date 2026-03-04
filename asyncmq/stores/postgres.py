@@ -39,7 +39,7 @@ class PostgresJobStore(BaseJobStore):
         # Check if a DSN is provided or available in monkay.settings.
         if not dsn and not self._settings.asyncmq_postgres_backend_url:
             # Raise an error if no DSN source is available.
-            raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be " "provided.")
+            raise ValueError("Either 'dsn' or 'self._settings.asyncmq_postgres_backend_url' must be provided.")
         # Store the resolved DSN, prioritizing the explicit 'dsn' argument.
         self.dsn = dsn or self._settings.asyncmq_postgres_backend_url
         # Initialize the connection pool to None; it will be created on first connection.

@@ -120,34 +120,41 @@ clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
-lint = "ruff check --fix --line-length 99  asyncmq tests {args}"
-format = "hatch fmt -- --exclude docs_src && hatch fmt --check -- --exclude docs_src && hatch run test:check_types"
+check_types = "ty check --error-on-warning asyncmq"
+lint = "hatch fmt --check -- --exclude docs_src && ty check --error-on-warning asyncmq"
+format = "hatch fmt -- --exclude docs_src && hatch fmt --check -- --exclude docs_src && ty check --error-on-warning asyncmq"
 
 [tool.hatch.envs.docs]
 dependencies = [
+    "zensical>=0.0.23,<0.1.0",
+    "sayer>=0.7.4",
     "griffe-typingdoc>=0.2.2,<1.0",
-    "mkautodoc>=0.2.0,<0.3.0",
-    "mkdocs>=1.1.2,<2.0.0",
-    "mkdocs-material>=9.4.4,<10.0.0",
-    "mdx-include>=1.4.2,<2.0.0",
-    "mkdocs-macros-plugin>=0.4.0",
     "mkdocs-meta-descriptions-plugin>=2.3.0",
-    "mkdocstrings[python]>=0.23.0,<0.30.0",
+    "mkdocstrings>=0.28.3",
+    "mkdocstrings-python>=2.0.3",
     "pyyaml>=6.0,<7.0.0",
+    "typing_extensions>=3.10.0",
 ]
 
 [tool.hatch.envs.docs.scripts]
+prepare = "scripts/docs.py prepare"
+clean = "scripts/docs.py clean"
+build = "scripts/docs.py build --clean"
+serve = "scripts/docs.py serve"
+dev = "scripts/docs.py serve"
 update_languages = "scripts/docs.py update-languages"
-build = "hatch run docs:update_languages; scripts/docs.py build-all"
-build_lang = "hatch run docs:update_languages; scripts/docs.py build --lang {args}"
-serve = "hatch run docs:update_languages; scripts/docs.py live"
-dev = "hatch run docs:update_languages; scripts/docs.py serve"
-serve_lang = "hatch run docs:update_languages; scripts/docs.py live --lang {args}"
-new_lang = "hatch run docs:update_languages; scripts/docs.py new-lang --lang {args}"
+build_lang = "scripts/docs.py build-lang {args}"
+serve_lang = "scripts/docs.py live {args}"
+new_lang = "scripts/docs.py new-lang {args}"
 
 [tool.hatch.envs.hatch-test]
 features = ["testing", "postgres", "mongo"]
 template = "test"
+
+[tool.hatch.envs.hatch-static-analysis]
+# disables custom ruff rules, required to align with pre-commit
+config-path = "none"
+dependencies = ["ruff==0.11.5"]
 
 [tool.hatch.envs.hatch-test.env-vars]
 ASYNCMQ_SETTINGS_MODULE = "tests.settings.TestSettings"
@@ -161,7 +168,7 @@ dependencies = ["ty"]
 # needs docker services running
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
-check_types = "ty check asyncmq"
+check_types = "ty check --error-on-warning asyncmq"
 
 [tool.isort]
 profile = "black"
@@ -172,6 +179,9 @@ src_paths = ["asyncmq"]
 
 [tool.ty.environment]
 python-version = "3.10"
+
+[tool.ty.terminal]
+error-on-warning = true
 
 [tool.ty.rules]
 invalid-method-override = "ignore"

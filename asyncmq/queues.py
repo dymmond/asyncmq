@@ -220,7 +220,7 @@ class Queue:
         """
         # Validate that either 'every' or 'cron' is provided.
         if not every and not cron:
-            raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be " "provided.")
+            raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be provided.")
 
         # Create a dictionary representing the repeatable job entry.
         entry = {

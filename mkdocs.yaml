@@ -1,9 +1,11 @@
 site_name: AsyncMQ
 site_description: The broker you needed for your tasks.
 site_url: https://asyncmq.dymmond.com
+docs_dir: docs/generated
+site_dir: site
 theme:
   name: material
-  custom_dir: docs/overrides
+  custom_dir: docs/generated/overrides
   language: en
   palette:
   - scheme: default
@@ -82,27 +84,27 @@ nav:
 - Sponsorship: sponsorship.md
 - Release Notes: release-notes.md
 markdown_extensions:
+- attr_list
 - toc:
     permalink: true
-- mdx_include:
-    base_path: docs/
 - admonition
-- extra
 - pymdownx.superfences:
     custom_fences:
-    - name: mermaid
-      class: mermaid
-      format: !!python/name:pymdownx.superfences.fence_code_format ''
+      - name: mermaid
+        class: mermaid
 - pymdownx.tabbed:
     alternate_style: true
-- attr_list
+- pymdownx.inlinehilite
+- pymdownx.highlight:
+    use_pygments: true
+    anchor_linenums: true
+    line_spans: __span
+    pygments_lang_class: true
 - md_in_html
-- pymdownx.emoji:
-    emoji_index: !!python/name:material.extensions.emoji.twemoji ''
-    emoji_generator: !!python/name:material.extensions.emoji.to_svg ''
+
 extra:
-  alternate:
-  - link: /
-    name: en - English
-hooks:
-- ../../scripts/hooks.py
+  social:
+    - icon: fontawesome/brands/github-alt
+      link: https://github.com/dymmond/asyncmq
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/XVeWXSrJ

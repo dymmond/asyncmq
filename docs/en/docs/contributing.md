@@ -98,8 +98,16 @@ $ hatch run lint
 ### Documentation
 
 Improving the documentation is quite easy and it is placed inside the `asyncmq/docs` folder.
+The English source docs live in `docs/en/docs` and snippet files live in `docs_src`.
 
-To start the docs, run:
+To prepare and build the docs with Zensical, run:
+
+```shell
+$ hatch run docs:prepare
+$ hatch run docs:build
+```
+
+To start docs in local development mode, run:
 
 ```shell
 $ hatch run docs:serve

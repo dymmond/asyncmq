@@ -15,8 +15,8 @@ fi
 if [ -d '.hypothesis' ] ; then
     rm -r .hypothesis
 fi
-if [ -d '.mypy_cache' ] ; then
-    rm -r .mypy_cache
+if [ -d '.ty_cache' ] ; then
+    rm -r .ty_cache
 fi
 if [ -d '.pytest_cache' ] ; then
     rm -r .pytest_cache

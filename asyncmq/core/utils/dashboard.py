@@ -8,7 +8,7 @@ try:
     from lilya.requests import Request
 except ImportError:
     raise ModuleNotFoundError(
-        "The dashboard functionality requires the 'lilya' package. " "Please install it with 'pip install lilya'."
+        "The dashboard functionality requires the 'lilya' package. Please install it with 'pip install lilya'."
     ) from None
 
 from asyncmq import monkay

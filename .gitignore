@@ -6,17 +6,20 @@
 .pytest_cache/
 .scannerwork/
 .tox/
+.ty_cache/
 .venv/
 .vscode/
 __pycache__/
 virtualenv/
 build/
+docs/generated/
 dist/
 node_modules/
 results/
 site/
 site_lang/
 target/
+.cache/
 
 # files
 **/*.so

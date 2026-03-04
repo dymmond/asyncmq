@@ -1,327 +1,239 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-from multiprocessing import Pool
+import threading
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import click
-import mkdocs.commands.build
-import mkdocs.commands.serve
-import mkdocs.config
-import mkdocs.utils
-import yaml
-from sayer import Option, Sayer, command, error, info, success, warning
+from sayer import Option, Sayer, command, info, success, warning
 
-mkdocs_name = "mkdocs.yml"
+try:
+    from scripts.docs_pipeline import DocsPipelineError, prepare_docs_tree, run_zensical
+except ModuleNotFoundError:  # pragma: no cover
+    from docs_pipeline import DocsPipelineError, prepare_docs_tree, run_zensical
 
-missing_translation_snippet = """
-{!../../../docs/missing-translation.md!}
-"""
-
-docs_path = Path("docs")
-en_docs_path = Path("docs/en")
-en_config_path: Path = en_docs_path / mkdocs_name
-site_path = Path("site").absolute()
-
-site_lang: str = "site_lang"
-build_site_path = Path(site_lang).absolute()
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SOURCE_DOCS_DIR = ROOT_DIR / "docs" / "en" / "docs"
+GENERATED_DOCS_DIR = ROOT_DIR / "docs" / "generated"
+DEFAULT_CONFIG_FILE = ROOT_DIR / "mkdocs.yaml"
+DEFAULT_SITE_DIR = ROOT_DIR / "site"
+DEFAULT_CACHE_DIR = ROOT_DIR / ".cache"
+SOURCE_DOCS_SNIPPETS_DIR = ROOT_DIR / "docs_src"
 
 
-def get_en_config() -> dict[str, Any]:
-    """
-    Get the English configuration from the specified file.
-
-    Returns:
-        A dictionary containing the English configuration.
-    """
-    return mkdocs.utils.yaml_load(en_config_path.read_text(encoding="utf-8"))
-
-
-def get_lang_paths() -> list[Path]:
-    """
-    Returns a sorted list of paths to language files.
-
-    Returns:
-        List[Path]: A sorted list of paths to language files.
-    """
-    return sorted(docs_path.iterdir())
-
-
-def complete_existing_lang(incomplete: str):
-    """
-    Generate a list of existing languages that start with the given incomplete string.
-
-    Args:
-        incomplete (str): The incomplete string to match against.
-
-    Yields:
-        str: The names of the existing languages that start with the given incomplete string.
-    """
-    for lang_path in get_lang_paths():
-        if lang_path.is_dir() and lang_path.name.startswith(incomplete):
-            yield lang_path.name
-
-
-def get_updated_config_content() -> dict[str, Any]:
-    """
-    Get the updated configuration content with alternate language links.
-
-    Returns:
-        Dict[str, Any]: The updated configuration content.
-    """
-    config = get_en_config()
-    languages = [{"en": "/"}]
-    new_alternate: list[dict[str, str]] = []
-
-    # Load local language names from language_names.yml
-    language_names_path = Path(__file__).parent / "../docs/language_names.yml"
-    local_language_names: dict[str, str] = mkdocs.utils.yaml_load(language_names_path.read_text(encoding="utf-8"))
-
-    # Add alternate language links to the configuration
-    for lang_path in get_lang_paths():
-        if lang_path.name in {"en", "em"} or not lang_path.is_dir():
+def _snapshot(paths: list[Path]) -> dict[str, int]:
+    state: dict[str, int] = {}
+    for path in paths:
+        if not path.exists():
             continue
-        code = lang_path.name
-        languages.append({code: f"/{code}/"})
+        if path.is_file():
+            state[str(path.resolve())] = path.stat().st_mtime_ns
+            continue
+        for candidate in sorted(path.rglob("*")):
+            if candidate.is_file():
+                state[str(candidate.resolve())] = candidate.stat().st_mtime_ns
+    return state
 
-    for lang_dict in languages:
-        code = list(lang_dict.keys())[0]
-        url = lang_dict[code]
-        if code not in local_language_names:
-            print(f"Missing language name for: {code}, update it in docs/language_names.yml")
-            raise click.Abort()
-        use_name = f"{code} - {local_language_names[code]}"
-        new_alternate.append({"link": url, "name": use_name})
 
-    # Update the configuration with the new alternate links
-    config["extra"]["alternate"] = new_alternate
+def _resolve_config(config_file: str) -> Path:
+    config_path = (ROOT_DIR / config_file).resolve()
+    if not config_path.is_file():
+        raise click.ClickException(f"Config file not found: {config_path}")
+    return config_path
 
-    return config
+
+def _prepare() -> list[Path]:
+    generated = prepare_docs_tree(SOURCE_DOCS_DIR, GENERATED_DOCS_DIR)
+    info(f"Prepared {len(generated)} docs file(s) in {GENERATED_DOCS_DIR}")
+    return generated
+
+
+def _watch_sources(stop_event: threading.Event, interval: float = 0.5) -> None:
+    watch_paths = [SOURCE_DOCS_DIR, SOURCE_DOCS_SNIPPETS_DIR]
+    previous = _snapshot(watch_paths)
+    while not stop_event.wait(interval):
+        current = _snapshot(watch_paths)
+        if current == previous:
+            continue
+        previous = current
+        try:
+            _prepare()
+            success("Docs refreshed ✅")
+        except DocsPipelineError as exc:
+            click.echo(f"Docs refresh failed: {exc}", err=True)
 
 
 @command
-def update_config() -> None:
-    """
-    Update the configuration file with the updated content.
+def prepare() -> None:
+    """Generate build-ready Markdown by expanding include directives."""
+    _prepare()
+    success("Docs prepared ✅")
 
-    This function reads the English configuration file, generates the updated content
-    with alternate language links, and writes it back to the file.
 
-    Returns:
-        None
-    """
-    # Read the English configuration file
-    config = get_updated_config_content()
+@command
+def clean() -> None:
+    """Remove generated docs artifacts and build output."""
+    for path in [GENERATED_DOCS_DIR, DEFAULT_SITE_DIR, DEFAULT_CACHE_DIR]:
+        shutil.rmtree(path, ignore_errors=True)
+    success("Removed docs artifacts ✅")
 
-    # Write the updated content to the file
-    en_config_path.write_text(
-        yaml.dump(config, sort_keys=False, width=200, allow_unicode=True),
-        encoding="utf-8",
+
+@command
+def build(
+    config: Annotated[
+        str,
+        Option(
+            str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)),
+            "--config-file",
+            "-f",
+            help="Path to zensical config file relative to repository root.",
+        ),
+    ],
+    clean_cache: Annotated[
+        bool,
+        Option(False, "--clean", help="Clean Zensical cache before build.", is_flag=True),
+    ] = False,
+) -> None:
+    """Prepare docs and run `zensical build`."""
+    config_path = _resolve_config(config)
+    _prepare()
+    run_zensical(
+        project_root=ROOT_DIR,
+        config_file=config_path,
+        command="build",
+        clean=clean_cache,
     )
-
-
-def build_site(lang: str = "en") -> None:
-    """
-    Build the documentation site for a specific language.
-
-    Args:
-        lang (str): The language code. Defaults to "en".
-
-    Returns:
-        None
-    """
-    lang_path = Path("docs") / lang
-    if not lang_path.is_dir():
-        click.echo(f"Language not found: {lang}")
-        raise click.Abort()
-
-    click.echo(f"Building site for: {lang}")
-    build_site_dist_path = build_site_path / lang
-    dist_path = site_path if lang == "en" else site_path / lang
-
-    current_dir = os.getcwd()
-    os.chdir(lang_path)
-    shutil.rmtree(build_site_dist_path, ignore_errors=True)
-    subprocess.run(["mkdocs", "build", "--site-dir", build_site_dist_path], check=True)
-    shutil.copytree(build_site_dist_path, dist_path, dirs_exist_ok=True)
-    os.chdir(current_dir)
-    click.echo(f"Built site for: {lang}")
-
-
-@command(name="new-lang")
-def new_lang(lang: Annotated[str, Option("--l", help="The language to generate", required=True)]):
-    """
-    Generate a new docs translation directory for the language LANG.
-
-    Args:
-        lang (str): The language code.
-
-    Raises:
-        click.Abort: If the language directory already exists.
-
-    Returns:
-        None
-    """
-    new_path: Path = Path("docs") / lang
-    if new_path.exists():
-        info(f"The language was already created: {lang}")
-        raise click.Abort()
-    new_path.mkdir()
-    new_config_path: Path = Path(new_path) / mkdocs_name
-    new_config_path.write_text(
-        f"INHERIT: ../en/mkdocs.yml\nsite_dir: '../../{site_lang}/{lang}'\n",
-        encoding="utf-8",
-    )
-    new_config_docs_path: Path = new_path / "docs"
-    new_config_docs_path.mkdir()
-    en_index_path: Path = en_docs_path / "docs" / "index.md"
-    new_index_path: Path = new_config_docs_path / "index.md"
-    en_index_content = en_index_path.read_text(encoding="utf-8")
-    new_index_content = f"{missing_translation_snippet}\n\n{en_index_content}"
-    new_index_path.write_text(new_index_content, encoding="utf-8")
-    click.echo(click.style(f"Successfully initialized: {new_path}", fg="green"))
-    update_languages.__original_func()
-
-
-@command(name="build-lang")
-def build_lang(lang: Annotated[str, Option("en", "--l", help="The language to generate")]) -> None:
-    """
-    Build the docs for a language.
-    """
-    build_site(lang)
-
-
-@command(name="build-all")
-def build_all() -> None:
-    """
-    Build mkdocs site for each language, resulting in a directory structure
-    with each language inside the ./site/ directory.
-    """
-    # Remove the existing site directory
-    shutil.rmtree(site_path, ignore_errors=True)
-
-    # Get a list of all language paths
-    lang_paths = [lang.name for lang in get_lang_paths() if lang.is_dir()]
-
-    # Get the number of available CPUs
-    cpu_count = os.cpu_count() or 1
-
-    # Set the process pool size to the number of CPUs
-    process_pool_size = cpu_count
-    info(f"Using process pool size: {process_pool_size}")
-
-    # Create a process pool
-    with Pool(process_pool_size) as pool:
-        # Build the site for each language in parallel
-        pool.map(build_site, lang_paths)
-
-
-@command(name="update-languages")
-def update_languages() -> None:
-    """
-    Update the mkdocs.yml file Languages section including all the available languages.
-    """
-    update_config._original_func()
+    success("Docs built with Zensical ✅")
 
 
 @command
 def serve(
-    port: Annotated[int, Option(8000, "-p", help="The port to serve the documentation")],
-) -> None:
-    """
-    Serve a built site with translations.
-
-    This command is used to preview a site with translations that have already been built.
-    It starts a simple server to serve the site on the specified port.
-
-    Args:
-        port (int): The port number to serve the documentation. Defaults to 8000.
-
-    Returns:
-        None
-    """
-    warning("Warning: this is a very simple server.")
-    info("For development, use the command live instead.")
-    info("This is here only to preview a site with translations already built.")
-    info("Make sure you run the build-all command first.")
-    os.chdir("site")
-    server_address = ("", port)
-    server = HTTPServer(server_address, SimpleHTTPRequestHandler)
-    success(f"Serving at: http://127.0.0.1:{port}")
-    server.serve_forever()
-
-
-@command
-def live(
-    lang: Annotated[
+    config: Annotated[
         str,
         Option(
-            "en",
-            "--l",
-            help="The language to generate",
+            str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)),
+            "--config-file",
+            "-f",
+            help="Path to zensical config file relative to repository root.",
         ),
     ],
-    port: Annotated[int, Option(8000, "-p", help="The port to serve the documentation")],
+    port: Annotated[int, Option(8000, "-p", help="Port to serve documentation")],
+    open_browser: Annotated[
+        bool,
+        Option(False, "--open", help="Open docs in the default browser.", is_flag=True),
+    ] = False,
+    watch_sources: Annotated[
+        bool,
+        Option(
+            True,
+            "--watch-sources/--no-watch-sources",
+            help="Watch docs/en/docs and docs_src and regenerate docs/generated automatically.",
+        ),
+    ] = True,
 ) -> None:
-    """
-    Serve a docs site with livereload for a specific language.
+    """Prepare docs and run `zensical serve`."""
+    config_path = _resolve_config(config)
+    _prepare()
+    stop_event = threading.Event()
+    watch_thread: threading.Thread | None = None
+    if watch_sources:
+        watch_thread = threading.Thread(
+            target=_watch_sources,
+            args=(stop_event,),
+            daemon=True,
+        )
+        watch_thread.start()
+        info(f"Watching source docs for changes: {SOURCE_DOCS_DIR}, {SOURCE_DOCS_SNIPPETS_DIR}")
 
-    This command starts a server with livereload to serve the translated files for a specific language.
-    It only shows the actual translated files, not the placeholders created with build-all.
+    try:
+        run_zensical(
+            project_root=ROOT_DIR,
+            config_file=config_path,
+            command="serve",
+            dev_addr=f"127.0.0.1:{port}",
+            open_browser=open_browser,
+        )
+    finally:
+        stop_event.set()
+        if watch_thread is not None:
+            watch_thread.join(timeout=1.0)
 
-    Args:
-        lang (str): The language code. Defaults to 'en'.
-        port (int): The port number to serve the documentation. Defaults to 8000.
 
-    Returns:
-        None
-    """
-    click.echo("Warning: this is a very simple server.")
-    lang_path: Path = docs_path / lang
-    os.chdir(lang_path)
-    mkdocs.commands.serve.serve(dev_addr=f"127.0.0.1:{port}")
+@command(name="build-all")
+def build_all() -> None:
+    """Backward-compatible alias for `build`."""
+    warning("`build-all` is deprecated. Use `build`.")
+    build.__original_func(str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)), True)
+
+
+@command(name="build-lang")
+def build_lang(
+    lang: Annotated[str, Option("en", "--lang", "-l", help="Language to build")],
+) -> None:
+    """Backward-compatible alias for `build` with a language argument."""
+    if lang != "en":
+        raise click.ClickException("Only 'en' is supported in the Zensical docs pipeline.")
+    warning("`build-lang` is deprecated. Use `build`.")
+    build.__original_func(str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)), True)
+
+
+@command(name="live")
+def live(
+    lang: Annotated[str, Option("en", "--lang", "-l", help="Language to serve")],
+    port: Annotated[int, Option(8000, "-p", help="Port to serve documentation")],
+) -> None:
+    """Backward-compatible alias for `serve`."""
+    if lang != "en":
+        raise click.ClickException("Only 'en' is supported in the Zensical docs pipeline.")
+    warning("`live` is deprecated. Use `serve`.")
+    serve.__original_func(
+        str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)),
+        port,
+        False,
+        True,
+    )
+
+
+@command(name="update-languages")
+def update_languages() -> None:
+    """Backward-compatible no-op from the old multilingual workflow."""
+    warning("`update-languages` is a no-op in the Zensical docs pipeline.")
 
 
 @command(name="verify-config")
 def verify_config() -> None:
-    """
-    Verify the main mkdocs.yml content to ensure it uses the latest language names.
+    """Verify that the docs config file exists."""
+    config_path = _resolve_config(str(DEFAULT_CONFIG_FILE.relative_to(ROOT_DIR)))
+    success(f"Valid config file found: {config_path} ✅")
 
-    This function compares the current English configuration with the updated configuration
-    that includes the latest language names. If they are different, it raises an error
-    and prompts the user to update the language names in the language_names.yml file.
 
-    Returns:
-        None
-    """
-    info("Verifying mkdocs.yml")
-    config = get_en_config()
-    updated_config = get_updated_config_content()
-    if config != updated_config:
-        error(
-            click.style(
-                "docs/en/mkdocs.yml is outdated from docs/language_names.yml. "
-                "Please update language_names.yml and run 'python ./scripts/docs.py update-languages'.",
-                fg="red",
-            )
-        )
-        raise click.Abort()
-    click.echo("Valid mkdocs.yml ✅")
+@command(name="new-lang")
+def new_lang(
+    lang: Annotated[str, Option("", "--lang", "-l", help="Language code")],
+) -> None:
+    """Backward-compatible command kept to avoid silent failures."""
+    raise click.ClickException(
+        "`new-lang` is not supported in the Zensical docs pipeline. "
+        + "Keep source docs in docs/en/docs and generate docs/generated via `prepare`."
+    )
 
 
 docs_cli = Sayer(name="docs", help="The documentation generator", invoke_without_command=True)
-docs_cli.add_command(build_all)
+docs_cli.add_command(prepare)
+docs_cli.add_command(clean)
+docs_cli.add_command(build)
 docs_cli.add_command(serve)
+docs_cli.add_command(build_all)
+docs_cli.add_command(build_lang)
 docs_cli.add_command(live)
-docs_cli.add_command(verify_config)
 docs_cli.add_command(update_languages)
-docs_cli.add_command(update_config)
+docs_cli.add_command(verify_config)
+docs_cli.add_command(new_lang)
 
-
-if __name__ == "__main__":  # pragma: no cover
-    docs_cli()
+if __name__ == "__main__":
+    try:
+        docs_cli()
+    except DocsPipelineError as exc:
+        raise click.ClickException(str(exc)) from exc

@@ -160,7 +160,7 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
             # If status is not success, it's an error. Raise a RuntimeError
             # including the error type, message, and traceback from the payload.
             raise RuntimeError(
-                f"Task '{task_id}' error {payload['type']}: {payload['message']}\n" f"{payload['traceback']}"
+                f"Task '{task_id}' error {payload['type']}: {payload['message']}\n{payload['traceback']}"
             )
 
     except TimeoutError:

@@ -132,9 +132,9 @@ class LoggingConfig(ABC):
         # Join valid levels for the assertion error message.
         levels: str = ", ".join(self.__logging_levels__)
         # Assert that the provided level (case-insensitive check) is valid.
-        assert (
-            level.upper() in self.__logging_levels__
-        ), f"'{level}' is not a valid logging level. Available levels: '{levels}'."
+        assert level.upper() in self.__logging_levels__, (
+            f"'{level}' is not a valid logging level. Available levels: '{levels}'."
+        )
 
         # Store the validated level as uppercase.
         self.level = level.upper()

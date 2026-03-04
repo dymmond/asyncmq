@@ -17,13 +17,13 @@ tasks:
           -name ".ruff_cache" \
           -exec rm -rf {} +
 
-  clean_mypy:
-    desc: "Remove all .mypy_cache directories"
+  clean_typing:
+    desc: "Remove all typing cache directories"
     cmds:
       - |
         find . \
           -type d \
-          -name ".mypy_cache" \
+          -name ".ty_cache" \
           -exec rm -rf {} +
 
   clean_pytest:
@@ -42,7 +42,7 @@ tasks:
       - hatch run clean_pyi
       - hatch run clean_pycache
       - task clean_ruff
-      - task clean_mypy
+      - task clean_typing
       - task clean_pytest
 
   build_with_checks:
@@ -63,9 +63,19 @@ tasks:
   ty:
     desc: Runs the ty type checker only, no formatting
     cmds:
-      - hatch run test:check_types
+      - hatch run check_types
 
   #---------------------------- DOCS -------------------------------
+
+  docs_prepare:
+    desc: Prepares documentation sources for Zensical
+    cmds:
+      - hatch run docs:prepare
+
+  docs_clean:
+    desc: Cleans generated docs artifacts
+    cmds:
+      - hatch run docs:clean
 
   build:
     desc: Builds the documentation
@@ -76,6 +86,11 @@ tasks:
     desc: Runs the documentation in live mode
     cmds:
       - hatch run docs:serve
+
+  serve_dev:
+    desc: Runs the documentation in dev mode
+    cmds:
+      - hatch run docs:dev
 
   # --------------------------- TEST ------------------------------------
 
