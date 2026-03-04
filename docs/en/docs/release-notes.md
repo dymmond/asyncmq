@@ -5,6 +5,12 @@ hide:
 
 # Release Notes
 
+## 0.6.3
+
+### Changed
+
+- Update internals to start using Palfrey for the dashboard.
+
 ## 0.6.2
 
 ### Fixed
