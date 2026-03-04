@@ -25,6 +25,14 @@
 
 ---
 
+**Documentation**: [https://asyncmq.dymmond.com](https://asyncmq.dymmond.com) 📚
+
+**Source Code**: [https://github.com/dymmond/asyncmq](https://github.com/dymmond/asyncmq)
+
+**The official supported version is always the latest released**.
+
+---
+
 Welcome to **AsyncMQ**, the modern task queue that brings **powerful**, **flexible**, and **lightning-fast** background processing to your Python stack. Whether you're building microservices, handling high-throughput data pipelines, or just want reliable delayed jobs, AsyncMQ has your back.
 
 ## 🚀 Why Choose AsyncMQ?

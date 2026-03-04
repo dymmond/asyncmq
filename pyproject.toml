@@ -211,6 +211,10 @@ source = ["tests", "asyncmq"]
 replace-imports-with-any = [
     "motor.**",
     "asyncpg.**",
+    "aio_pika",
+    "aio_pika.**",
+    "jwt",
+    "jwt.**",
     "lilya.templating.**",
     "redis.**",
 ]
