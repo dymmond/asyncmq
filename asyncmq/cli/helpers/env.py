@@ -4,7 +4,7 @@ from pathlib import Path
 
 class AsyncMQEnv:
     """
-    Loads an arbitraty application into the object
+    Loads an arbitrary application into the object
     and returns the App.
     """
 
