@@ -4,7 +4,7 @@ from typing import Any, cast
 import anyio
 
 import asyncmq
-from asyncmq.backends.base import BaseBackend, RepeatableInfo
+from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
 
@@ -66,7 +66,7 @@ class Queue:
         self.concurrency: int = concurrency
         self.rate_limit: int | None = rate_limit
         self.rate_interval: float = rate_interval
-        self.scan_interval: float = scan_interval or self._settings.scan_interval
+        self.scan_interval: float = scan_interval if scan_interval is not None else self._settings.scan_interval
 
     async def add(
         self,
@@ -223,7 +223,7 @@ class Queue:
             raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be provided.")
 
         # Create a dictionary representing the repeatable job entry.
-        entry = {
+        entry: dict[str, Any] = {
             "task_id": task_id,
             "args": args or [],
             "kwargs": kwargs or {},
@@ -388,8 +388,8 @@ class Queue:
         """
         return await self.backend.get_due_delayed(self.name)
 
-    async def list_delayed(self) -> bool:
-        return await self.backend.list_delayed(self.name)  # type: ignore
+    async def list_delayed(self) -> list[DelayedInfo]:
+        return await self.backend.list_delayed(self.name)
 
     async def remove_delayed(self, job_id: str) -> bool:
         return await self.backend.remove_delayed(self.name, job_id)  # type: ignore
@@ -403,8 +403,8 @@ class Queue:
     async def resume_repeatable(self, job_def: dict[str, Any]) -> float:
         return await self.backend.resume_repeatable(self.name, job_def)
 
-    async def cancel_job(self, job_id: str) -> None:
-        await self.backend.cancel_job(self.name, job_id)
+    async def cancel_job(self, job_id: str) -> bool:
+        return await self.backend.cancel_job(self.name, job_id)
 
     async def is_job_cancelled(self, job_id: str) -> bool:
         return await self.backend.is_job_cancelled(self.name, job_id)

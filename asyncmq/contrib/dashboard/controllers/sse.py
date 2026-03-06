@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import (
     Any,
     AsyncGenerator,
+    cast,
 )
 
 import anyio
@@ -13,6 +14,8 @@ from lilya.requests import Request
 from lilya.responses import StreamingResponse
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.controllers._counts import JOB_STATES, get_queue_state_counts
+from asyncmq.contrib.dashboard.metrics_history import record_metrics_snapshot
 
 BackendJobRecord = dict[str, Any]
 BackendWorkerRecord = Any
@@ -54,19 +57,22 @@ class SSEController(Controller):
             """
             while True:
                 # 1. INITIAL SETUP: Get all queues (required for most subsequent steps)
-                queues: list[str] = await backend.list_queues()
+                try:
+                    queues: list[str] = await backend.list_queues()
+                except Exception:
+                    queues = []
+                queue_counts: dict[str, dict[str, int]] = {}
+                for queue_name in queues:
+                    queue_counts[queue_name] = await get_queue_state_counts(backend, queue_name)
 
                 # --- OVERVIEW: Total Counts ---
-                total_jobs: int = 0
                 total_queues: int = len(queues)
+                total_jobs: int = sum(sum(counts.values()) for counts in queue_counts.values())
 
-                # Fetch job counts across all states/queues
-                for q in queues:
-                    for s in ("waiting", "active", "completed", "failed", "delayed"):
-                        jobs: list[BackendJobRecord] = await backend.list_jobs(q, s)
-                        total_jobs += len(jobs)
-
-                total_workers: int = len(await backend.list_workers())
+                try:
+                    total_workers: int = len(await backend.list_workers())
+                except Exception:
+                    total_workers = 0
 
                 overview: dict[str, int] = {
                     "total_queues": total_queues,
@@ -79,9 +85,9 @@ class SSEController(Controller):
                 # dict.fromkeys initializes all values to 0
                 dist: dict[str, int] = dict.fromkeys(("waiting", "active", "delayed", "completed", "failed"), 0)
 
-                for q in queues:
-                    for s in dist:
-                        dist[s] += len(await backend.list_jobs(q, s))
+                for counts in queue_counts.values():
+                    for state in dist:
+                        dist[state] += counts.get(state, 0)
                 yield f"event: jobdist\ndata: {json.dumps(dist)}\n\n"
 
                 # --- METRICS: Throughput/Failure Summary ---
@@ -92,36 +98,63 @@ class SSEController(Controller):
                     "failures": dist["failed"],
                 }
                 yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
+                record_metrics_snapshot(
+                    metrics=metrics,
+                    counts=dist,
+                    total_queues=total_queues,
+                    total_workers=total_workers,
+                )
 
                 # --- QUEUE STATS: Per-Queue Detail ---
                 qrows: list[dict[str, Any]] = []
                 for q in queues:
-                    paused: bool = hasattr(backend, "is_queue_paused") and await backend.is_queue_paused(q)
-                    counts: dict[str, int] = {
-                        s: len(await backend.list_jobs(q, s))
-                        for s in ("waiting", "active", "delayed", "failed", "completed")
-                    }
+                    paused: bool = False
+                    if hasattr(backend, "is_queue_paused"):
+                        try:
+                            paused = await backend.is_queue_paused(q)
+                        except Exception:
+                            paused = False
+                    counts = queue_counts[q]
                     qrows.append({"name": q, "paused": paused, **counts})
                 yield f"event: queues\ndata: {json.dumps(qrows)}\n\n"
 
                 # --- WORKERS ---
-                wk: list[BackendWorkerRecord] = await backend.list_workers()
-                wk_rows: list[dict[str, Any]] = [
-                    {
-                        "id": w.id,
-                        "queue": w.queue,
-                        "concurrency": w.concurrency,
-                        "heartbeat": w.heartbeat,
-                    }
-                    for w in wk
-                ]
+                try:
+                    wk: list[BackendWorkerRecord] = await backend.list_workers()
+                except Exception:
+                    wk = []
+                wk_rows: list[dict[str, Any]] = []
+                for worker in wk:
+                    if isinstance(worker, dict):
+                        worker_dict = cast(dict[str, Any], worker)
+                        wk_rows.append(
+                            {
+                                "id": worker_dict.get("id"),
+                                "queue": worker_dict.get("queue"),
+                                "concurrency": worker_dict.get("concurrency"),
+                                "heartbeat": worker_dict.get("heartbeat"),
+                            }
+                        )
+                    else:
+                        wk_rows.append(
+                            {
+                                "id": getattr(worker, "id", None),
+                                "queue": getattr(worker, "queue", None),
+                                "concurrency": getattr(worker, "concurrency", None),
+                                "heartbeat": getattr(worker, "heartbeat", None),
+                            }
+                        )
                 yield f"event: workers\ndata: {json.dumps(wk_rows)}\n\n"
 
                 # --- LATEST 10 JOBS (Time-Intensive Aggregation) ---
                 all_jobs_raw: list[dict[str, Any]] = []
                 for q in queues:
-                    for s in ("waiting", "active", "completed", "failed", "delayed"):
-                        for job in await backend.list_jobs(q, s):
+                    for s in JOB_STATES:
+                        try:
+                            jobs = await backend.list_jobs(q, s)
+                        except Exception:
+                            jobs = []
+                        for job in jobs:
                             # Extract timestamp (ts) using fallbacks
                             ts: float = job.get("timestamp") or job.get("created_at") or 0
                             all_jobs_raw.append(
@@ -158,13 +191,15 @@ class SSEController(Controller):
                 qacts: list[dict[str, str | float]] = [
                     {
                         "name": q,
+                        "ts": ts,
                         "time": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
                     }
                     for q, ts in last_act.items()
                 ]
-                qacts.sort(key=lambda x: x["time"], reverse=True)  # Sorts by formatted time string
+                qacts.sort(key=lambda x: x["ts"], reverse=True)
 
-                yield f"event: latest_queues\ndata: {json.dumps(qacts[:5])}\n\n"
+                latest_queues = [{"name": rec["name"], "time": rec["time"]} for rec in qacts[:5]]
+                yield f"event: latest_queues\ndata: {json.dumps(latest_queues)}\n\n"
 
                 await anyio.sleep(5)
 

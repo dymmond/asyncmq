@@ -19,11 +19,16 @@ def verify(u: str, p: str) -> User | None:
     return None
 
 
-asynmq_admin = AsyncMQAdmin(enable_login=True, backend=SimpleUsernamePasswordBackend(verify))  # type: ignore
-app = Lilya(routes=[Include(asynmq_admin.url_prefix, app=asynmq_admin.get_asgi_app())])
+asyncmq_admin = AsyncMQAdmin(enable_login=True, backend=SimpleUsernamePasswordBackend(verify))  # type: ignore
+app = Lilya(routes=[Include(asyncmq_admin.url_prefix, app=asyncmq_admin.get_asgi_app())])
 
 
 if __name__ == "__main__":
     import palfrey
 
-    palfrey.run("run:app", host="0.0.0.0", port=8000, reload=True)
+    palfrey.run(
+        "asyncmq.contrib.dashboard.development.run:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+    )

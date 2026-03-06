@@ -6,7 +6,7 @@ import redis.asyncio as redis
 from redis.commands.core import AsyncScript
 
 from asyncmq import monkay
-from asyncmq.backends.base import BaseBackend, RepeatableInfo, WorkerInfo
+from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.schedulers import compute_next_run
@@ -122,9 +122,13 @@ class RedisBackend(BaseBackend):
         key = self._delayed_key(queue_name)
         now = time.time()
         # This calls the Lua in one round-trip: fetch + remove
-        raw_items: list[bytes] = await self._pop_delayed_script(keys=[key], args=[now])
+        raw_items: list[str | bytes] = await self._pop_delayed_script(keys=[key], args=[now])
         # Decode & parse JSON
-        return [self._json_serializer.to_dict(item.decode("utf-8")) for item in raw_items]
+        out: list[dict[str, Any]] = []
+        for item in raw_items:
+            text = item.decode("utf-8") if isinstance(item, bytes) else item
+            out.append(self._json_serializer.to_dict(text))
+        return out
 
     def _waiting_key(self, name: str) -> str:
         """
@@ -151,6 +155,12 @@ class RedisBackend(BaseBackend):
         """
         # Key format: 'queue:{queue_name}:active'
         return f"queue:{name}:active"
+
+    def _job_heartbeat_key(self, name: str) -> str:
+        return f"queue:{name}:heartbeats"
+
+    def _worker_heartbeat_key(self, name: str) -> str:
+        return f"queue:{name}:worker_heartbeats"
 
     def _delayed_key(self, name: str) -> str:
         """
@@ -297,14 +307,21 @@ class RedisBackend(BaseBackend):
                 await self.redis.zrem(delayed_key, member)
                 break
 
+        # Remove any in-flight bookkeeping for this job.
+        await self.redis.hdel(self._active_key(queue_name), payload["id"])
+        await self.redis.hdel(self._job_heartbeat_key(queue_name), payload["id"])
+
         # 3) Add to the DLQ Sorted Set
         dlq_key: str = self._dlq_key(queue_name)
-        # Prepare a new payload dict with FAILED status
-        raw_json = self._json_serializer.to_json({**payload, "status": State.FAILED})
+        # Preserve explicit terminal status (for example "expired") when provided.
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        raw_json = self._json_serializer.to_json({**payload, "status": target_status})
         await self.redis.zadd(dlq_key, {raw_json: time.time()})
 
-        # 4) Persist FAILED status in the job store
-        await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.FAILED})
+        # 4) Persist terminal status in the job store
+        await self.job_store.save(queue_name, payload["id"], {**payload, "status": target_status})
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -342,10 +359,8 @@ class RedisBackend(BaseBackend):
         key: str = self._delayed_key(queue_name)
         # Add the JSON-serialized payload to the delayed Sorted Set, scored by the run_at time.
         await self.redis.zadd(key, {self._json_serializer.to_json(payload): run_at})
-        # Update the job's status to EXPIRED (or DELAYED) and save the full payload in the job store.
-        # NOTE: Original code sets status to EXPIRED here. Consider changing to DELAYED
-        # if a distinct DELAYED state is desired in the store.
-        await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.EXPIRED})
+        # Update the job's status to DELAYED and save the full payload in the job store.
+        await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.DELAYED})
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -375,7 +390,7 @@ class RedisBackend(BaseBackend):
         # Deserialize the JSON strings back into dictionaries.
         return [self._json_serializer.to_dict(raw) for raw in raw_jobs]
 
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously removes a specific job from the backend's delayed storage
         by its ID.
@@ -395,15 +410,17 @@ class RedisBackend(BaseBackend):
         key: str = self._delayed_key(queue_name)
         # Retrieve all members of the delayed set.
         all_jobs_raw: list[str] = await self.redis.zrange(key, 0, -1)
+        removed = False
         # Iterate through the raw job payloads to find the one matching the job_id.
         for raw in all_jobs_raw:
             job: dict[str, Any] = self._json_serializer.to_dict(raw)
             # If the job ID matches.
             if job.get("id") == job_id:
                 # Remove the specific member (the JSON string) from the set.
-                await self.redis.zrem(key, raw)
+                removed = (await self.redis.zrem(key, raw)) > 0
                 # Stop iterating once found and removed.
                 break
+        return removed
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -446,7 +463,7 @@ class RedisBackend(BaseBackend):
             job["result"] = result  # Add or update the result field.
             await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
 
-    async def get_job_state(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+    async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
         Asynchronously retrieves the current status string of a specific job
         from the job store.
@@ -462,7 +479,7 @@ class RedisBackend(BaseBackend):
         # Load the job data from the job store.
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
         # Return the status field if the job is found, otherwise None.
-        return cast(dict[str, Any], job.get("status")) if job else None
+        return cast(str, job.get("status")) if job else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
         """
@@ -725,26 +742,8 @@ class RedisBackend(BaseBackend):
                   dictionary is expected to contain at least an "id" and
                   optionally a "priority" key.
         """
-        # Create a Redis pipeline for efficient batch operations.
-        pipe: redis.client.Pipeline = self.redis.pipeline()
-        # Iterate through each job dictionary in the list.
         for job in jobs:
-            # Serialize the job dictionary to a JSON string.
-            raw: str = self._json_serializer.to_json(job)
-            # Calculate the score for the waiting queue Sorted Set based on priority and time.
-            score: float = job.get("priority", 5) * 1e16 + time.time()
-            # Add the job to the waiting queue Sorted Set using the pipeline.
-            # ZADD updates the score if the member already exists.
-            await pipe.zadd(f"queue:{queue_name}:waiting", {raw: score})
-            # Save the raw job data in the job store (using a direct Redis SET
-            # via the pipeline, assuming job store uses simple keys).
-            # Note: This bypasses job_store.save logic (e.g., status update) if
-            # job_store is more complex than simple SET. Based on original code,
-            # keeping this direct pipeline SET.
-            await pipe.set(f"jobs:{queue_name}:{job['id']}", raw)
-
-        # Execute all commands in the pipeline atomically.
-        await pipe.execute()
+            await self.enqueue(queue_name, job)
 
     async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
@@ -846,19 +845,37 @@ class RedisBackend(BaseBackend):
 
         queue_names: set[str] = set()
 
-        # 1) Queues discovered from worker heartbeats
+        # 1) Queues discovered from worker heartbeats (new key format)
+        async for full_key in self.redis.scan_iter(match="queue:*:worker_heartbeats"):
+            queue_name = _name_from_key(full_key)
+            if queue_name is not None:
+                queue_names.add(queue_name)
+
+        # 2) Queues discovered from worker heartbeats (legacy key format)
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
             queue_name = _name_from_key(full_key)
             if queue_name is not None:
                 queue_names.add(queue_name)
 
-        # 2) Queues discovered from waiting job sorted sets
+        # 3) Queues discovered from waiting job sorted sets
         async for full_key in self.redis.scan_iter(match="queue:*:waiting"):
             queue_name = _name_from_key(full_key)
             if queue_name is not None:
                 queue_names.add(queue_name)
 
-        return list(queue_names)
+        # 4) Queues discovered from delayed job sorted sets
+        async for full_key in self.redis.scan_iter(match="queue:*:delayed"):
+            queue_name = _name_from_key(full_key)
+            if queue_name is not None:
+                queue_names.add(queue_name)
+
+        # 5) Queues discovered from DLQ sorted sets
+        async for full_key in self.redis.scan_iter(match="queue:*:dlq"):
+            queue_name = _name_from_key(full_key)
+            if queue_name is not None:
+                queue_names.add(queue_name)
+
+        return sorted(queue_names)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
@@ -1011,6 +1028,13 @@ class RedisBackend(BaseBackend):
             # If the job was removed from this queue, we can stop checking others.
             if removed:
                 break
+        active_removed = await self.redis.hdel(self._active_key(queue_name), job_id)
+        heartbeat_removed = await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
+        if active_removed > 0 or heartbeat_removed > 0:
+            removed = True
+
+        if removed:
+            await self.job_store.delete(queue_name, job_id)
         # Return whether the job was found and removed from any queue.
         return removed
 
@@ -1063,29 +1087,15 @@ class RedisBackend(BaseBackend):
             A list of the IDs (strings) of the jobs that were successfully
             enqueued by the script.
         """
-        # Generate the Redis key for the waiting queue Sorted Set.
-        waiting_key = f"queue:{queue_name}:waiting"
-        # Generate the Redis key prefix for dependency Hashes.
-        deps_prefix = f"queue:{queue_name}:deps"
+        created_ids: list[str] = []
+        for payload in job_dicts:
+            created_ids.append(await self.enqueue(queue_name, payload))
 
-        # Build the ARGV list for the Lua script.
-        args = [str(len(job_dicts))]  # First argument is the number of jobs.
-        # Add JSON-serialized job payloads to ARGV.
-        for jd in job_dicts:
-            args.append(self._json_serializer.to_json(jd))
-        # Add the number of dependency links to ARGV.
-        args.append(str(len(dependency_links)))
+        # Keep compatibility with existing Redis dependency-hash conventions.
+        for parent_id, child_id in dependency_links:
+            await self.redis.hset(f"queue:{queue_name}:deps:{parent_id}", child_id, 1)
 
-        # Add parent and child ID pairs to ARGV.
-        for parent, child in dependency_links:
-            args.extend([parent, child])
-
-        # Execute the pre-registered FLOW_SCRIPT.
-        # KEYS are the waiting queue key and the dependency prefix.
-        # ARGV contains the job payloads and dependency links.
-        raw = await self.flow_script(keys=[waiting_key, deps_prefix], args=args)
-        # The script returns a Lua table of job IDs that were added.
-        return raw
+        return created_ids
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
@@ -1102,7 +1112,7 @@ class RedisBackend(BaseBackend):
             timestamp: The Unix timestamp (float) of the heartbeat.
         """
         # Generate the Redis key for the heartbeats Hash for this queue.
-        key: str = f"queue:{queue_name}:heartbeats"
+        key: str = self._job_heartbeat_key(queue_name)
         # Store the timestamp (converted to string by Redis) associated with
         # the job_id in the heartbeats Hash using HSET.
         await self.redis.hset(key, job_id, str(timestamp))
@@ -1131,8 +1141,9 @@ class RedisBackend(BaseBackend):
         # Scan for all Redis keys that are heartbeat Hashes across all queues.
         # scan_iter is a generator that yields keys matching the pattern.
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            key_str = full_key.decode() if isinstance(full_key, bytes) else full_key
             # Split the key to extract the queue name. Expected format: 'queue:queue_name:heartbeats'.
-            parts: list[str] = full_key.split(":")
+            parts: list[str] = key_str.split(":")
             # Ensure the key format is as expected (3 parts).
             if len(parts) != 3:
                 continue
@@ -1144,7 +1155,11 @@ class RedisBackend(BaseBackend):
             # Iterate through each job ID and its timestamp string in the heartbeats Hash.
             for job_id, ts_str in heartbeats.items():
                 # Convert the timestamp string to a float.
-                ts: float = float(ts_str)
+                try:
+                    ts = float(ts_str)
+                except (TypeError, ValueError):
+                    # Ignore non-job heartbeat values (for example legacy worker payloads).
+                    continue
                 # Check if the heartbeat timestamp is older than the threshold.
                 if ts < older_than:
                     # If stalled, load the full job payload from the job store.
@@ -1173,21 +1188,25 @@ class RedisBackend(BaseBackend):
         """
         # Get the Redis key for the waiting queue's Sorted Set.
         waiting_key: str = self._waiting_key(queue_name)
+        retry_payload = dict(job_data)
+        retry_payload["status"] = State.WAITING
         # Serialize the job data payload to a JSON string.
-        payload: str = self._json_serializer.to_json(job_data)
+        payload: str = self._json_serializer.to_json(retry_payload)
         # Get the job's priority for the Sorted Set score, defaulting to 0.
         # Note: The original code uses priority 0 here for re-enqueued stalled jobs.
-        score: float = job_data.get("priority", 0)
+        score: float = retry_payload.get("priority", 5) * 1e16 + time.time()
         # Create a Redis pipeline for batching commands.
         pipe: redis.client.Pipeline = self.redis.pipeline()
         # Add the job payload to the waiting queue Sorted Set with the determined score.
         await pipe.zadd(waiting_key, {payload: score})
         # Clean up the heartbeat record for this job ID from the heartbeats Hash.
-        await pipe.hdel(f"queue:{queue_name}:heartbeats", job_data["id"])
+        await pipe.hdel(self._job_heartbeat_key(queue_name), retry_payload["id"])
+        await pipe.hdel(self._active_key(queue_name), retry_payload["id"])
         # Execute all commands in the pipeline atomically.
         await pipe.execute()
+        await self.job_store.save(queue_name, retry_payload["id"], retry_payload)
 
-    async def list_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+    async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """
         Asynchronously retrieves a list of all currently delayed jobs for a
         specific queue from the Redis Sorted Set.
@@ -1209,13 +1228,13 @@ class RedisBackend(BaseBackend):
         # Retrieve all members and their scores from the delayed set.
         # withscores=True returns a list of (member, score) tuples.
         items: list[tuple[str, float]] = await self.redis.zrange(key, 0, -1, withscores=True)
-        out: list[dict[str, Any]] = []
+        out: list[DelayedInfo] = []
         # Iterate through each (raw_payload, score) tuple.
         for raw, score in items:
             # raw is the serialized job dict. Deserialize it.
             job = self._json_serializer.to_dict(raw)
             # Append a dictionary containing the job ID, full payload, and run_at time.
-            out.append({"id": job["id"], "payload": job, "run_at": score})
+            out.append(DelayedInfo(job_id=job["id"], run_at=score, payload=job))
         return out
 
     async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
@@ -1347,10 +1366,12 @@ class RedisBackend(BaseBackend):
                 await self.redis.zrem(delayed_key, raw)
                 removed = True
 
+        await self.redis.hdel(self._active_key(queue_name), job_id)
+        await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
         await self.redis.sadd(f"queue:{queue_name}:cancelled", job_id)
         return removed
 
-    async def is_job_cancelled(self, queue_name: str, job_id: str) -> Any:
+    async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously checks if a specific job has been marked as cancelled
         in the Redis cancelled Set.
@@ -1368,7 +1389,7 @@ class RedisBackend(BaseBackend):
             queue, False otherwise.
         """
         # Check if the job ID is a member of the cancelled Set. sismember returns 1 or 0.
-        return await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id)
+        return bool(await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id))
 
     async def register_worker(
         self,
@@ -1391,7 +1412,7 @@ class RedisBackend(BaseBackend):
             timestamp: The timestamp representing the worker's last heartbeat.
         """
         payload = self._json_serializer.to_json({"heartbeat": timestamp, "concurrency": concurrency})
-        key = f"queue:{queue}:heartbeats"
+        key = self._worker_heartbeat_key(queue)
         # HSET the timestamp
         await self.redis.hset(key, worker_id, payload)
         # Reset TTL so the whole hash expires if no updates
@@ -1407,7 +1428,11 @@ class RedisBackend(BaseBackend):
         Args:
             worker_id: The unique identifier of the worker to deregister.
         """
-        # Scan for any queue heartbeats key and HDEL the field
+        # Scan worker-heartbeat keys and remove the worker field.
+        async for key in self.redis.scan_iter(match="queue:*:worker_heartbeats"):
+            await self.redis.hdel(key, worker_id)
+
+        # Compatibility cleanup for legacy key format.
         async for key in self.redis.scan_iter(match="queue:*:heartbeats"):
             await self.redis.hdel(key, worker_id)
 
@@ -1424,34 +1449,43 @@ class RedisBackend(BaseBackend):
         """
         infos: list[WorkerInfo] = []
         now = time.time()
-        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
-            # full_key is bytes; decode to string
-            if isinstance(full_key, bytes):
-                key_str = full_key.decode()
-            else:
-                key_str = full_key
-
+        async for full_key in self.redis.scan_iter(match="queue:*:worker_heartbeats"):
+            key_str = full_key.decode() if isinstance(full_key, bytes) else full_key
             _, queue_name, _ = key_str.split(":", 2)
-
-            # fetch all worker_id->timestamp mappings
             heartbeats = await self.redis.hgetall(full_key)
             for wid, data in heartbeats.items():
                 worker_id = wid.decode() if isinstance(wid, bytes) else wid
                 payload = self._json_serializer.to_dict(data)
-                current_concurrency: int = 0
-                if isinstance(payload, dict):
-                    current_concurrency = payload.get("concurrency", 0)
-                elif isinstance(payload, int):
-                    current_concurrency = payload
-                elif isinstance(payload, float):
-                    current_concurrency = int(payload)
+                if not isinstance(payload, dict):
+                    continue
                 timestamp = float(payload.get("heartbeat", 0))
                 if now - timestamp <= monkay.settings.heartbeat_ttl:
                     infos.append(
                         WorkerInfo(
                             id=worker_id,
                             queue=queue_name,
-                            concurrency=current_concurrency,
+                            concurrency=int(payload.get("concurrency", 0)),
+                            heartbeat=timestamp,
+                        )
+                    )
+
+        # Legacy fallback: parse worker entries that may still exist in queue:*:heartbeats.
+        async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
+            key_str = full_key.decode() if isinstance(full_key, bytes) else full_key
+            _, queue_name, _ = key_str.split(":", 2)
+            heartbeats = await self.redis.hgetall(full_key)
+            for wid, data in heartbeats.items():
+                worker_id = wid.decode() if isinstance(wid, bytes) else wid
+                payload = self._json_serializer.to_dict(data)
+                if not isinstance(payload, dict):
+                    continue
+                timestamp = float(payload.get("heartbeat", 0))
+                if now - timestamp <= monkay.settings.heartbeat_ttl:
+                    infos.append(
+                        WorkerInfo(
+                            id=worker_id,
+                            queue=queue_name,
+                            concurrency=int(payload.get("concurrency", 0)),
                             heartbeat=timestamp,
                         )
                     )

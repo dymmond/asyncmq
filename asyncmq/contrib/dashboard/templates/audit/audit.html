@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
+
+  <form method="get" class="bg-white rounded-lg shadow-sm ring-1 ring-gray-200 p-4 grid grid-cols-1 md:grid-cols-6 gap-3 mb-6">
+    <input type="text"
+           name="q"
+           value="{{ selected_query }}"
+           placeholder="Search action, actor, error, details"
+           class="md:col-span-2 rounded border border-gray-300 px-3 py-2 text-sm">
+    <input type="text"
+           name="queue"
+           value="{{ selected_queue }}"
+           placeholder="Queue name"
+           class="rounded border border-gray-300 px-3 py-2 text-sm">
+    <select name="action" class="rounded border border-gray-300 px-3 py-2 text-sm">
+      <option value="">All actions</option>
+      {% for action in action_options %}
+        <option value="{{ action }}" {% if selected_action == action %}selected{% endif %}>{{ action }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" class="rounded border border-gray-300 px-3 py-2 text-sm">
+      <option value="">All statuses</option>
+      <option value="success" {% if selected_status == "success" %}selected{% endif %}>Success</option>
+      <option value="failed" {% if selected_status == "failed" %}selected{% endif %}>Failed</option>
+    </select>
+    <select name="limit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+      {% for option in [50, 100, 200, 500] %}
+        <option value="{{ option }}" {% if limit == option %}selected{% endif %}>{{ option }} rows</option>
+      {% endfor %}
+    </select>
+    <button type="submit"
+            class="rounded bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+      Apply
+    </button>
+  </form>
+
+  <div class="bg-white rounded-lg shadow-sm ring-1 ring-gray-200 overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Time</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Action</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Source</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Queue</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Actor</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Details / Error</th>
+        </tr>
+      </thead>
+      <tbody class="bg-white divide-y divide-gray-200">
+        {% for event in events %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{{ event.time }}</td>
+            <td class="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">{{ event.action }}</td>
+            <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{{ event.source }}</td>
+            <td class="px-4 py-3 text-sm whitespace-nowrap">
+              <span class="px-2 inline-flex text-xs font-semibold rounded
+                  {% if event.status == 'failed' %}
+                    bg-red-100 text-red-800
+                  {% else %}
+                    bg-green-100 text-green-800
+                  {% endif %}">
+                {{ event.status }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{{ event.queue or "—" }}</td>
+            <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{{ event.job_id or "—" }}</td>
+            <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{{ event.actor or "—" }}</td>
+            <td class="px-4 py-3 text-xs text-gray-700">
+              {% if event.details %}
+                <pre class="whitespace-pre-wrap">{{ event.details | tojson(indent=2) }}</pre>
+              {% endif %}
+              {% if event.error %}
+                <div class="text-red-600 font-medium mt-1">{{ event.error }}</div>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="px-4 py-8 text-center text-gray-500 italic">No audit events available yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

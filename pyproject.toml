@@ -39,6 +39,7 @@ classifiers = [
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
     "lilya[standard]>=0.24.3",
+    "sayer>=0.7.4",
     "redis>=7.0.0",
 ]
 
@@ -113,7 +114,11 @@ postgres = ["asyncpg>=0.30.0"]
 mongo = ["motor>=3.7.0"]
 aio-pika = ["aio_pika>=9.5.8"]
 
-all = ["postgres", "mongo", "aio-pika"]
+all = [
+    "asyncpg>=0.30.0",
+    "motor>=3.7.0",
+    "aio_pika>=9.5.8",
+]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"

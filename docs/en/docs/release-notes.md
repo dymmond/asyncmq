@@ -1,9 +1,59 @@
----
-hide:
-  - navigation
----
-
 # Release Notes
+
+## 0.7.0
+
+### Added
+
+- Migrated the CLI to a Sayer-backed implementation while preserving existing command names and behavior.
+- Added a shared dashboard queue-count aggregation helper for consistent overview/metrics/SSE data.
+- Added richer dashboard operations features:
+  - queue job filtering/search (`q`, `task`, `job_id`, sorting),
+  - action audit trail page (`/audit`),
+  - metrics history endpoint (`/metrics/history`) and richer metrics history visualizations.
+- Added high-value regression tests for:
+    - MongoDB store `_id` update behavior,
+    - worker handling of backend-wrapped payloads,
+    - dashboard count aggregation and repeatables actions,
+    - dashboard audit/history stores and filtering behavior,
+    - project metadata validation for optional dependency extras.
+
+### Changed
+
+- Expanded and restructured documentation with:
+    - a rewritten main entrypoint (`index.md`),
+    - richer feature docs,
+    - new how-to guides,
+    - new reference section,
+    - dedicated troubleshooting documentation,
+    - improved dashboard operator documentation (capabilities + operations playbook).
+- Updated docs navigation for clearer onboarding and operational workflows.
+- Improved dashboard controllers to reuse consistent queue/job state aggregation and safer backend fallbacks.
+- Expanded dashboard documentation with route reference, richer runbooks, and additional architecture/workflow diagrams.
+
+### Fixed
+
+- RabbitMQ backend acknowledgment lifecycle:
+  - dequeue no longer auto-acks,
+  - in-flight messages are tracked and acknowledged explicitly via `ack(...)`.
+- RabbitMQ delayed/repeatable and queue-state consistency:
+  - normalized delayed-state handling,
+  - corrected delayed listing/removal semantics,
+  - improved queue pause/resume and worker heartbeat visibility behavior.
+- Dependency and stalled-job edge cases:
+  - improved dependency merge/resolution behavior,
+  - normalized stalled-job payload handling across worker/recovery paths.
+- DLQ terminal-state correctness across backends:
+  - preserved explicit terminal statuses (`failed` / `expired`) instead of forcing non-terminal values.
+- CLI queue-info correctness:
+  - now prefers backend `queue_stats(...)` instead of backend-internal attributes.
+- Packaging extras correctness:
+  - fixed `asyncmq[all]` to include concrete installable dependencies.
+- Typing fix in repeatable queue definitions (`Queue.add_repeatable`) to satisfy strict type checking.
+- Worker completion path now tolerates minimal backend stubs that do not implement dependency-resolution APIs.
+- PostgreSQL delayed-job retrieval now removes due delayed records atomically, restoring delayed lifecycle correctness.
+- In-memory and MongoDB backends now prevent failed jobs from being double-counted as waiting in queue stats.
+- Stalled-job recovery behavior was aligned across backends for payload/state consistency in re-enqueue flows.
+
 
 ## 0.6.3
 
@@ -36,13 +86,13 @@ to the `from future import __annotations__`.
 
 ### Changed
 
-- Updated the [Dashboard](./dashboard/index.md) documentation to reflect new authentication flows and backend integrations.
+- Updated the [Dashboard](./dashboard/dashboard.md) documentation to reflect new authentication flows and backend integrations.
 - Clarified upgrade instructions to assist users transitioning from previous dashboard versions.
 - Improved authentication-related documentation for better clarity and usability.
 
 #### Breaking
 
-Check the documentation of the [Dashboard](./dashboard/index.md) as now with the introduction of the new flow, the old
+Check the documentation of the [Dashboard](./dashboard/dashboard.md) as now with the introduction of the new flow, the old
 way won't work anymore. The `dashboard` is no longer available and now everything is done via `AsyncMQAdmin` object.
 
 The documentation explains how to easily integrate and update (its not too much different)
@@ -66,7 +116,7 @@ The documentation explains how to easily integrate and update (its not too much 
 - Automatic dependency resolution fallback when atomic flow addition is not supported by the backend.
 - Lifecycle hooks for worker startup and shutdown via `worker_on_startup` and `worker_on_shutdown`, supporting both sync and async callables.
 - New reusable `lifecycle.py` module providing utilities like `normalize_hooks`, `run_hooks`, and `run_hooks_safely`.
-- New section in the [workers for hooks](./features/workers.md#8-worker-lifecycle-hooks) and lifecycle.
+- New section in the [workers for hooks](./features/workers.md) and lifecycle.
 
 ### Changed
 
@@ -273,7 +323,7 @@ anyio.run(main)
 
 * **Dashboard**
 
-    * Brand new [Dashboard](./dashboard/index.md) where it shows how to integrate with your AsyncMQ. This dahboard is still
+    * Brand new [Dashboard](./dashboard/dashboard.md) where it shows how to integrate with your AsyncMQ. This dahboard is still
 in *beta* mode so any feedback is welcomed.
 
 * **Top-Level CLI Commands**

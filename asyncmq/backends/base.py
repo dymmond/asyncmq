@@ -168,7 +168,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously removes a specific job from the delayed storage.
 
@@ -178,6 +178,10 @@ class BaseBackend(ABC):
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the delayed job to remove.
+
+        Returns:
+            True when a delayed job with `job_id` was found and removed,
+            otherwise False.
         """
         ...
 
@@ -482,7 +486,7 @@ class BaseBackend(ABC):
         ...
 
     @abstractmethod
-    async def list_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+    async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """
         Asynchronously retrieves a list of all currently delayed jobs for a
         specific queue.
@@ -491,8 +495,7 @@ class BaseBackend(ABC):
             queue_name: The name of the queue to list delayed jobs for.
 
         Returns:
-            A list of dictionaries, where each dictionary represents a delayed
-            job and includes information like 'id', 'payload', and 'run_at'.
+            A list of `DelayedInfo` records.
         """
         ...
 

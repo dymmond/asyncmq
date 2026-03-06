@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.controllers._counts import aggregate_counts
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -32,28 +33,23 @@ class DashboardController(DashboardMixin, TemplateController):
             The rendered HTML response for the dashboard index page.
         """
         backend: Any = monkay.settings.backend
-        job_states: Sequence[str] = (
-            "waiting",
-            "active",
-            "completed",
-            "failed",
-            "delayed",
-        )
 
         # 1) Get all queues & count them
-        queues: list[str] = await backend.list_queues()
+        try:
+            queues: list[str] = await backend.list_queues()
+        except Exception:
+            queues = []
         total_queues: int = len(queues)
 
         # 2) Count jobs across all states
-        total_jobs: int = 0
-        for queue in queues:
-            for state in job_states:
-                # Assuming backend.list_jobs returns a list of job data
-                jobs: list[Any] = await backend.list_jobs(queue, state)
-                total_jobs += len(jobs)
+        totals = await aggregate_counts(backend, queues) if queues else {}
+        total_jobs: int = sum(totals.values())
 
         # 3) Count registered workers
-        workers: list[Any] = await backend.list_workers()
+        try:
+            workers: list[Any] = await backend.list_workers()
+        except Exception:
+            workers = []
         total_workers: int = len(workers)
 
         # 4) Update the context

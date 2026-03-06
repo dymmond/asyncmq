@@ -155,8 +155,16 @@ async def handle_job(
     settings = asyncmq.monkay.settings
     backend = backend or settings.backend
 
+    # Some backends (e.g. RabbitMQ) may wrap dequeued payloads as
+    # {"job_id": "...", "payload": {...}} for compatibility.
+    normalized_job = raw_job
+    if isinstance(raw_job.get("payload"), dict) and "task_id" not in raw_job:
+        normalized_job = dict(cast(dict[str, Any], raw_job["payload"]))
+        if "id" not in normalized_job and raw_job.get("job_id") is not None:
+            normalized_job["id"] = raw_job["job_id"]
+
     # Convert the raw job dictionary into a Job object
-    job = Job.from_dict(raw_job)
+    job = Job.from_dict(normalized_job)
 
     # Dependency gating (backend-agnostic)
     # If this job depends on other jobs, ensure all parents are COMPLETED before executing.
@@ -165,7 +173,9 @@ async def handle_job(
             parent_state = await backend.get_job_state(queue_name, parent_id)
             if parent_state != State.COMPLETED:
                 # Parent not done yet, requeue this job slightly in the future to avoid hot loops.
+                job.status = State.DELAYED
                 await backend.enqueue_delayed(queue_name, job.to_dict(), time.time() + 0.05)
+                await backend.ack(queue_name, job.id)
                 return
 
     if await backend.is_job_cancelled(queue_name, job.id):
@@ -179,6 +189,8 @@ async def handle_job(
         job.status = State.EXPIRED
         # Update the state in the backend
         await backend.update_job_state(queue_name, job.id, job.status)
+        # Clear active/heartbeat bookkeeping before terminal routing.
+        await backend.ack(queue_name, job.id)
         # Emit a job:expired event
         await event_emitter.emit("job:expired", job.to_dict())
         # Move the expired job to the Dead Letter Queue (DLQ)
@@ -189,7 +201,9 @@ async def handle_job(
     # Check if the current time is before the scheduled delay_until time
     if job.delay_until and time.time() < job.delay_until:
         # If delayed, re-enqueue the job into the delayed queue
+        job.status = State.DELAYED
         await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
+        await backend.ack(queue_name, job.id)
         return  # Stop processing this job for now
 
     try:
@@ -264,11 +278,16 @@ async def handle_job(
         await backend.save_job_result(queue_name, job.id, result)
         # Acknowledge successful processing in the backend
         await backend.ack(queue_name, job.id)
+        # Unblock dependent jobs waiting on this parent.
+        resolve_dependency = getattr(backend, "resolve_dependency", None)
+        if callable(resolve_dependency):
+            await cast(Any, resolve_dependency)(queue_name, job.id)
         # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
 
     except JobCancelled:
         # Cancellation path
+        await backend.ack(queue_name, job.id)
         await event_emitter.emit("job:cancelled", job.to_dict())
 
     except Exception:
@@ -289,6 +308,7 @@ async def handle_job(
             job.status = State.FAILED
             # Update the state in the backend
             await backend.update_job_state(queue_name, job.id, job.status)
+            await backend.ack(queue_name, job.id)
             # Emit a job:failed event
             await event_emitter.emit("job:failed", job.to_dict())
             # Move the failed job to the Dead Letter Queue (DLQ)
@@ -298,14 +318,13 @@ async def handle_job(
             delay = job.next_retry_delay()
             # Calculate the timestamp for the next retry
             job.delay_until = time.time() + delay
-            # Set status to EXPIRED (or similar temporary state before delayed)
-            # Note: The original code sets this to EXPIRED, which might be
-            # counter-intuitive for a job pending retry, but logic is preserved.
-            job.status = State.EXPIRED
+            # Mark retriable failure as delayed before requeueing.
+            job.status = State.DELAYED
             # Update the state in the backend
             await backend.update_job_state(queue_name, job.id, job.status)
             # Enqueue the job into the delayed queue for a future retry
             await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
+            await backend.ack(queue_name, job.id)
 
 
 class Worker:
@@ -355,14 +374,6 @@ class Worker:
             timestamp=time.time(),
         )
 
-        # Duplicate registration for heartbeat test
-        await backend.register_worker(
-            worker_id=self.id,
-            queue=self.queue.name,
-            concurrency=self.concurrency,
-            timestamp=time.time(),
-        )
-
         # Periodic heartbeat
         async def heartbeat_loop() -> None:
             while True:
@@ -374,33 +385,33 @@ class Worker:
                     timestamp=time.time(),
                 )
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(heartbeat_loop)
+        try:
+            async with anyio.create_task_group() as tg:
+                self._cancel_scope = tg.cancel_scope
+                tg.start_soon(heartbeat_loop)
 
-            # Kick off the real processing loop—
-            # process_job will dequeue and handle jobs until cancelled.
-            tg.start_soon(
-                process_job,
-                self.queue.name,
-                CapacityLimiter(self.concurrency),
-                None,
-                backend,
-            )
-
-            # Keep this task group alive until cancellation
-            try:
-                await anyio.sleep(float("inf"))
-            except anyio.get_cancelled_exc_class():
-                # On shutdown, deregister
-                await backend.deregister_worker(self.id)
-            finally:
-                # Run the hooks on shutdown
-                await run_hooks_safely(
-                    monkay.settings.worker_on_shutdown,
-                    backend=backend,
-                    worker_id=self.id,
-                    queue=self.queue.name,
+                # Kick off the real processing loop—
+                # process_job will dequeue and handle jobs until cancelled.
+                tg.start_soon(
+                    process_job,
+                    self.queue.name,
+                    CapacityLimiter(self.concurrency),
+                    None,
+                    backend,
                 )
+
+                # Keep this task group alive until cancellation.
+                await anyio.sleep(float("inf"))
+        finally:
+            self._cancel_scope = None
+            await backend.deregister_worker(self.id)
+            # Run the hooks on shutdown
+            await run_hooks_safely(
+                monkay.settings.worker_on_shutdown,
+                backend=backend,
+                worker_id=self.id,
+                queue=self.queue.name,
+            )
 
     def start(self) -> None:
         """Blocking entrypoint."""

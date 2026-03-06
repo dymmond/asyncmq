@@ -38,6 +38,7 @@ app = create_dashboard_app()
             b"Repeatable Jobs",
         ),
         (reverse("metrics"), b"Metrics"),
+        (reverse("audit"), b"Audit Trail"),
     ],
 )
 def test_pages(path, keyword, client):
@@ -45,3 +46,10 @@ def test_pages(path, keyword, client):
     response = client.get(path)
     assert response.status_code == 200
     assert keyword in response.content
+
+
+def test_metrics_history_json(client):
+    settings.backend = RedisBackend()
+    response = client.get(reverse("metrics-history", app=app))
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("application/json")

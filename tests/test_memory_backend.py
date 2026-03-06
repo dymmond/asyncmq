@@ -60,7 +60,8 @@ async def test_remove_delayed():
     job = Job(task_id="delay.remove", args=[], kwargs={})
     run_at = time.time() + 1
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
-    await backend.remove_delayed("test", job.id)
+    assert await backend.remove_delayed("test", job.id)
+    assert not await backend.remove_delayed("test", job.id)
     delayed = await backend.get_due_delayed("test")
     assert all(j["id"] != job.id for j in delayed)
 

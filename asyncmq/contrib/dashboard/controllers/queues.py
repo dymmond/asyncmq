@@ -8,6 +8,8 @@ from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.audit import record_audit_event
+from asyncmq.contrib.dashboard.controllers._counts import get_queue_state_counts
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
@@ -35,27 +37,21 @@ class QueueController(DashboardMixin, TemplateController):
             paused status, and count for all major job states.
         """
         backend: Any = monkay.settings.backend
-        queues: list[str] = await backend.list_queues()
-        job_states: tuple[str, ...] = (
-            "waiting",
-            "active",
-            "delayed",
-            "failed",
-            "completed",
-        )
-
+        try:
+            queues: list[str] = await backend.list_queues()
+        except Exception:
+            queues = []
         rows: list[dict[str, Any]] = []
         for q in queues:
             # Check for paused state (requires backend support)
             paused: bool = False
             if hasattr(backend, "is_queue_paused"):
-                paused = await backend.is_queue_paused(q)
+                try:
+                    paused = await backend.is_queue_paused(q)
+                except Exception:
+                    paused = False
 
-            # Get counts by state
-            counts: dict[str, int] = {}
-            for state in job_states:
-                jobs: list[Any] = await backend.list_jobs(q, state)
-                counts[state] = len(jobs)
+            counts = await get_queue_state_counts(backend, q)
 
             rows.append(
                 {
@@ -103,11 +99,47 @@ class QueueController(DashboardMixin, TemplateController):
         action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
-            await backend.pause_queue(q)
-            add_message(request, "success", f"Queue '{q}' paused.")
+            try:
+                await backend.pause_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to pause queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.list",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' paused.")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.list",
+                    queue=q,
+                )
         elif action == "resume" and hasattr(backend, "resume_queue"):
-            await backend.resume_queue(q)
-            add_message(request, "success", f"Queue '{q}' resumed.")
+            try:
+                await backend.resume_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to resume queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.list",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' resumed.")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.list",
+                    queue=q,
+                )
 
         # Redirect to the queue detail using the named route
         return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)
@@ -132,24 +164,16 @@ class QueueDetailController(DashboardMixin, TemplateController):
         """
         backend: Any = monkay.settings.backend
         q: str = request.path_params["name"]
-        job_states: tuple[str, ...] = (
-            "waiting",
-            "active",
-            "delayed",
-            "failed",
-            "completed",
-        )
 
         # Get paused state
         paused: bool = False
         if hasattr(backend, "is_queue_paused"):
-            paused = await backend.is_queue_paused(q)
+            try:
+                paused = await backend.is_queue_paused(q)
+            except Exception:
+                paused = False
 
-        # Get counts by state
-        counts: dict[str, int] = {}
-        for state in job_states:
-            jobs: list[Any] = await backend.list_jobs(q, state)
-            counts[state] = len(jobs)
+        counts = await get_queue_state_counts(backend, q)
 
         context: dict[str, Any] = await self.get_context_data(request)
         context.update(
@@ -175,11 +199,47 @@ class QueueDetailController(DashboardMixin, TemplateController):
         action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
-            await backend.pause_queue(q)
-            add_message(request, "success", f"Queue '{q}' paused.")
+            try:
+                await backend.pause_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to pause queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.detail",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' paused.")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.detail",
+                    queue=q,
+                )
         elif action == "resume" and hasattr(backend, "resume_queue"):
-            await backend.resume_queue(q)
-            add_message(request, "success", f"Queue '{q}' resumed.")
+            try:
+                await backend.resume_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to resume queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.detail",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' resumed.")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.detail",
+                    queue=q,
+                )
 
         # Redirect back to the detail page itself
         return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)
