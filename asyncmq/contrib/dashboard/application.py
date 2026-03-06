@@ -75,7 +75,7 @@ def create_dashboard_app() -> ASGIApp:
                     RoutePath(
                         "/queues/{name}/repeatables",
                         repeatables.RepeatablesController,
-                        methods=["GET"],
+                        methods=["GET", "POST"],
                         name="repeatables",
                     ),
                     RoutePath(

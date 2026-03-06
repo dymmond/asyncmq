@@ -2,6 +2,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from sayer import Sayer
 
 from asyncmq.cli.helpers.groups import AsyncMQGroup
 from asyncmq.cli.info import info_app
@@ -35,27 +36,40 @@ def _print_main_help() -> None:
     console.print(Panel(text, title="AsyncMQ CLI", border_style="cyan"))
 
 
-@click.group(cls=AsyncMQGroup, invoke_without_command=True)
-@click.pass_context
-def app(ctx: click.Context) -> None:
+app_cli = Sayer(
+    name="asyncmq",
+    help="AsyncMQ CLI",
+    group_class=AsyncMQGroup,
+    invoke_without_command=True,
+)
+
+
+@app_cli.callback(invoke_without_command=True)
+def _app_callback(ctx: click.Context) -> None:
     """AsyncMQ CLI"""
-    if ctx.invoked_subcommand is None:
-        # Assuming _print_main_help is defined elsewhere
-        try:
-            _print_main_help()
-        except NameError:
-            print("Custom main help placeholder.")
-        click.echo(ctx.get_help())
+    tokens = getattr(ctx, "protected_args", None)
+    if tokens is None:
+        tokens = ctx.args
+    if tokens and tokens[0] in ctx.command.commands:
+        return
+
+    # Assuming _print_main_help is defined elsewhere
+    try:
+        _print_main_help()
+    except NameError:
+        print("Custom main help placeholder.")
+    click.echo(ctx.get_help())
 
 
-app.add_command(queue_app, name="queue")
-app.add_command(job_app, name="job")
-app.add_command(worker_app, name="worker")
-app.add_command(info_app, name="info")
+app_cli.add_command(queue_app, name="queue")
+app_cli.add_command(job_app, name="job")
+app_cli.add_command(worker_app, name="worker")
+app_cli.add_command(info_app, name="info")
+app = app_cli.cli
 
 
 def main() -> None:
-    app()
+    app_cli()
 
 
 if __name__ == "__main__":

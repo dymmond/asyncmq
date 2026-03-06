@@ -58,7 +58,7 @@ async def test_delayed_job_flow(backend):
     assert any(j["id"] == "job4" for j in due_jobs)
 
     # Remove from delayed
-    await backend.remove_delayed("test-queue", "job4")
+    assert not await backend.remove_delayed("test-queue", "job4")
 
 
 async def test_save_and_get_job_result(backend):
@@ -108,6 +108,15 @@ async def test_distributed_lock(backend):
     acquired = await lock.acquire()
     assert acquired
     await lock.release()
+
+
+async def test_pause_and_resume_queue_state(backend):
+    queue = "pauseable"
+    assert await backend.is_queue_paused(queue) is False
+    await backend.pause_queue(queue)
+    assert await backend.is_queue_paused(queue) is True
+    await backend.resume_queue(queue)
+    assert await backend.is_queue_paused(queue) is False
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])

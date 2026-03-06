@@ -2,13 +2,14 @@ import sys
 from typing import Any, TypeVar
 
 import click
+from sayer import SayerGroup
 
 from asyncmq.cli.helpers.env import AsyncMQEnv
 
 T = TypeVar("T")
 
 
-class AsyncMQGroup(click.Group):
+class AsyncMQGroup(SayerGroup):
     """
     A custom click.Group that ensures the AsyncMQ environment settings
     are enabled before invoking any command within the group.

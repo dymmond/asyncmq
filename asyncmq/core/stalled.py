@@ -22,7 +22,7 @@ async def record_heartbeat(queue_name: str, job_id: str, backend: BaseBackend | 
 async def get_stalled_jobs(threshold: float, backend: BaseBackend | None = None) -> list[dict[str, Any]]:
     """
     Retrieve all jobs whose last heartbeat is older than now - threshold.
-    Returns a list of dicts with keys 'queue' and 'job_data'.
+    Returns a list of dicts with keys 'queue_name' and 'job_data'.
     """
     backend = backend or asyncmq.monkay.settings.backend
     cutoff = time.time() - threshold
@@ -45,7 +45,9 @@ async def stalled_recovery_scheduler(
         # Fetch jobs whose heartbeat is older than cutoff
         stalled: list[dict[str, Any]] = await backend.fetch_stalled_jobs(cutoff)
         for entry in stalled:
-            queue_name = entry["queue_name"]
+            queue_name = entry.get("queue_name") or entry.get("queue")
+            if not queue_name:
+                continue
             job_data = entry["job_data"]
             # Re-enqueue the stalled job
             await backend.reenqueue_stalled(queue_name, job_data)

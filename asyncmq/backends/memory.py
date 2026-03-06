@@ -114,7 +114,9 @@ class InMemoryBackend(BaseBackend):
             queue = self.queues.get(queue_name, [])
             # If the queue is not empty, pop and return the first job.
             if queue:
-                return queue.pop(0)
+                job = queue.pop(0)
+                self.active_jobs[(queue_name, job["id"])] = job
+                return job
             # Return None if the queue is empty.
             return None
 
@@ -134,8 +136,11 @@ class InMemoryBackend(BaseBackend):
             dlq = self.dlqs.setdefault(queue_name, [])
             # Append the failed job payload to the DLQ list.
             dlq.append(payload)
-            # Update the job's state to FAILED.
-            self.job_states[(queue_name, payload["id"])] = State.FAILED
+            # Preserve explicit terminal status (e.g. EXPIRED) when provided.
+            target_status = payload.get("status")
+            if target_status not in {State.FAILED, State.EXPIRED}:
+                target_status = State.FAILED
+            self.job_states[(queue_name, payload["id"])] = target_status
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -170,8 +175,8 @@ class InMemoryBackend(BaseBackend):
             delayed_list = self.delayed.setdefault(queue_name, [])
             # Append the run_at timestamp and job payload as a tuple.
             delayed_list.append((run_at, payload))
-            # Update the job's state to EXPIRED (or DELAYED).
-            self.job_states[(queue_name, payload["id"])] = State.EXPIRED
+            # Update the job's state to DELAYED.
+            self.job_states[(queue_name, payload["id"])] = State.DELAYED
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -268,17 +273,26 @@ class InMemoryBackend(BaseBackend):
             }
             return next_run
 
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Cancel a job: remove it from waiting/delayed and mark it cancelled.
         """
         async with self.lock:
+            removed = False
             # remove from waiting
+            waiting_before = len(self.queues.get(queue_name, []))
             self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
+            removed = removed or len(self.queues.get(queue_name, [])) < waiting_before
             # remove from delayed
+            delayed_before = len(self.delayed.get(queue_name, []))
             self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
+            removed = removed or len(self.delayed.get(queue_name, [])) < delayed_before
+            # remove from active bookkeeping
+            removed = self.active_jobs.pop((queue_name, job_id), None) is not None or removed
+            self.heartbeats.pop((queue_name, job_id), None)
             # record cancellation
             self.cancelled.setdefault(queue_name, set()).add(job_id)
+            return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
@@ -596,8 +610,10 @@ class InMemoryBackend(BaseBackend):
             has had jobs enqueued into it.
         """
         async with self.lock:
-            # Return a list of all keys (queue names) in the queues dictionary.
-            return list(self.queues.keys())
+            queue_names = set(self.queues.keys())
+            queue_names.update(self.delayed.keys())
+            queue_names.update(self.dlqs.keys())
+            return sorted(queue_names)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
@@ -608,14 +624,9 @@ class InMemoryBackend(BaseBackend):
         letter queue (DLQ).
         """
         async with self.lock:
-            raw_waiting = len(self.queues.get(queue_name, []))
+            waiting = len(self.queues.get(queue_name, []))
             delayed = len(self.delayed.get(queue_name, []))
             failed = len(self.dlqs.get(queue_name, []))
-
-            # Exclude failed jobs from waiting
-            waiting = raw_waiting - failed
-            if waiting < 0:
-                waiting = 0
 
         return {
             "waiting": waiting,
@@ -714,6 +725,8 @@ class InMemoryBackend(BaseBackend):
                 self.job_states.pop(key, None)
                 self.job_results.pop(key, None)
                 self.job_progress.pop(key, None)
+                self.active_jobs.pop(key, None)
+                self.heartbeats.pop(key, None)
                 return True
 
             return False
@@ -766,16 +779,7 @@ class InMemoryBackend(BaseBackend):
             for (q, jid), ts in list(self.heartbeats.items()):
                 # Check if the job's last heartbeat timestamp is older than the threshold
                 if ts < older_than:
-                    # Look up the full job payload in the relevant waiting queue.
-                    # We use .get(q, []) to handle cases where a queue might not exist
-                    # or is empty, providing a default empty list to iterate over.
-                    # The generator expression efficiently finds the payload dictionary
-                    # where the 'id' key matches the job_id.
-                    # We use .get("id") on the payload for safety against missing keys.
-                    payload = next(
-                        (p for p in self.queues.get(q, []) if p.get("id") == jid),
-                        None,  # If no matching payload is found in the queue, return None
-                    )
+                    payload = self.active_jobs.get((q, jid))
                     # If a corresponding job payload was found in the queue, add it
                     # to the list of stalled jobs with its queue name.
                     if payload:
@@ -808,6 +812,7 @@ class InMemoryBackend(BaseBackend):
             # already exist as a key in self.queues, it is created with an empty
             # list as its value before appending the job_data.
             self.queues.setdefault(queue_name, []).append(job_data)
+            self.job_states[(queue_name, job_data["id"])] = State.WAITING
 
             # Remove the heartbeat entry for this specific job from the heartbeats
             # dictionary. This stops tracking its heartbeat as it's now re-enqueued.
@@ -817,6 +822,7 @@ class InMemoryBackend(BaseBackend):
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
             self.heartbeats.pop((queue_name, job_data["id"]), None)
+            self.active_jobs.pop((queue_name, job_data["id"]), None)
 
     async def register_worker(
         self,

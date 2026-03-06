@@ -39,6 +39,7 @@ classifiers = [
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
     "lilya[standard]>=0.24.3",
+    "sayer>=0.7.4",
     "redis>=7.0.0",
 ]
 

@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Any, cast
 
@@ -8,6 +9,7 @@ except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
+from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.stores.base import BaseJobStore
 from asyncmq.stores.rabbitmq import RabbitMQJobStore
@@ -51,6 +53,13 @@ class RabbitMQBackend(BaseBackend):
         self._chan: aio_pika.abc.AbstractChannel | None = None
         # Dictionary to store declared queues to avoid re-declaring them.
         self._queues: dict[str, aio_pika.abc.AbstractQueue] = {}
+        # Queue names observed by this process (used for list_queues()).
+        self._known_queues: set[str] = set()
+        # Queue pause state is process-local, consistent with other in-memory controls.
+        self._paused_queues: set[str] = set()
+        # Track unacked consumed messages so ack() can acknowledge after processing.
+        self._in_flight: dict[tuple[str, str], aio_pika.abc.AbstractIncomingMessage] = {}
+        self._in_flight_lock = asyncio.Lock()
 
     async def _connect(self) -> None:
         """
@@ -69,6 +78,18 @@ class RabbitMQBackend(BaseBackend):
         self._chan = await self._conn.channel(publisher_confirms=True)
         # Set the quality of service for the channel, controlling prefetch count.
         await self._chan.set_qos(prefetch_count=self.prefetch_count)
+
+    async def _ensure_queue(self, queue_name: str, *, track: bool = True) -> aio_pika.abc.AbstractQueue:
+        await self._connect()
+        if queue_name not in self._queues:
+            queue = await self._chan.declare_queue(name=queue_name, durable=True)
+            self._queues[queue_name] = queue
+        if track:
+            self._known_queues.add(queue_name)
+        return self._queues[queue_name]
+
+    async def _store_entry(self, queue_name: str, job_id: str) -> dict[str, Any]:
+        return await self._state.load(queue_name, job_id) or {"id": job_id}
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -97,15 +118,10 @@ class RabbitMQBackend(BaseBackend):
         job_id = str(payload["id"])
 
         # 1) persist job metadata as 'waiting'
-        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": "waiting"})
+        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": State.WAITING})
 
-        # 2) ensure AMQP connection & channel
-        await self._connect()
-
-        # 3) declare (and track) the queue itself
-        if queue_name not in self._queues:
-            queue = await self._chan.declare_queue(name=queue_name, durable=True)
-            self._queues[queue_name] = queue
+        # 2) ensure AMQP queue exists
+        await self._ensure_queue(queue_name)
 
         # 4) build and publish the message
         msg = Message(
@@ -134,20 +150,24 @@ class RabbitMQBackend(BaseBackend):
         """
         await self._connect()
 
-        # 2) declare (and track) the queue if this is the first time
-        if queue_name not in self._queues:
-            queue = await self._chan.declare_queue(name=queue_name, durable=True)
-            self._queues[queue_name] = queue
+        queue = await self._ensure_queue(queue_name)
 
         # 3) attempt to get one message, returning None if empty
-        msg = await self._queues[queue_name].get(no_ack=False, fail=False)
+        msg = await queue.get(no_ack=False, fail=False)
         if msg is None:
             return None
 
-        # 4) process (ack) and return its payload
-        async with msg.process():
-            payload = self._json_serializer.to_dict(msg.body.decode())
-            return {"job_id": msg.message_id, "payload": payload}
+        # 4) decode payload and defer ack until backend.ack() is called
+        payload = self._json_serializer.to_dict(msg.body.decode())
+        job_id = str(payload.get("id") or msg.message_id or "")
+        if not job_id:
+            await msg.reject(requeue=False)
+            return None
+
+        payload.setdefault("id", job_id)
+        async with self._in_flight_lock:
+            self._in_flight[(queue_name, job_id)] = msg
+        return {"job_id": job_id, "payload": payload}
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -159,8 +179,10 @@ class RabbitMQBackend(BaseBackend):
             queue_name: The name of the queue the job belonged to.
             job_id: The unique identifier of the job to acknowledge.
         """
-        # Update the job's status in the job store to 'completed'.
-        await self._state.save(queue_name, job_id, {"id": job_id, "status": "completed"})
+        async with self._in_flight_lock:
+            msg = self._in_flight.pop((queue_name, str(job_id)), None)
+        if msg is not None and not getattr(msg, "processed", False):
+            await msg.ack()
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -175,7 +197,11 @@ class RabbitMQBackend(BaseBackend):
         """
         job_id = str(payload["id"])
 
+        self._known_queues.add(queue_name)
         # 1) persist failure in your state store
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
         move_to_dlq = getattr(self._state, "move_to_dlq", None)
         if callable(move_to_dlq):
             await cast(Any, move_to_dlq)(queue_name, payload)
@@ -186,18 +212,13 @@ class RabbitMQBackend(BaseBackend):
                 {
                     "id": job_id,
                     "payload": payload,
-                    "status": "failed",
+                    "status": target_status,
                 },
             )
 
         # 2) ensure we have an open connection & channel
-        await self._connect()
-
-        # 3) declare (and track) the DLQ queue itself
         dlq_name = f"{queue_name}.dlq"
-        if dlq_name not in self._queues:
-            q = await self._chan.declare_queue(name=dlq_name, durable=True)
-            self._queues[dlq_name] = q
+        await self._ensure_queue(dlq_name, track=False)
 
         # 4) publish via the default exchange (routes to the queue named dlq_name)
         msg = Message(
@@ -220,12 +241,13 @@ class RabbitMQBackend(BaseBackend):
             run_at: The Unix timestamp (float) at which the job should be executed.
         """
         job_id = str(payload["id"])
-        # Save the job metadata to the job store with 'scheduled' status
+        self._known_queues.add(queue_name)
+        # Save the job metadata to the job store with delayed status
         # and the specified 'run_at' timestamp.
         await self._state.save(
             queue_name,
             job_id,
-            {"id": job_id, "payload": payload, "status": "scheduled", "run_at": run_at},
+            {"id": job_id, "payload": payload, "status": State.DELAYED, "run_at": run_at},
         )
 
     async def get_due_delayed(self, queue_name: str) -> list[DelayedInfo]:
@@ -244,7 +266,7 @@ class RabbitMQBackend(BaseBackend):
         now = time.time()  # Get current time.
         due: list[DelayedInfo] = []
         # Iterate through all scheduled jobs for the given queue.
-        for j in await self._state.jobs_by_status(queue_name, "scheduled"):
+        for j in await self._state.jobs_by_status(queue_name, State.DELAYED):
             if j["run_at"] <= now:
                 # If the job's run_at time is in the past or present, it's due.
                 due.append(DelayedInfo(job_id=j["id"], run_at=j["run_at"], payload=j["payload"]))
@@ -252,7 +274,7 @@ class RabbitMQBackend(BaseBackend):
                 await self._state.delete(queue_name, j["id"])
         return due
 
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
         Removes a specific delayed job from the job store.
 
@@ -260,8 +282,11 @@ class RabbitMQBackend(BaseBackend):
             queue_name: The name of the queue the delayed job belongs to.
             job_id: The unique identifier of the delayed job to remove.
         """
-        # Delete the specified job from the job store.
+        entry = await self._state.load(queue_name, job_id)
+        if not entry or entry.get("status") != State.DELAYED:
+            return False
         await self._state.delete(queue_name, job_id)
+        return True
 
     async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """
@@ -277,7 +302,7 @@ class RabbitMQBackend(BaseBackend):
         # and convert them into DelayedInfo objects.
         return [
             DelayedInfo(job_id=j["id"], run_at=j["run_at"], payload=j["payload"])
-            for j in await self._state.jobs_by_status(queue_name, "scheduled")
+            for j in await self._state.jobs_by_status(queue_name, State.DELAYED)
         ]
 
     async def enqueue_repeatable(
@@ -362,7 +387,7 @@ class RabbitMQBackend(BaseBackend):
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_def["id"], entry)
 
-    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
         """
         Resumes a paused repeatable job.
 
@@ -380,7 +405,7 @@ class RabbitMQBackend(BaseBackend):
         # Load the existing entry for the repeatable job.
         entry = await self._state.load(queue_name, job_def["id"])
         if entry is None:
-            return None
+            return 0.0
         # Remove the 'paused' flag if it exists.
         entry.pop("paused", None)
         # Recalculate the next run time based on the job's interval.
@@ -414,7 +439,7 @@ class RabbitMQBackend(BaseBackend):
             state: The new status to set for the job (e.g., 'processing', 'completed').
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._state.load(queue_name, job_id) or {}
+        entry = await self._store_entry(queue_name, job_id)
         entry["status"] = state  # Update the 'status' field.
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
@@ -432,12 +457,12 @@ class RabbitMQBackend(BaseBackend):
             result: The result data to associate with the job.
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._state.load(queue_name, job_id) or {}
+        entry = await self._store_entry(queue_name, job_id)
         entry["result"] = result  # Store the job result.
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
 
-    async def get_job_state(self, queue_name: str, job_id: str) -> Any:
+    async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
         Retrieves the current status of a specific job.
 
@@ -452,7 +477,7 @@ class RabbitMQBackend(BaseBackend):
         # Load the job entry.
         entry = await self._state.load(queue_name, job_id)
         # Return the 'status' if the entry exists, otherwise None.
-        return entry.get("status") if entry else None
+        return cast(str, entry.get("status")) if entry else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any:
         """
@@ -483,9 +508,9 @@ class RabbitMQBackend(BaseBackend):
                 'depends_on' list (if any).
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._state.load(queue_name, job_dict["id"]) or {}
+        entry = await self._store_entry(queue_name, job_dict["id"])
         # Update the 'depends_on' field with the provided dependencies.
-        entry["depends_on"] = job_dict.get("depends_on", [])
+        entry["depends_on"] = list(job_dict.get("depends_on", []))
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_dict["id"], entry)
 
@@ -506,16 +531,23 @@ class RabbitMQBackend(BaseBackend):
         # Iterate through all jobs in the specified queue.
         for j in await self._state.all_jobs(queue_name):
             # Get the list of dependencies for the current job.
-            deps = j.get("depends_on", [])
+            deps = list(j.get("depends_on", []))
             if parent_id in deps:
                 # If the parent_id is in the dependencies, remove it.
                 deps.remove(parent_id)
-                j["depends_on"] = deps
+                if deps:
+                    j["depends_on"] = deps
+                else:
+                    j.pop("depends_on", None)
                 # Save the updated job entry.
                 await self._state.save(queue_name, j["id"], j)
                 if not deps:
                     # If all dependencies are resolved, enqueue the job.
-                    await self.enqueue(queue_name, j["payload"])
+                    current = j.get("status")
+                    if current not in {State.WAITING, State.DELAYED, State.ACTIVE, State.COMPLETED}:
+                        payload = j.get("payload", j)
+                        payload["id"] = j["id"]
+                        await self.enqueue(queue_name, payload)
 
     async def pause_queue(self, queue_name: str) -> None:
         """
@@ -527,8 +559,8 @@ class RabbitMQBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to pause.
         """
-        # Save a special entry to indicate that the queue is paused.
-        await self._state.save(queue_name, "_pause", {"paused": True})
+        self._known_queues.add(queue_name)
+        self._paused_queues.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
         """
@@ -540,8 +572,7 @@ class RabbitMQBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to resume.
         """
-        # Delete the special entry that indicates the queue is paused.
-        await self._state.delete(queue_name, "_pause")
+        self._paused_queues.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
@@ -553,8 +584,7 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             True if the queue is paused, False otherwise.
         """
-        # Check if the special '_pause' entry exists for the queue.
-        return bool(await self._state.load(queue_name, "_pause"))
+        return queue_name in self._paused_queues
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
@@ -569,7 +599,7 @@ class RabbitMQBackend(BaseBackend):
             progress: The current progress of the job, typically a float between 0.0 and 1.0.
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._state.load(queue_name, job_id) or {}
+        entry = await self._store_entry(queue_name, job_id)
         entry["progress"] = progress  # Store the job progress.
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
@@ -665,8 +695,11 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             True if the job's status was updated to cancelled, False otherwise.
         """
-        # Update the job's status to 'cancelled' in the job store.
-        await self._state.save(queue_name, job_id, {"id": job_id, "status": "cancelled"})
+        entry = await self._state.load(queue_name, job_id)
+        if not entry:
+            return False
+        entry["status"] = "cancelled"
+        await self._state.save(queue_name, job_id, entry)
         return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
@@ -680,8 +713,12 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             True if the job was successfully removed, False otherwise.
         """
-        # Delete the specified job from the job store.
+        entry = await self._state.load(queue_name, job_id)
+        if not entry:
+            return False
         await self._state.delete(queue_name, job_id)
+        async with self._in_flight_lock:
+            self._in_flight.pop((queue_name, job_id), None)
         return True
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
@@ -704,9 +741,9 @@ class RabbitMQBackend(BaseBackend):
             # If the job entry is not found, cannot retry.
             return False
         # Re-enqueue the job using its original payload.
-        await self.enqueue(queue_name, entry["payload"])
-        # Update the job's status back to 'waiting' in the job store.
-        await self._state.save(queue_name, job_id, {"id": job_id, "status": "waiting"})
+        payload = entry.get("payload", entry)
+        payload["id"] = job_id
+        await self.enqueue(queue_name, payload)
         return True
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
@@ -737,6 +774,7 @@ class RabbitMQBackend(BaseBackend):
             concurrency: The maximum number of jobs the worker can process concurrently.
             timestamp: The Unix timestamp of the worker's last heartbeat.
         """
+        self._known_queues.add(queue)
         # Save worker information in the 'workers' collection.
         await self._state.save(
             "workers",
@@ -768,7 +806,21 @@ class RabbitMQBackend(BaseBackend):
         """
         # Retrieve all jobs from the 'workers' collection and convert them
         # into WorkerInfo objects.
-        return [WorkerInfo(**w) for w in await self._state.all_jobs("workers")]
+        cutoff = time.time() - self._settings.heartbeat_ttl
+        workers: list[WorkerInfo] = []
+        for worker in await self._state.all_jobs("workers"):
+            heartbeat = float(worker.get("heartbeat", 0))
+            if heartbeat < cutoff:
+                continue
+            workers.append(
+                WorkerInfo(
+                    id=worker["id"],
+                    queue=worker.get("queue", ""),
+                    concurrency=int(worker.get("concurrency", 0)),
+                    heartbeat=heartbeat,
+                )
+            )
+        return workers
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
@@ -782,31 +834,34 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             A dictionary containing queue statistics, e.g., {'message_count': int}.
         """
-        await self._connect()
+        await self._ensure_queue(queue_name)
 
         try:
-            # 1) Get a queue object (declare if needed, but not passive yet)
-            queue = await self._chan.declare_queue(queue_name, durable=True)
+            queue = self._queues[queue_name]
 
             # 2) Ask RabbitMQ passively for the latest stats
             declare_ok = await queue.declare()
         except Exception:
             # Queue missing or channel/broker error -> treat as empty
-            return {"message_count": 0}
+            return {"waiting": 0, "delayed": 0, "failed": 0, "message_count": 0}
+
+        delayed = len(await self._state.jobs_by_status(queue_name, State.DELAYED))
+        failed = len(await self._state.jobs_by_status(queue_name, State.FAILED))
+        waiting_fallback = len(await self._state.jobs_by_status(queue_name, State.WAITING))
 
         # Preferred path: `declare_ok` is Queue.DeclareOk with message_count
         if declare_ok is not None:
             msg_count = int(getattr(declare_ok, "message_count", 0) or 0)
-            return {"message_count": msg_count}
+            return {"waiting": msg_count, "delayed": delayed, "failed": failed, "message_count": msg_count}
 
         # Fallback for older aio-pika that uses `q.declaration_result`
         declare_result = getattr(queue, "declaration_result", None)
         if declare_result is not None:
             msg_count = int(getattr(declare_result, "message_count", 0) or 0)
-            return {"message_count": msg_count}
+            return {"waiting": msg_count, "delayed": delayed, "failed": failed, "message_count": msg_count}
 
         # Ultimate fallback
-        return {"message_count": 0}
+        return {"waiting": waiting_fallback, "delayed": delayed, "failed": failed, "message_count": waiting_fallback}
 
     async def drain_queue(self, queue_name: str) -> None:
         """
@@ -817,9 +872,7 @@ class RabbitMQBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to drain.
         """
-        await self._connect()  # Ensure connection is established.
-        # Declare the queue, ensuring its durability.
-        q = await self._chan.declare_queue(queue_name, durable=True)
+        q = await self._ensure_queue(queue_name)
         await q.purge()  # Purge all messages from the queue.
 
     async def create_lock(self, key: str, ttl: int) -> Any:
@@ -864,8 +917,9 @@ class RabbitMQBackend(BaseBackend):
             timestamp: The Unix timestamp (float) of the heartbeat.
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._state.load(queue_name, job_id) or {}
+        entry = await self._store_entry(queue_name, job_id)
         entry["heartbeat"] = timestamp  # Update the heartbeat timestamp.
+        entry["id"] = job_id
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
 
@@ -889,9 +943,14 @@ class RabbitMQBackend(BaseBackend):
         for q_name in await self.list_queues():
             # Iterate through all jobs in each queue.
             for j in await self._state.all_jobs(q_name):
-                # Check if the job has a heartbeat and it's older than 'older_than'.
-                if j.get("heartbeat", 0) < older_than:
-                    stalled.append({"queue": q_name, "job_data": j})
+                # Check if the job has an active heartbeat older than `older_than`.
+                if j.get("status") != State.ACTIVE:
+                    continue
+                heartbeat = j.get("heartbeat")
+                if not isinstance(heartbeat, (int, float)):
+                    continue
+                if float(heartbeat) < older_than:
+                    stalled.append({"queue_name": q_name, "job_data": j})
         return stalled
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
@@ -906,8 +965,10 @@ class RabbitMQBackend(BaseBackend):
             job_data: A dictionary containing the stalled job's data, including
                 its 'payload' key.
         """
-        # Enqueue the job using its original payload.
-        await self.enqueue(queue_name, job_data["payload"])
+        payload = dict(job_data.get("payload", job_data))
+        payload["status"] = State.WAITING
+        payload["id"] = job_data.get("id", payload.get("id"))
+        await self.enqueue(queue_name, payload)
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
@@ -932,7 +993,7 @@ class RabbitMQBackend(BaseBackend):
             A list of strings, where each string is the name of a queue.
         """
         # Delegate the listing of queues to the job store.
-        return list(self._queues.keys())
+        return sorted(self._known_queues)
 
     async def close(self) -> None:
         """
@@ -947,3 +1008,5 @@ class RabbitMQBackend(BaseBackend):
         if self._conn and not self._conn.is_closed:
             # Close the connection if it's open.
             await self._conn.close()
+        async with self._in_flight_lock:
+            self._in_flight.clear()

@@ -43,6 +43,7 @@ async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     assert job is not None
     assert job["payload"]["task"] == "do_something"
 
+    await backend.update_job_state("test_q", "j1", "completed")
     await backend.ack("test_q", job["job_id"])
     state = await redis_store.load("test_q", "j1")
     assert state["status"] == "completed"
@@ -72,7 +73,8 @@ async def test_list_and_remove_delayed(backend):
     lst = await backend.list_delayed("test_q")
     assert any(di.job_id == "j4" for di in lst)
 
-    await backend.remove_delayed("test_q", "j4")
+    assert await backend.remove_delayed("test_q", "j4")
+    assert not await backend.remove_delayed("test_q", "j4")
     lst2 = await backend.list_delayed("test_q")
     assert not any(di.job_id == "j4" for di in lst2)
 
@@ -138,10 +140,52 @@ async def test_queue_stats_and_drain(backend):
         await backend.enqueue("test_q", {"id": f"s{i}"})
     stats = await backend.queue_stats("test_q")
     assert stats["message_count"] >= 3
+    assert {"waiting", "delayed", "failed"} <= set(stats)
 
     await backend.drain_queue("test_q")
     stats2 = await backend.queue_stats("test_q")
     assert stats2["message_count"] == 0
+
+
+async def test_ack_does_not_force_completed_state(backend):
+    payload = {"id": "ack1", "task_id": "noop", "args": [], "kwargs": {}}
+    await backend.enqueue("test_q", payload)
+    msg = await backend.dequeue("test_q")
+    assert msg is not None
+
+    await backend.update_job_state("test_q", "ack1", "delayed")
+    await backend.ack("test_q", "ack1")
+
+    state = await backend.get_job_state("test_q", "ack1")
+    assert state == "delayed"
+
+
+async def test_fetch_stalled_jobs_returns_queue_name_and_active_only(backend):
+    old = time.time() - 30
+    await backend._state.save(
+        "test_q",
+        "stalled-active",
+        {
+            "id": "stalled-active",
+            "payload": {"id": "stalled-active", "task_id": "t", "args": [], "kwargs": {}},
+            "status": "active",
+            "heartbeat": old,
+        },
+    )
+    await backend._state.save(
+        "test_q",
+        "stalled-waiting",
+        {
+            "id": "stalled-waiting",
+            "payload": {"id": "stalled-waiting", "task_id": "t", "args": [], "kwargs": {}},
+            "status": "waiting",
+            "heartbeat": old,
+        },
+    )
+
+    stalled = await backend.fetch_stalled_jobs(time.time() - 1)
+    assert any(entry["queue_name"] == "test_q" and entry["job_data"]["id"] == "stalled-active" for entry in stalled)
+    assert all(entry["job_data"]["id"] != "stalled-waiting" for entry in stalled)
 
 
 async def test_update_and_get_job_state(backend, redis_store):

@@ -2,6 +2,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from sayer import Sayer
 
 import asyncmq
 from asyncmq import __version__  # noqa
@@ -9,10 +10,15 @@ from asyncmq.cli.utils import INFO_LOGO, get_centered_logo, get_print_banner
 
 console = Console()
 
+info_cli = Sayer(
+    name="info",
+    help="Provides information about the AsyncMQ installation and configuration.",
+    invoke_without_command=True,
+)
 
-@click.group(name="info", invoke_without_command=True)
-@click.pass_context
-def info_app(ctx: click.Context) -> None:
+
+@info_cli.callback(invoke_without_command=True)
+def _info_callback(ctx: click.Context) -> None:
     """
     Provides information about the AsyncMQ installation and configuration.
 
@@ -23,11 +29,15 @@ def info_app(ctx: click.Context) -> None:
     Args:
         ctx: The Click context object, passed automatically by Click.
     """
-    # Check if any subcommand was invoked.
-    if ctx.invoked_subcommand is None:
-        # If no subcommand, print custom info help and the standard Click help.
-        _print_info_help()
-        click.echo(ctx.get_help())
+    tokens = getattr(ctx, "protected_args", None)
+    if tokens is None:
+        tokens = ctx.args
+    if tokens and tokens[0] in ctx.command.commands:
+        return
+
+    # If no subcommand, print custom info help and the standard Click help.
+    _print_info_help()
+    click.echo(ctx.get_help())
 
 
 def _print_info_help() -> None:
@@ -57,7 +67,7 @@ def _print_info_help() -> None:
     console.print(Panel(text, title="Info CLI", border_style="cyan"))
 
 
-@info_app.command("version")
+@click.command("version")
 def version_command() -> None:
     """
     Displays the current installed version of AsyncMQ.
@@ -71,7 +81,7 @@ def version_command() -> None:
     console.print(f"[cyan]AsyncMQ version: {__version__}[/cyan]")
 
 
-@info_app.command("backend")
+@click.command("backend")
 def backend() -> None:
     """
     Displays the currently configured backend for AsyncMQ.
@@ -89,3 +99,8 @@ def backend() -> None:
     get_print_banner(INFO_LOGO, "AsyncMQ Backend")
     # Print the formatted string showing the current backend module and class.
     console.print(f"[green]Current backend:[/green] [cyan]{backend_module}.{backend_class}[/cyan]")
+
+
+info_cli.add_command(version_command)
+info_cli.add_command(backend)
+info_app = info_cli.cli

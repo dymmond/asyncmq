@@ -242,7 +242,7 @@ class MongoDBBackend(BaseBackend):
             self.delayed[queue_name] = remaining
             return due  # Return the list of jobs that were due.
 
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously removes a job from the in-memory delayed queue by its ID.
 
@@ -259,9 +259,11 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Filter the in-memory delayed list, keeping only jobs whose ID does
             # not match the one to be removed. Use .get() with default [] for safety.
+            before = len(self.delayed.get(queue_name, []))
             self.delayed[queue_name] = [
                 (ts, job) for ts, job in self.delayed.get(queue_name, []) if job.get("id") != job_id
             ]
+            return len(self.delayed.get(queue_name, [])) < before
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -414,25 +416,27 @@ class MongoDBBackend(BaseBackend):
             queue_name: The name of the queue containing the dependent jobs.
             parent_id: The unique identifier of the parent job that has completed.
         """
-        # Acquire the lock for consistency.
         async with self.lock:
-            # Find jobs in the store that have 'parent_id' in their 'depends_on' list.
-            # This requires a store method to query by dependency. Assuming such a method exists.
-            # NOTE: The original code did not implement this query logic here.
-            # This is a placeholder assuming the store has a method like `jobs_depending_on`.
-            # As per instructions, I cannot change the logic, so the original pass is kept,
-            # but this is where the dependency resolution would typically happen.
-            # Placeholder for actual dependency resolution logic:
-            # dependent_jobs = await self.store.jobs_depending_on(queue_name, parent_id)
-            # for child_job in dependent_jobs:
-            #     child_job['depends_on'].remove(parent_id)
-            #     if not child_job['depends_on']:
-            #         child_job['status'] = State.WAITING
-            #         await self.store.save(queue_name, child_job['id'], child_job)
-            #         self.queues.setdefault(queue_name, []).append(child_job)
-            #     else:
-            #         await self.store.save(queue_name, child_job['id'], child_job)
-            pass  # Keeping the original pass statement as per instruction
+            all_jobs = await self.store.all_jobs(queue_name)
+            for job in all_jobs:
+                depends_on: list[str] = list(job.get("depends_on", []))
+                if parent_id not in depends_on:
+                    continue
+
+                depends_on.remove(parent_id)
+                if depends_on:
+                    job["depends_on"] = depends_on
+                else:
+                    job.pop("depends_on", None)
+                    # Do not enqueue duplicates if the job is already runnable/in-flight.
+                    current_state = job.get("status")
+                    if current_state not in {State.WAITING, State.DELAYED, State.ACTIVE, State.COMPLETED}:
+                        job["status"] = State.WAITING
+                        self.queues.setdefault(queue_name, []).append(job)
+
+                job_id = cast(str | None, job.get("id") or job.get("job_id"))
+                if job_id:
+                    await self.store.save(queue_name, job_id, job)
 
     async def pause_queue(self, queue_name: str) -> None:
         """
@@ -716,14 +720,7 @@ class MongoDBBackend(BaseBackend):
             for (q, jid), ts in list(self.heartbeats.items()):
                 # Check if the heartbeat timestamp is older than the threshold.
                 if ts < older_than:
-                    # Attempt to find the full job payload in the relevant in-memory queue
-                    # using a generator expression for efficiency. Use .get("id")
-                    # for safety in case 'id' is missing in a job payload.
-                    payload = next(
-                        (p for p in self.queues.get(q, []) if p.get("id") == jid),
-                        None,  # Return None if the job payload is not found in the queue.
-                    )
-                    # If the job payload was found, add its details to the stalled list.
+                    payload = await self.store.load(q, jid)
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
 
@@ -746,17 +743,20 @@ class MongoDBBackend(BaseBackend):
         """
         # Acquire the lock to protect shared state (queues and heartbeats accessed here).
         async with self.lock:
+            retry_payload = dict(job_data)
+            retry_payload["status"] = State.WAITING
             # Append the job data to the specified in-memory queue list.
             # setdefault ensures the queue list exists even if this is the first job
             # for this queue.
-            self.queues.setdefault(queue_name, []).append(job_data)
+            self.queues.setdefault(queue_name, []).append(retry_payload)
 
             # Remove the heartbeat entry for this job as it's no longer running.
             # Use .pop with a default of None to avoid errors if the heartbeat was
             # already removed or if 'id' is missing.
-            job_id = job_data.get("id")
+            job_id = retry_payload.get("id")
             if isinstance(job_id, str):
                 self.heartbeats.pop((queue_name, job_id), None)
+                await self.store.save(queue_name, job_id, retry_payload)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
@@ -786,16 +786,9 @@ class MongoDBBackend(BaseBackend):
         failed_jobs = await self.store.jobs_by_status(queue_name, State.FAILED)
         failed = len(failed_jobs)
 
-        # Calculate the effective waiting count by subtracting failed jobs (which
-        # might still be in the in-memory queue list if not explicitly removed)
-        # from the raw in-memory count. Ensure the result is not negative.
-        waiting = raw_waiting - failed
-        if waiting < 0:
-            waiting = 0
-
         # Return a dictionary containing the calculated statistics.
         return {
-            "waiting": waiting,
+            "waiting": raw_waiting,
             "delayed": delayed,
             "failed": failed,
         }
@@ -922,7 +915,7 @@ class MongoDBBackend(BaseBackend):
             }
             return next_ts  # Return the newly computed next run timestamp.
 
-    async def cancel_job(self, queue_name: str, job_id: str) -> None:
+    async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously cancels a job, removing it from the in-memory waiting
         and delayed queues and marking it as cancelled in memory.
@@ -940,15 +933,24 @@ class MongoDBBackend(BaseBackend):
         """
         # Acquire the lock to ensure exclusive access to in-memory queues and cancelled set.
         async with self.lock:
+            removed = False
             # Filter the in-memory waiting queue list, keeping jobs whose ID does not match.
             # Use .get() with default [] for safety.
+            waiting_before = len(self.queues.get(queue_name, []))
             self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
+            if len(self.queues[queue_name]) < waiting_before:
+                removed = True
             # Filter the in-memory delayed queue list, keeping jobs whose ID does not match.
             # Use .get() with default [] for safety.
+            delayed_before = len(self.delayed.get(queue_name, []))
             self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
+            if len(self.delayed[queue_name]) < delayed_before:
+                removed = True
             # Add the job ID to the in-memory set of cancelled jobs.
             # setdefault ensures the set exists even if this is the first cancelled job for this queue.
             self.cancelled.setdefault(queue_name, set()).add(job_id)
+            self.heartbeats.pop((queue_name, job_id), None)
+            return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
@@ -1048,7 +1050,7 @@ class MongoDBBackend(BaseBackend):
             )
         return workers
 
-    async def retry_job(self, queue_name: str, job_id: str) -> None:
+    async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
         Retry a job by moving it from DLQ or failed state back to waiting.
 
@@ -1065,8 +1067,10 @@ class MongoDBBackend(BaseBackend):
 
             job["status"] = State.WAITING
             await self.store.save(queue_name, job_id, job)
+            return True
+        return False
 
-    async def remove_job(self, queue_name: str, job_id: str) -> None:
+    async def remove_job(self, queue_name: str, job_id: str) -> bool:
         """
         Remove a job completely from storage.
 
@@ -1076,4 +1080,13 @@ class MongoDBBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to remove.
         """
+        existing = await self.store.load(queue_name, job_id)
+        if not existing:
+            return False
         await self.store.delete(queue_name, job_id)
+        async with self.lock:
+            self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
+            self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
+            self.heartbeats.pop((queue_name, job_id), None)
+            self.cancelled.get(queue_name, set()).discard(job_id)
+        return True

@@ -187,3 +187,17 @@ async def test_multiply_task():
     result = await backend.get_job_result("test", raw["id"])
 
     assert result == 42
+
+
+async def test_handle_job_accepts_backend_wrapped_payload():
+    backend = InMemoryBackend()
+    await simple_task.enqueue(2, 5, backend=backend)
+
+    raw = await backend.dequeue("test")
+    wrapped = {"job_id": raw["id"], "payload": raw}
+
+    await handle_job("test", wrapped, backend=backend)
+    await wait_for_state(backend, "test", raw["id"], State.COMPLETED)
+
+    result = await backend.get_job_result("test", raw["id"])
+    assert result == 7

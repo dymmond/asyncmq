@@ -143,7 +143,7 @@ async def test_delayed_job_status_marked_delayed():
     await backend.enqueue_delayed("test", job.to_dict(), run_at)
     state = await backend.get_job_state("test", job.id)
 
-    assert state == State.EXPIRED
+    assert state == State.DELAYED
 
 
 async def test_delayed_result_is_none_initially():

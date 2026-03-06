@@ -8,6 +8,7 @@ from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.controllers._counts import get_queue_state_counts
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
@@ -35,27 +36,21 @@ class QueueController(DashboardMixin, TemplateController):
             paused status, and count for all major job states.
         """
         backend: Any = monkay.settings.backend
-        queues: list[str] = await backend.list_queues()
-        job_states: tuple[str, ...] = (
-            "waiting",
-            "active",
-            "delayed",
-            "failed",
-            "completed",
-        )
-
+        try:
+            queues: list[str] = await backend.list_queues()
+        except Exception:
+            queues = []
         rows: list[dict[str, Any]] = []
         for q in queues:
             # Check for paused state (requires backend support)
             paused: bool = False
             if hasattr(backend, "is_queue_paused"):
-                paused = await backend.is_queue_paused(q)
+                try:
+                    paused = await backend.is_queue_paused(q)
+                except Exception:
+                    paused = False
 
-            # Get counts by state
-            counts: dict[str, int] = {}
-            for state in job_states:
-                jobs: list[Any] = await backend.list_jobs(q, state)
-                counts[state] = len(jobs)
+            counts = await get_queue_state_counts(backend, q)
 
             rows.append(
                 {
@@ -132,24 +127,16 @@ class QueueDetailController(DashboardMixin, TemplateController):
         """
         backend: Any = monkay.settings.backend
         q: str = request.path_params["name"]
-        job_states: tuple[str, ...] = (
-            "waiting",
-            "active",
-            "delayed",
-            "failed",
-            "completed",
-        )
 
         # Get paused state
         paused: bool = False
         if hasattr(backend, "is_queue_paused"):
-            paused = await backend.is_queue_paused(q)
+            try:
+                paused = await backend.is_queue_paused(q)
+            except Exception:
+                paused = False
 
-        # Get counts by state
-        counts: dict[str, int] = {}
-        for state in job_states:
-            jobs: list[Any] = await backend.list_jobs(q, state)
-            counts[state] = len(jobs)
+        counts = await get_queue_state_counts(backend, q)
 
         context: dict[str, Any] = await self.get_context_data(request)
         context.update(

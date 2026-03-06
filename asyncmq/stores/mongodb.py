@@ -69,6 +69,8 @@ class MongoDBStore(BaseJobStore):
         """
         # Create a mutable copy of the input data dictionary.
         data = dict(data)
+        # MongoDB immutable field cannot be updated through $set.
+        data.pop("_id", None)
         # Add or update 'queue_name' and 'job_id' fields in the document.
         data["queue_name"] = queue_name
         data["job_id"] = job_id

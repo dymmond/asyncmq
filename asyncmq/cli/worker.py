@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from sayer import Sayer
 
 import asyncmq
 from asyncmq import __version__  # noqa
@@ -21,10 +22,15 @@ from asyncmq.logging import logger
 
 console = Console()
 
+worker_cli = Sayer(
+    name="worker",
+    help="Manages AsyncMQ worker processes.",
+    invoke_without_command=True,
+)
 
-@click.group(name="worker", invoke_without_command=True)
-@click.pass_context
-def worker_app(ctx: click.Context) -> None:
+
+@worker_cli.callback(invoke_without_command=True)
+def _worker_callback(ctx: click.Context) -> None:
     """
     Manages AsyncMQ worker processes.
 
@@ -34,11 +40,15 @@ def worker_app(ctx: click.Context) -> None:
     Args:
         ctx: The Click context object, passed automatically by Click.
     """
-    # Check if any subcommand was invoked.
-    if ctx.invoked_subcommand is None:
-        # If no subcommand, print custom worker help and the standard Click help.
-        _print_worker_help()
-        click.echo(ctx.get_help())
+    tokens = getattr(ctx, "protected_args", None)
+    if tokens is None:
+        tokens = ctx.args
+    if tokens and tokens[0] in ctx.command.commands:
+        return
+
+    # If no subcommand, print custom worker help and the standard Click help.
+    _print_worker_help()
+    click.echo(ctx.get_help())
 
 
 def _print_worker_help() -> None:
@@ -65,7 +75,7 @@ def _print_worker_help() -> None:
     console.print(Panel(text, title="Worker CLI", border_style="cyan"))
 
 
-@worker_app.command("start")
+@click.command("start")
 @click.argument("queue")
 @click.option("--concurrency", required=False, help="Number of concurrent workers.")
 def start_worker(queue: str, concurrency: int | str | None = None) -> None:
@@ -125,7 +135,7 @@ async def signal_handler(scope: anyio.CancelScope) -> None:
             return  # Exit the signal handler task
 
 
-@worker_app.command("list")
+@click.command("list")
 def list_workers() -> None:
     """
     List all currently registered workers.
@@ -147,7 +157,7 @@ def list_workers() -> None:
     console.print(table)
 
 
-@worker_app.command("register")
+@click.command("register")
 @click.argument("worker_id")
 @click.argument("queue")
 @click.option("--concurrency", default=1, help="Concurrency level for the worker.")
@@ -181,7 +191,7 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
     )
 
 
-@worker_app.command("deregister")
+@click.command("deregister")
 @click.argument("worker_id")
 def deregister_worker(worker_id: str) -> None:
     """
@@ -197,3 +207,10 @@ def deregister_worker(worker_id: str) -> None:
     backend = asyncmq.monkay.settings.backend
     run_cmd(lambda: backend.deregister_worker(worker_id))
     console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")
+
+
+worker_cli.add_command(start_worker)
+worker_cli.add_command(list_workers)
+worker_cli.add_command(register_worker)
+worker_cli.add_command(deregister_worker)
+worker_app = worker_cli.cli

@@ -1,4 +1,4 @@
-# tests/dashboard/test_controllers.py
+import json
 import time
 from typing import Any
 
@@ -69,6 +69,7 @@ class FakeBackend:
                 "kwargs": {},
             }
         ]
+        self.removed_repeatables: list[tuple[str, Any]] = []
 
     # queues API expected by controllers
     async def list_queues(self) -> list[str]:
@@ -132,6 +133,25 @@ class FakeBackend:
     async def create_repeatable(self, job_def: dict[str, Any]) -> dict[str, Any]:
         self._repeatables.append(job_def)
         return {"ok": True, "id": f"rpt-{len(self._repeatables)}", **job_def}
+
+    async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        for item in self._repeatables:
+            if item.get("queue") == queue_name and item.get("task_id") == job_def.get("task_id"):
+                item["paused"] = True
+
+    async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        for item in self._repeatables:
+            if item.get("queue") == queue_name and item.get("task_id") == job_def.get("task_id"):
+                item["paused"] = False
+        return time.time() + 60
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+        self.removed_repeatables.append((queue_name, job_def))
+        self._repeatables = [
+            item
+            for item in self._repeatables
+            if not (item.get("queue") == queue_name and item.get("task_id") == job_def.get("task_id"))
+        ]
 
 
 @pytest.fixture(scope="session")
@@ -274,6 +294,27 @@ def test_repeatables_new_post(client, app):
     response = client.post(new_url, data=payload)
 
     assert response.status_code == 200
+
+
+def test_repeatables_remove_uses_backend_remove_api(client, app, fake_backend):
+    remove_url = url(app, "repeatables", name="emails")
+    data = {
+        "action": "remove",
+        "job_def": json.dumps(
+            {
+                "task_id": "send-digest",
+                "queue": "emails",
+                "cron": "0 * * * *",
+                "args": [],
+                "kwargs": {},
+            }
+        ),
+    }
+
+    response = client.post(remove_url, data=data)
+    assert response.status_code == 200
+    assert fake_backend.removed_repeatables
+    assert fake_backend.removed_repeatables[-1][0] == "emails"
 
 
 def test_dlq_list(client, app):

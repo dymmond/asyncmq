@@ -4,7 +4,7 @@ except ImportError:
     raise ImportError("Please install asyncpg: `pip install asyncpg`") from None
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from asyncpg import Pool, Record
@@ -56,6 +56,7 @@ class PostgresBackend(BaseBackend):
         self.dsn: str = resolved_dsn
         # Initialize the asyncpg connection pool to None; it will be created on connect.
         self.pool: Pool | None = None
+        self._paused_queues: set[str] = set()
         # Initialize the PostgresJobStore with the DSN.
         self.pool_options = pool_options or self._settings.asyncmq_postgres_pool_options or {}
         self.store: PostgresJobStore = PostgresJobStore(dsn=self.dsn, pool_options=self.pool_options)
@@ -65,6 +66,7 @@ class PostgresBackend(BaseBackend):
         Atomically retrieve and remove all delayed jobs whose delay_until ≤ now
         in a single SQL statement, returning their payloads.
         """
+        await self.connect()
         now = time.time()
         # Pull & delete in one CTE-backed statement
         async with self.pool.acquire() as conn:
@@ -260,6 +262,7 @@ class PostgresBackend(BaseBackend):
             A list of dictionaries, where each dictionary is a job payload
             that is ready to be moved to the main queue.
         """
+        await self.connect()
         # Get the current timestamp.
         now: float = time.time()
         # Acquire a connection from the pool.
@@ -279,7 +282,7 @@ class PostgresBackend(BaseBackend):
             # Deserialize and return the job payloads.
             return [self._json_serializer.to_dict(row["data"]) for row in rows]
 
-    async def remove_delayed(self, queue_name: str, job_id: str) -> None:
+    async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
         Asynchronously removes a specific job from the backend's delayed storage
         by its ID.
@@ -295,8 +298,19 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
-        # Delete the job from the job store.
-        await self.store.delete(queue_name, job_id)
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                f"""
+                DELETE FROM {self._settings.postgres_jobs_table_name}
+                WHERE queue_name = $1
+                  AND job_id = $2
+                  AND status = $3
+                """,
+                queue_name,
+                job_id,
+                State.DELAYED,
+            )
+        return cast(bool, result.endswith("DELETE 1"))
 
     async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """
@@ -387,10 +401,10 @@ class PostgresBackend(BaseBackend):
         await self.connect()
         clean = {k: v for k, v in job_def.items() if k != "paused"}
         next_ts = compute_next_run(clean)
-        next_dt = datetime.fromtimestamp(next_ts)
+        next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
         async with self.pool.acquire() as conn:
             await conn.execute(
-                """
+                f"""
                 UPDATE {self._settings.postgres_repeatables_table_name}
                 SET paused   = FALSE,
                     next_run = $1
@@ -652,7 +666,7 @@ class PostgresBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to pause.
         """
-        pass  # Not implemented
+        self._paused_queues.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
         """
@@ -665,7 +679,7 @@ class PostgresBackend(BaseBackend):
         Args:
             queue_name: The name of the queue to resume.
         """
-        pass  # Not implemented
+        self._paused_queues.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
@@ -681,7 +695,7 @@ class PostgresBackend(BaseBackend):
         Returns:
             Always False as pausing is not implemented.
         """
-        return False  # Not implemented
+        return queue_name in self._paused_queues
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
@@ -825,10 +839,8 @@ class PostgresBackend(BaseBackend):
         Returns:
             A list of strings, where each string is the name of a queue.
         """
-        # Acquire a connection from the job store's pool.
-        # Note: This accesses the pool via the job store, which differs from
-        # other methods using `self.pool.acquire()`.
-        async with self.store.pool.acquire() as conn:
+        await self.connect()
+        async with self.pool.acquire() as conn:
             # Fetch all distinct queue names from the jobs table.
             rows: list[Record] = await conn.fetch(
                 f"SELECT DISTINCT queue_name FROM {self._settings.postgres_jobs_table_name}"
@@ -851,10 +863,8 @@ class PostgresBackend(BaseBackend):
             A dictionary containing the counts with keys "waiting", "delayed",
             and "failed". Counts are defaulted to 0 if no jobs are found in a state.
         """
-        # Acquire a connection from the job store's pool.
-        # Note: This accesses the pool via the job store, which differs from
-        # other methods using `self.pool.acquire()`.
-        async with self.store.pool.acquire() as conn:
+        await self.connect()
+        async with self.pool.acquire() as conn:
             # Fetch the count of waiting jobs.
             waiting: int | None = await conn.fetchval(
                 f"SELECT COUNT(*) FROM {self._settings.postgres_jobs_table_name} WHERE queue_name=$1 AND status='waiting'",
@@ -888,7 +898,8 @@ class PostgresBackend(BaseBackend):
         Returns:
             A list of job payload dictionaries.
         """
-        async with self.store.pool.acquire() as conn:
+        await self.connect()
+        async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
                 SELECT data
@@ -1093,24 +1104,24 @@ class PostgresBackend(BaseBackend):
             concurrency: The maximum number of tasks the worker can process concurrently.
             timestamp: The timestamp representing the worker's last heartbeat.
         """
-        conn = await asyncpg.connect(self.dsn)
-        await conn.execute(
-            f"""
-                    INSERT INTO {self._settings.postgres_workers_heartbeat_table_name}
-                      (worker_id, queues, concurrency, heartbeat)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (worker_id)
-                    DO UPDATE SET
-                      queues      = EXCLUDED.queues,
-                      concurrency = EXCLUDED.concurrency,
-                      heartbeat   = EXCLUDED.heartbeat;
-                    """,
-            worker_id,
-            [queue],  # wrap in list to match text[] type
-            concurrency,
-            timestamp,
-        )
-        await conn.close()
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                        INSERT INTO {self._settings.postgres_workers_heartbeat_table_name}
+                          (worker_id, queues, concurrency, heartbeat)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (worker_id)
+                        DO UPDATE SET
+                          queues      = EXCLUDED.queues,
+                          concurrency = EXCLUDED.concurrency,
+                          heartbeat   = EXCLUDED.heartbeat;
+                        """,
+                worker_id,
+                [queue],  # wrap in list to match text[] type
+                concurrency,
+                timestamp,
+            )
 
     async def deregister_worker(self, worker_id: str | int) -> None:
         """
@@ -1121,11 +1132,11 @@ class PostgresBackend(BaseBackend):
         Args:
             worker_id: The unique identifier of the worker to deregister.
         """
-        conn = await asyncpg.connect(self.dsn)
-        await conn.execute(
-            f"DELETE FROM {self._settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id
-        )
-        await conn.close()
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"DELETE FROM {self._settings.postgres_workers_heartbeat_table_name} WHERE worker_id = $1", worker_id
+            )
 
     async def list_workers(self) -> list[WorkerInfo]:
         """
@@ -1138,25 +1149,29 @@ class PostgresBackend(BaseBackend):
             A list of WorkerInfo objects representing the active workers.
         """
         cutoff = time.time() - self._settings.heartbeat_ttl
-        conn = await asyncpg.connect(self.dsn)
-        rows = await conn.fetch(
-            f"""
-                                SELECT worker_id, queues, concurrency, heartbeat
-                                FROM {self._settings.postgres_workers_heartbeat_table_name}
-                                WHERE heartbeat >= $1
-                                """,
-            cutoff,
-        )
-        await conn.close()
-        return [
-            WorkerInfo(
-                id=r["worker_id"],
-                queue=r["queues"],
-                concurrency=r["concurrency"],
-                heartbeat=r["heartbeat"],
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                                    SELECT worker_id, queues, concurrency, heartbeat
+                                    FROM {self._settings.postgres_workers_heartbeat_table_name}
+                                    WHERE heartbeat >= $1
+                                    """,
+                cutoff,
             )
-            for r in rows
-        ]
+        out: list[WorkerInfo] = []
+        for row in rows:
+            queues = row["queues"] or []
+            queue_name = queues[0] if isinstance(queues, list) and queues else ""
+            out.append(
+                WorkerInfo(
+                    id=row["worker_id"],
+                    queue=queue_name,
+                    concurrency=row["concurrency"],
+                    heartbeat=row["heartbeat"],
+                )
+            )
+        return out
 
 
 class PostgresLock:

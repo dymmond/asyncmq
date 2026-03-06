@@ -2,6 +2,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from sayer import Sayer
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend
@@ -9,10 +10,15 @@ from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner, ru
 
 console = Console()
 
+job_cli = Sayer(
+    name="job",
+    help="Manages AsyncMQ jobs within queues.",
+    invoke_without_command=True,
+)
 
-@click.group(name="job", invoke_without_command=True)
-@click.pass_context
-def job_app(ctx: click.Context) -> None:
+
+@job_cli.callback(invoke_without_command=True)
+def _job_callback(ctx: click.Context) -> None:
     """
     Manages AsyncMQ jobs within queues.
 
@@ -23,11 +29,15 @@ def job_app(ctx: click.Context) -> None:
     Args:
         ctx: The Click context object, passed automatically by Click.
     """
-    # Check if any subcommand was invoked.
-    if ctx.invoked_subcommand is None:
-        # If no subcommand, print custom job help and the standard Click help.
-        _print_job_help()
-        click.echo(ctx.get_help())
+    tokens = getattr(ctx, "protected_args", None)
+    if tokens is None:
+        tokens = ctx.args
+    if tokens and tokens[0] in ctx.command.commands:
+        return
+
+    # If no subcommand, print custom job help and the standard Click help.
+    _print_job_help()
+    click.echo(ctx.get_help())
 
 
 def _print_job_help() -> None:
@@ -55,7 +65,7 @@ def _print_job_help() -> None:
     console.print(Panel(text, title="Job CLI", border_style="cyan"))
 
 
-@job_app.command("inspect")
+@click.command("inspect")
 @click.argument("job_id")
 @click.option("--queue", required=True, help="Queue name the job belongs to.")
 def inspect_job(job_id: str, queue: str) -> None:
@@ -84,7 +94,7 @@ def inspect_job(job_id: str, queue: str) -> None:
         console.print(f"[red]Job '{job_id}' not found in queue '{queue}'.[/red]")
 
 
-@job_app.command("retry")
+@click.command("retry")
 @click.argument("job_id")
 @click.option("--queue", required=True, help="Queue name the job belongs to.")
 def retry_job(job_id: str, queue: str) -> None:
@@ -115,7 +125,7 @@ def retry_job(job_id: str, queue: str) -> None:
         console.print(f"[red]Job '{job_id}' not found.[/red]")
 
 
-@job_app.command("remove")
+@click.command("remove")
 @click.argument("job_id")
 @click.option("--queue", required=True, help="Queue name the job belongs to.")
 def remove_job(job_id: str, queue: str) -> None:
@@ -138,7 +148,7 @@ def remove_job(job_id: str, queue: str) -> None:
     console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")
 
 
-@job_app.command("cancel")
+@click.command("cancel")
 @click.argument("queue")
 @click.argument("job_id")
 def cli_cancel_job(queue: str, job_id: str | int) -> None:
@@ -172,7 +182,7 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
     console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")
 
 
-@job_app.command("list")
+@click.command("list")
 @click.option("--queue", required=True, help="Queue name to filter jobs")
 @click.option("--state", required=True, help="Job state to filter (waiting, active, completed, failed, delayed)")
 def list_jobs(queue: str, state: str) -> None:
@@ -190,3 +200,11 @@ def list_jobs(queue: str, state: str) -> None:
         console.print(
             f"[green]ID:[/] {job.get('id')}  [blue]State:[/] {job.get('status')}  [magenta]Task:[/] {job.get('task')}"
         )
+
+
+job_cli.add_command(inspect_job)
+job_cli.add_command(retry_job)
+job_cli.add_command(remove_job)
+job_cli.add_command(cli_cancel_job)
+job_cli.add_command(list_jobs)
+job_app = job_cli.cli

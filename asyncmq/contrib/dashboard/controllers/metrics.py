@@ -6,6 +6,7 @@ from lilya.requests import Request
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.controllers._counts import aggregate_counts
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 
@@ -34,23 +35,16 @@ class MetricsController(DashboardMixin, TemplateController):
 
         # 2. Fetch all queues
         backend: Any = monkay.settings.backend
-        queues: list[str] = await backend.list_queues()
+        try:
+            queues: list[str] = await backend.list_queues()
+        except Exception:
+            queues = []
 
-        # Initialize counters for job states
-        counts: dict[str, int] = {
-            "waiting": 0,
-            "active": 0,
-            "completed": 0,
-            "failed": 0,
-            "delayed": 0,
-        }
-
-        # 3. Sum up each state across all queues
-        for queue in queues:
-            for state in counts:
-                # Assuming backend.list_jobs returns a list of job data
-                jobs: list[Any] = await backend.list_jobs(queue, state)
-                counts[state] += len(jobs)
+        counts = (
+            await aggregate_counts(backend, queues)
+            if queues
+            else {"waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0}
+        )
 
         # 4. Build the metrics payload for the template
         metrics: dict[str, Any] = {
