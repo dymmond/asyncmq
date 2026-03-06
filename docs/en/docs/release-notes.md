@@ -6,10 +6,15 @@
 
 - Migrated the CLI to a Sayer-backed implementation while preserving existing command names and behavior.
 - Added a shared dashboard queue-count aggregation helper for consistent overview/metrics/SSE data.
+- Added richer dashboard operations features:
+  - queue job filtering/search (`q`, `task`, `job_id`, sorting),
+  - action audit trail page (`/audit`),
+  - metrics history endpoint (`/metrics/history`) and richer metrics history visualizations.
 - Added high-value regression tests for:
     - MongoDB store `_id` update behavior,
     - worker handling of backend-wrapped payloads,
     - dashboard count aggregation and repeatables actions,
+    - dashboard audit/history stores and filtering behavior,
     - project metadata validation for optional dependency extras.
 
 ### Changed
@@ -23,6 +28,7 @@
     - improved dashboard operator documentation (capabilities + operations playbook).
 - Updated docs navigation for clearer onboarding and operational workflows.
 - Improved dashboard controllers to reuse consistent queue/job state aggregation and safer backend fallbacks.
+- Expanded dashboard documentation with route reference, richer runbooks, and additional architecture/workflow diagrams.
 
 ### Fixed
 
@@ -43,6 +49,10 @@
 - Packaging extras correctness:
   - fixed `asyncmq[all]` to include concrete installable dependencies.
 - Typing fix in repeatable queue definitions (`Queue.add_repeatable`) to satisfy strict type checking.
+- Worker completion path now tolerates minimal backend stubs that do not implement dependency-resolution APIs.
+- PostgreSQL delayed-job retrieval now removes due delayed records atomically, restoring delayed lifecycle correctness.
+- In-memory and MongoDB backends now prevent failed jobs from being double-counted as waiting in queue stats.
+- Stalled-job recovery behavior was aligned across backends for payload/state consistency in re-enqueue flows.
 
 
 ## 0.6.3
