@@ -1,8 +1,3 @@
----
-hide:
-  - navigation
----
-
 # Release Notes
 
 ## 0.6.3
@@ -36,13 +31,13 @@ to the `from future import __annotations__`.
 
 ### Changed
 
-- Updated the [Dashboard](./dashboard/index.md) documentation to reflect new authentication flows and backend integrations.
+- Updated the [Dashboard](./dashboard/dashboard.md) documentation to reflect new authentication flows and backend integrations.
 - Clarified upgrade instructions to assist users transitioning from previous dashboard versions.
 - Improved authentication-related documentation for better clarity and usability.
 
 #### Breaking
 
-Check the documentation of the [Dashboard](./dashboard/index.md) as now with the introduction of the new flow, the old
+Check the documentation of the [Dashboard](./dashboard/dashboard.md) as now with the introduction of the new flow, the old
 way won't work anymore. The `dashboard` is no longer available and now everything is done via `AsyncMQAdmin` object.
 
 The documentation explains how to easily integrate and update (its not too much different)
@@ -66,7 +61,7 @@ The documentation explains how to easily integrate and update (its not too much 
 - Automatic dependency resolution fallback when atomic flow addition is not supported by the backend.
 - Lifecycle hooks for worker startup and shutdown via `worker_on_startup` and `worker_on_shutdown`, supporting both sync and async callables.
 - New reusable `lifecycle.py` module providing utilities like `normalize_hooks`, `run_hooks`, and `run_hooks_safely`.
-- New section in the [workers for hooks](./features/workers.md#8-worker-lifecycle-hooks) and lifecycle.
+- New section in the [workers for hooks](./features/workers.md) and lifecycle.
 
 ### Changed
 
@@ -273,7 +268,7 @@ anyio.run(main)
 
 * **Dashboard**
 
-    * Brand new [Dashboard](./dashboard/index.md) where it shows how to integrate with your AsyncMQ. This dahboard is still
+    * Brand new [Dashboard](./dashboard/dashboard.md) where it shows how to integrate with your AsyncMQ. This dahboard is still
 in *beta* mode so any feedback is welcomed.
 
 * **Top-Level CLI Commands**

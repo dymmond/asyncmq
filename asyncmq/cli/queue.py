@@ -201,30 +201,26 @@ def info_queue(queue: str) -> None:
     # This calls the backend's is_queue_paused method.
     paused = run_cmd(backend.is_queue_paused, queue)
 
-    # Initialize job counts to zero. These will be updated if the backend
-    # exposes the necessary attributes (e.g., for InMemoryBackend).
     waiting_jobs = 0
     delayed_jobs = 0
     dlq_jobs = 0
 
-    # Check if the backend instance has a 'queues' attribute (common for
-    # backends that maintain an in-memory list of waiting jobs, like InMemoryBackend).
-    if hasattr(backend, "queues"):
-        # If the attribute exists, get the list for the specific queue name
-        # (defaulting to an empty list if not found) and get its length.
-        waiting_jobs = len(backend.queues.get(queue, []))
-    # Check if the backend instance has a 'delayed' attribute (common for
-    # backends that maintain an in-memory list of delayed jobs).
-    if hasattr(backend, "delayed"):
-        # If the attribute exists, get the list for the specific queue name
-        # (defaulting to an empty list if not found) and get its length.
-        delayed_jobs = len(backend.delayed.get(queue, []))
-    # Check if the backend instance has a 'dlqs' attribute (common for
-    # backends that maintain an in-memory list of dead-letter queue jobs).
-    if hasattr(backend, "dlqs"):
-        # If the attribute exists, get the list for the specific queue name
-        # (defaulting to an empty list if not found) and get its length.
-        dlq_jobs = len(backend.dlqs.get(queue, []))
+    stats: dict[str, Any] = {}
+    if hasattr(backend, "queue_stats"):
+        stats = run_cmd(backend.queue_stats, queue) or {}
+
+    if stats:
+        waiting_jobs = int(stats.get("waiting", stats.get("message_count", 0)))
+        delayed_jobs = int(stats.get("delayed", 0))
+        dlq_jobs = int(stats.get("failed", 0))
+    else:
+        # Compatibility fallback for basic in-memory style attributes.
+        if hasattr(backend, "queues"):
+            waiting_jobs = len(backend.queues.get(queue, []))
+        if hasattr(backend, "delayed"):
+            delayed_jobs = len(backend.delayed.get(queue, []))
+        if hasattr(backend, "dlqs"):
+            dlq_jobs = len(backend.dlqs.get(queue, []))
 
     # Build a nice Rich table to display the fetched queue information.
     table = Table(

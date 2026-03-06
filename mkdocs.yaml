@@ -34,7 +34,6 @@ theme:
   - content.code.select
   - navigation.indexes
   - navigation.path
-  - navigation.tabs
 repo_name: dymmond/asyncmq
 repo_url: https://github.com/dymmond/asyncmq
 edit_uri: ''
@@ -51,27 +50,33 @@ plugins:
     trim: false
 nav:
 - Introduction: index.md
-- installation.md
+- Installation: installation.md
 - Features:
   - features/index.md
   - features/quickstart.md
   - features/core-concepts.md
+  - features/tasks.md
+  - features/jobs.md
+  - features/queues.md
+  - features/workers.md
+  - features/runners.md
+  - features/schedulers.md
+  - features/flows.md
   - features/settings.md
   - features/custom-json.md
   - features/logging.md
-  - features/tasks.md
-  - features/queues.md
-  - features/runners.md
-  - features/schedulers.md
   - features/sandbox.md
-  - features/workers.md
-  - features/jobs.md
-  - features/flows.md
   - features/cli.md
-  - Complex backends:
+  - Backends:
+    - features/backends/overview.md
     - features/backends/postgres-backend.md
     - features/backends/rabbitmq.md
-- Tutorial:
+- How-To:
+  - how-to/index.md
+  - how-to/switch-backends.md
+  - how-to/failed-jobs.md
+  - how-to/testing.md
+- Learn:
   - learn/index.md
   - learn/integration.md
   - learn/advanced-patterns.md
@@ -80,6 +85,12 @@ nav:
 - Dashboard:
   - dashboard/dashboard.md
   - dashboard/jwt.md
+- Reference:
+  - reference/index.md
+  - reference/settings-reference.md
+  - reference/cli-reference.md
+  - reference/backend-capabilities.md
+- Troubleshooting: troubleshooting.md
 - Contributing: contributing.md
 - Sponsorship: sponsorship.md
 - Release Notes: release-notes.md

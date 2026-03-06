@@ -1,107 +1,77 @@
 # Quickstart
 
-Get started with AsyncMQ in just a few steps: register a task, enqueue a job, and launch a worker.
+This quickstart covers the shortest end-to-end path:
 
-## 1. Register a Task
+- define a task
+- enqueue a job
+- run a worker
+- inspect jobs from CLI
 
-Apply the `@task` decorator to an async function, which does **not** automatically enqueue jobs on invocation—instead, it:
-
-1. Wraps your function so workers know how to execute it.
-2. Adds an `enqueue` helper method to schedule jobs.
-3. Stores task metadata (queue, retries, TTL, etc.) in `TASK_REGISTRY`.
-
-##  Create your backend (Redis as default)
+## 1. Configure AsyncMQ
 
 ```python
-{!> ../../../docs_src/start/quickstart.py !}
+# myapp/settings.py
+from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.conf.global_settings import Settings
+
+
+class AppSettings(Settings):
+    backend = InMemoryBackend()
+    worker_concurrency = 1
 ```
 
-!!! Warning
-    Calling `say_hello("World")` executes the function immediately, without enqueuing.
-    To schedule a background job, you must use `say_hello.enqueue(...)`.
+```bash
+export ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings
+```
 
-## 2. Enqueue a Job (delay)
-
-Use the generated `enqueue` helper on your task. All optional parameters have sensible defaults:
-
-* `delay=0`
-* `priority=5`
-* `depends_on=None`
-* `repeat_every=None`
-* `backend` is optional, you can pass here the instance or it will load the default from the settings.
+## 2. Define a Task
 
 ```python
-{!> ../../../docs_src/start/enqueue.py !}
+# myapp/tasks.py
+from asyncmq.tasks import task
+
+
+@task(queue="default", retries=2, ttl=120)
+async def say_hello(name: str) -> str:
+    return f"hello {name}"
 ```
 
-Run it:
-
-```bash
-python app.py
-```
-
-Enqueue a Job
-
-Use the generated `enqueue` helper on your task. All optional parameters have sensible defaults:
-
-* `delay=0`
-* `priority=5`
-* `depends_on=None`
-* `repeat_every=None`
+## 3. Enqueue Work
 
 ```python
-# app.py (continued)
-async def main():
-    # Enqueue a job; this helper returns None
-    await say_hello.enqueue("World", backend=backend)
-    print("Job enqueued to 'default' queue.")
+# producer.py
+import anyio
+from asyncmq.queues import Queue
+from myapp.tasks import say_hello
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
+async def main() -> None:
+    queue = Queue("default")
+
+    # Immediate enqueue returns the job id.
+    job_id = await say_hello.enqueue("world", backend=queue.backend)
+    print("job_id:", job_id)
+
+    # Delayed enqueue returns None in current API.
+    await say_hello.enqueue("later", backend=queue.backend, delay=5)
+
+
+anyio.run(main)
 ```
 
-Run it:
+## 4. Start a Worker
 
 ```bash
-python app.py
+asyncmq worker start default --concurrency 1
 ```
 
-## 3. Inspect Jobs with the CLI
-
-Peek at pending and completed jobs:
-
-* List waiting (pending) jobs `asyncmq job list --queue default --state waiting`
+## 5. Inspect from CLI
 
 ```bash
+asyncmq queue list
+asyncmq queue info default
 asyncmq job list --queue default --state waiting
+asyncmq job list --queue default --state failed
 ```
 
-* List completed jobs `asyncmq job list --queue default --state completed`
-
-```bash
-asyncmq job list --queue default --state completed
-```
-
-## 4. Launch a Worker
-
-Start a worker to process tasks from the `default` queue:
-
-```bash
-# Default concurrency (1) and backend (from settings or Redis)
-asyncmq worker start default
-
-# Override concurrency
-asyncmq worker start default --concurrency 2
-```
-
-You should see output like:
-
-```text
-[INFO] Starting worker for queue 'default' with concurrency=1
-```
-
----
-
-Congratulations, your first AsyncMQ task is live!
-
-Next: **Core Concepts & Architecture** to explore queues, jobs, workers, and storage backends in depth.
+Next: [Core Concepts](core-concepts.md).

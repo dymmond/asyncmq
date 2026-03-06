@@ -1,152 +1,53 @@
-# Installation & Setup
+# Installation
 
-Get AsyncMQ up and running in minutes—no arcane dark magic required.
+## Python Version
 
-## 1. Supported Install Methods
+AsyncMQ requires Python `>=3.10`.
 
-### a. PyPI (pip)
+## Install Options
 
-Install from PyPI:
+Base install (includes Redis dependency):
 
 ```bash
 pip install asyncmq
 ```
 
-### b. Poetry
-
-Add to your Poetry project:
+Optional backend extras:
 
 ```bash
-poetry add asyncmq
+pip install "asyncmq[postgres]"   # asyncpg
+pip install "asyncmq[mongo]"      # motor
+pip install "asyncmq[aio-pika]"   # RabbitMQ backend
+pip install "asyncmq[all]"        # all optional backends
 ```
 
-!!! Tip
-    Pin to a minor version for stability, e.g., `asyncmq~=0.3.2`.
+## Configure Settings Module
 
----
-
-## 2. Docker & Docker Compose
-
-Spin up AsyncMQ with your favorite backend in a containerized environment.
-
-### a. Example `docker-compose.yml`
-
-```yaml
-version: '3.8'
-services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-  asyncmq-worker:
-    image: python:3.11-slim
-    environment:
-      # Point to custom settings (optional, see below)
-      - ASYNCMQ_SETTINGS_MODULE=project.settings.AsyncMQSettings
-    volumes:
-      - ./:/app
-    working_dir: /app
-    command: ["asyncmq", "worker", "start", "default", "--concurrency", "4"]
-    depends_on:
-      - redis
-```
-
-Launch it all with:
+AsyncMQ loads settings from `ASYNCMQ_SETTINGS_MODULE`.
 
 ```bash
-docker-compose up -d
+export ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings
 ```
 
-The command its straightforward and if you wonder *"but how does AsyncMQ knows about which backend to run?"* type of thing,
-that is because **AsyncMQ** has the concept of [settings](features/settings.md) where **you can override** the backend to run
-the one at your choice and using the `ASYNCMQ_SETTINGS_MODULE` to start your application.
-
-You can read more about the `ASYNCMQ_SETINGS_MODULE` in the [settings](features/settings.md) section for more details.
-
----
-
-## 3. Configuration Overrides (Custom Settings)
-
-By default, AsyncMQ loads its configuration from `asyncmq.conf.global_settings.Settings`, which includes sensible defaults such as:
-
-* **backend**: `RedisBackend(redis_url_or_client="redis://localhost")`
-* **worker_concurrency**: `10`
-* **logging_level**: `INFO`
-* **debug**: `False`
-
-To override these defaults, define a custom settings class in your project. For example:
+Example settings:
 
 ```python
-# project/settings.py
-{!> ../../../docs_src/installation/custom_settings.py !}
+from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf.global_settings import Settings
+
+
+class AppSettings(Settings):
+    backend = RedisBackend("redis://localhost:6379/0")
+    worker_concurrency = 4
+    scan_interval = 1.0
 ```
 
-Then set the `ASYNCMQ_SETTINGS_MODULE` environment variable to point at your settings:
-
-```bash
-export ASYNCMQ_SETTINGS_MODULE="project.settings.AsyncMQSettings"
-```
-
-Now all AsyncMQ CLI commands and API consumers will pick up these overridden values.
-
----
-
-## 4. CLI Helpers & Taskfile
-
-AsyncMQ ships with a handy CLI. You can streamline common commands by using a [`Taskfile.yaml`](https://taskfile.dev/))
-or whatever helps you streamline common commands, some still love going vintage (like this author) and still use the `Makefile`
-but the advantage of a `Taskfile` its that is OS agnostic:
-
-```yaml
-version: '3'
-tasks:
-  mq:            # Alias to invoke any asyncmq command
-    cmds:
-      - asyncmq {{.cmd}} {{.args}}
-
-  worker:
-    cmds:
-      - asyncmq worker start default --concurrency=${CONCURRENCY:-10}
-      env:
-        CONCURRENCY: 4
-
-  list-active-jobs:
-    cmds:
-      - asyncmq job list --queue default --state active
-```
-
-You can add as many commands as you see fit.
-
----
-
-## 5. First Run & Smoke Test
-
-After installation, verify everything is wired correctly:
+## Verify Installation
 
 ```bash
 asyncmq --help
+asyncmq info version
+asyncmq info backend
 ```
 
-You should see:
-
-```text
-Usage: asyncmq [OPTIONS] COMMAND [ARGS]...
-
-  AsyncMQ CLI
-
-Options:
-  --help  Show this message and exit.
-
-Commands:
-  info    Provides information about the AsyncMQ installation and...
-  job     Manages AsyncMQ jobs within queues.
-  queue   Manages AsyncMQ queues.
-  worker  Manages AsyncMQ worker processes.
-```
-
-You can also do `asyncmq` directly in the command line and you should see something like this:
-
-<img src="https://res.cloudinary.com/dymmond/image/upload/v1746168744/asyncmq/docs/cpnmhbed53jnlrriciof.png" alt="AsyncMQ CLI Help"/>
-
-Next up: **[Quickstart](features/quickstart.md)**. Let's enqueue your first job!
+Continue with [Quickstart](features/quickstart.md).
