@@ -99,7 +99,7 @@ tasks:
     env:
       ASYNCMQ_SETTINGS_MODULE: asyncmq.contrib.dashboard.development.settings.Settings
     cmds:
-      - python asyncmq/contrib/dashboard/development/run.py
+      - hatch run python -m asyncmq.contrib.dashboard.development.run
 
   test:
     desc: Runs the suite tests
