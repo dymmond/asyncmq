@@ -1,5 +1,50 @@
 # Release Notes
 
+## 0.7.0
+
+### Added
+
+- Migrated the CLI to a Sayer-backed implementation while preserving existing command names and behavior.
+- Added a shared dashboard queue-count aggregation helper for consistent overview/metrics/SSE data.
+- Added high-value regression tests for:
+    - MongoDB store `_id` update behavior,
+    - worker handling of backend-wrapped payloads,
+    - dashboard count aggregation and repeatables actions,
+    - project metadata validation for optional dependency extras.
+
+### Changed
+
+- Expanded and restructured documentation with:
+    - a rewritten main entrypoint (`index.md`),
+    - richer feature docs,
+    - new how-to guides,
+    - new reference section,
+    - dedicated troubleshooting documentation,
+    - improved dashboard operator documentation (capabilities + operations playbook).
+- Updated docs navigation for clearer onboarding and operational workflows.
+- Improved dashboard controllers to reuse consistent queue/job state aggregation and safer backend fallbacks.
+
+### Fixed
+
+- RabbitMQ backend acknowledgment lifecycle:
+  - dequeue no longer auto-acks,
+  - in-flight messages are tracked and acknowledged explicitly via `ack(...)`.
+- RabbitMQ delayed/repeatable and queue-state consistency:
+  - normalized delayed-state handling,
+  - corrected delayed listing/removal semantics,
+  - improved queue pause/resume and worker heartbeat visibility behavior.
+- Dependency and stalled-job edge cases:
+  - improved dependency merge/resolution behavior,
+  - normalized stalled-job payload handling across worker/recovery paths.
+- DLQ terminal-state correctness across backends:
+  - preserved explicit terminal statuses (`failed` / `expired`) instead of forcing non-terminal values.
+- CLI queue-info correctness:
+  - now prefers backend `queue_stats(...)` instead of backend-internal attributes.
+- Packaging extras correctness:
+  - fixed `asyncmq[all]` to include concrete installable dependencies.
+- Typing fix in repeatable queue definitions (`Queue.add_repeatable`) to satisfy strict type checking.
+
+
 ## 0.6.3
 
 ### Changed
