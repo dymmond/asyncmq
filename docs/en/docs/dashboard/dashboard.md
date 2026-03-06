@@ -64,6 +64,59 @@ flowchart TD
 | Audit Trail | `/audit` | searchable log of queue/job/dlq/repeatable actions |
 | SSE Stream | `/events` | near-real-time updates to UI cards/charts/tables |
 
+## UI Screenshots
+
+Replace each placeholder URL with your real screenshot URL or local static path.
+
+### Login
+
+The login page is the first operator touchpoint when authentication is enabled.
+It should clearly show the environment context and expected credentials flow.
+
+![Dashboard Login Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.48.37_dfym3q.png)
+
+### Dashboard Overview
+
+The overview page gives a fast health snapshot: total queues, total jobs, total workers,
+and live charts/tables for recent activity.
+
+![Dashboard Overview Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.32_nnoesd.png)
+
+### System Metrics
+
+The metrics page combines live SSE updates with recent history snapshots, helping
+operators correlate throughput, retries, failures, and queue-state distribution.
+
+![System Metrics Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.41_rvwfqk.png)
+
+### Queues
+
+The queues page is the control center for queue-level triage, including backlog visibility
+and pause/resume operations.
+
+![Queues Page Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.50.15_crrfhs.png)
+
+### Queue Details
+
+Queue details provide a focused per-queue breakdown and direct links into jobs, DLQ,
+and repeatables workflows.
+
+![Queue Details Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.50.36_cmkcxx.png)
+
+### Workers
+
+The workers page highlights active worker identities, queue assignment, concurrency,
+and heartbeat recency for operational confidence.
+
+![Workers Page Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816646/asyncmq/Screenshot_2026-03-06_at_17.50.51_aptgfq.png)
+
+### Audit Trail
+
+The audit page records queue/job/dlq/repeatable actions and supports filtering/search,
+which is useful for incident reviews and change traceability.
+
+![Audit Trail Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816646/asyncmq/Screenshot_2026-03-06_at_17.46.54_ejkbwu.png)
+
 ## Quick Start
 
 ```python
