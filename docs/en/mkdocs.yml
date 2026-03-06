@@ -83,6 +83,8 @@ nav:
   - learn/security-and-compliance.md
 - Dashboard:
   - dashboard/dashboard.md
+  - dashboard/capabilities.md
+  - dashboard/operations.md
   - dashboard/jwt.md
 - Reference:
   - reference/index.md

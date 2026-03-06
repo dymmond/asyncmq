@@ -67,6 +67,16 @@ At runtime, AsyncMQ has four main layers:
 
 For an end-to-end walkthrough, start with [Core Concepts](features/core-concepts.md).
 
+```mermaid
+flowchart LR
+    A["Producer"] --> B["@task/.enqueue"]
+    B --> C["Queue API"]
+    C --> D["Backend (waiting/delayed state)"]
+    D --> E["Worker runtime"]
+    E --> F["Task handler execution"]
+    F --> G["Result/state update + ack/DLQ"]
+```
+
 ## Feature Map
 
 - [Installation](installation.md)

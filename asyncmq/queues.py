@@ -223,7 +223,7 @@ class Queue:
             raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be provided.")
 
         # Create a dictionary representing the repeatable job entry.
-        entry = {
+        entry: dict[str, Any] = {
             "task_id": task_id,
             "args": args or [],
             "kwargs": kwargs or {},

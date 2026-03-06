@@ -16,6 +16,26 @@
 4. Worker dequeues, runs `handle_job`, and resolves task function from `TASK_REGISTRY`.
 5. Worker updates state/result, retries or DLQ routing, and acknowledges via backend `ack`.
 
+```mermaid
+sequenceDiagram
+    participant P as Producer
+    participant Q as Queue/Backend
+    participant W as Worker
+    participant T as Task Handler
+
+    P->>Q: enqueue(job payload)
+    W->>Q: dequeue()
+    W->>W: state=active, checks(deps/cancel/ttl)
+    W->>T: execute(task)
+    alt success
+      W->>Q: state=completed + save result + ack
+    else failure(retries left)
+      W->>Q: state=delayed + enqueue_delayed + ack
+    else failure(retries exhausted)
+      W->>Q: state=failed + move_to_dlq + ack
+    end
+```
+
 ## Job States
 
 `State` values in runtime:
