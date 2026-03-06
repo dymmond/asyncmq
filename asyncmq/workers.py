@@ -279,7 +279,9 @@ async def handle_job(
         # Acknowledge successful processing in the backend
         await backend.ack(queue_name, job.id)
         # Unblock dependent jobs waiting on this parent.
-        await backend.resolve_dependency(queue_name, job.id)
+        resolve_dependency = getattr(backend, "resolve_dependency", None)
+        if callable(resolve_dependency):
+            await cast(Any, resolve_dependency)(queue_name, job.id)
         # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
 

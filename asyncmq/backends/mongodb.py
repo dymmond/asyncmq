@@ -157,12 +157,20 @@ class MongoDBBackend(BaseBackend):
             queue_name: The name of the queue the job originally belonged to.
             payload: A dictionary containing the job data, which must include an 'id'.
         """
-        # Acquire the lock for consistency, although only the store is modified here.
         async with self.lock:
-            # Update the job's status to FAILED.
-            payload["status"] = State.FAILED
-            # Save the updated job state to the MongoDB store.
-            await self.store.save(queue_name, payload["id"], payload)
+            job_id = payload.get("id")
+            if isinstance(job_id, str):
+                self.queues[queue_name] = [job for job in self.queues.get(queue_name, []) if job.get("id") != job_id]
+                self.delayed[queue_name] = [
+                    (run_at, job) for run_at, job in self.delayed.get(queue_name, []) if job.get("id") != job_id
+                ]
+                self.heartbeats.pop((queue_name, job_id), None)
+
+            target_status = payload.get("status")
+            if target_status not in {State.FAILED, State.EXPIRED}:
+                target_status = State.FAILED
+            failed_payload = {**payload, "status": target_status}
+            await self.store.save(queue_name, failed_payload["id"], failed_payload)
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -744,7 +752,7 @@ class MongoDBBackend(BaseBackend):
         # Acquire the lock to protect shared state (queues and heartbeats accessed here).
         async with self.lock:
             retry_payload = dict(job_data)
-            retry_payload["status"] = State.WAITING
+            retry_payload.pop("status", None)
             # Append the job data to the specified in-memory queue list.
             # setdefault ensures the queue list exists even if this is the first job
             # for this queue.
@@ -756,7 +764,7 @@ class MongoDBBackend(BaseBackend):
             job_id = retry_payload.get("id")
             if isinstance(job_id, str):
                 self.heartbeats.pop((queue_name, job_id), None)
-                await self.store.save(queue_name, job_id, retry_payload)
+                await self.store.save(queue_name, job_id, {**retry_payload, "status": State.WAITING})
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """
@@ -775,23 +783,10 @@ class MongoDBBackend(BaseBackend):
             A dictionary containing the counts for "waiting", "delayed", and
             "failed" jobs.
         """
-        # Acquire the lock to ensure exclusive access to in-memory queues.
-        async with self.lock:
-            # Get the raw count of jobs in the in-memory waiting queue.
-            raw_waiting = len(self.queues.get(queue_name, []))
-            # Get the count of jobs in the in-memory delayed queue.
-            delayed = len(self.delayed.get(queue_name, []))
-
-        # Query the persistent store for the count of failed jobs.
-        failed_jobs = await self.store.jobs_by_status(queue_name, State.FAILED)
-        failed = len(failed_jobs)
-
-        # Return a dictionary containing the calculated statistics.
-        return {
-            "waiting": raw_waiting,
-            "delayed": delayed,
-            "failed": failed,
-        }
+        waiting = len(await self.store.jobs_by_status(queue_name, State.WAITING))
+        delayed = len(await self.store.jobs_by_status(queue_name, State.DELAYED))
+        failed = len(await self.store.jobs_by_status(queue_name, State.FAILED))
+        return {"waiting": waiting, "delayed": delayed, "failed": failed}
 
     async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """

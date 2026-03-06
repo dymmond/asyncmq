@@ -75,13 +75,15 @@ class PostgresBackend(BaseBackend):
                 WITH due AS (
                   DELETE FROM {monkay.settings.postgres_jobs_table_name}
                   WHERE queue_name = $1
+                    AND status = $2
                     AND (data ->>'delay_until') IS NOT NULL
-                    AND (data ->>'delay_until')::float <= $2
+                    AND (data ->>'delay_until')::float <= $3
                   RETURNING data
                 )
                 SELECT data FROM due
                 """,
                 queue_name,
+                State.DELAYED,
                 now,
             )
         # Each row.data is a JSON string
@@ -262,25 +264,7 @@ class PostgresBackend(BaseBackend):
             A list of dictionaries, where each dictionary is a job payload
             that is ready to be moved to the main queue.
         """
-        await self.connect()
-        # Get the current timestamp.
-        now: float = time.time()
-        # Acquire a connection from the pool.
-        async with self.pool.acquire() as conn:
-            # Select job data for delayed jobs that are due.
-            rows: list[Record] = await conn.fetch(
-                f"""
-                SELECT data
-                FROM {self._settings.postgres_jobs_table_name}
-                WHERE queue_name = $1
-                  AND (data ->>'delay_until') IS NOT NULL
-                  AND (data ->>'delay_until')::float <= $2
-                """,
-                queue_name,
-                now,
-            )
-            # Deserialize and return the job payloads.
-            return [self._json_serializer.to_dict(row["data"]) for row in rows]
+        return await self.pop_due_delayed(queue_name)
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """

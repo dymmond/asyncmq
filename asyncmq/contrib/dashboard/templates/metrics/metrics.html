@@ -2,55 +2,94 @@
 {% block content %}
   <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
 
-  <!-- Top Metrics Cards -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-    <!-- Throughput -->
     <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
       <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Throughput</h2>
-      <div id="throughput" class="mt-2 text-3xl font-bold text-gray-900">
-        {{ metrics.throughput }}
-      </div>
+      <div id="throughput" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.throughput }}</div>
     </div>
 
-    <!-- Avg Duration -->
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Avg Duration</h2>
-      <div id="avg-duration" class="mt-2 text-3xl font-bold text-gray-900">
-        {{ metrics.avg_duration or "—" }}
-      </div>
-    </div>
-
-    <!-- Retries -->
     <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
       <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Retries</h2>
-      <div id="retries" class="mt-2 text-3xl font-bold text-gray-900">
-        {{ metrics.retries }}
-      </div>
+      <div id="retries" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.retries }}</div>
     </div>
 
-    <!-- Failures -->
     <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
       <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Failures</h2>
-      <div id="failures" class="mt-2 text-3xl font-bold text-gray-900">
-        {{ metrics.failures }}
+      <div id="failures" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.failures }}</div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Avg Duration</h2>
+      <div id="avg-duration" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.avg_duration or "—" }}</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Queues</h2>
+      <div id="total-queues" class="mt-2 text-3xl font-bold text-gray-900">{{ total_queues }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Workers</h2>
+      <div id="total-workers" class="mt-2 text-3xl font-bold text-gray-900">{{ total_workers }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Waiting Jobs</h2>
+      <div id="waiting-count" class="mt-2 text-3xl font-bold text-gray-900">{{ counts.waiting }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Active Jobs</h2>
+      <div id="active-count" class="mt-2 text-3xl font-bold text-gray-900">{{ counts.active }}</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-lg font-semibold mb-4">Metrics Over Time</h2>
+      <div class="h-72">
+        <canvas id="metrics-chart" class="w-full h-full"></canvas>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
+      <h2 class="text-lg font-semibold mb-4">Current Queue State Distribution</h2>
+      <div class="h-72">
+        <canvas id="state-chart" class="w-full h-full"></canvas>
       </div>
     </div>
   </div>
 
-  <!-- Metrics Over Time Chart -->
-  <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6 mb-6">
-    <h2 class="text-lg font-semibold mb-4">Metrics Over Time</h2>
-    <div class="h-64">
-      <canvas id="metrics-chart" class="w-full h-full"></canvas>
+  <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 overflow-x-auto">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <h2 class="text-lg font-semibold">Recent Metrics History</h2>
+      <span class="text-sm text-gray-500">Latest 20 snapshots</span>
     </div>
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Time</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Throughput</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Retries</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Failures</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Waiting</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Active</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Delayed</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Completed</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Failed</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Workers</th>
+        </tr>
+      </thead>
+      <tbody id="metrics-history-body" class="bg-white divide-y divide-gray-200"></tbody>
+    </table>
   </div>
 
-  <!-- Chart.js & SSE Script -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const ctx = document.getElementById('metrics-chart').getContext('2d');
-    const maxPoints = 20;
-    const chartData = {
+    const initialHistory = {{ metrics_history | tojson }};
+    const maxPoints = 60;
+
+    const metricsCtx = document.getElementById('metrics-chart').getContext('2d');
+    const metricsData = {
       labels: [],
       datasets: [
         {
@@ -73,9 +112,10 @@
         },
       ],
     };
-    const metricsChart = new Chart(ctx, {
+
+    const metricsChart = new Chart(metricsCtx, {
       type: 'line',
-      data: chartData,
+      data: metricsData,
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -84,34 +124,195 @@
       },
     });
 
-    const source = new EventSource('{{ url_prefix }}/events');
-    source.addEventListener('metrics', e => {
+    const stateCtx = document.getElementById('state-chart').getContext('2d');
+    const stateData = {
+      labels: ['Waiting', 'Active', 'Delayed', 'Completed', 'Failed'],
+      datasets: [
+        {
+          label: 'Jobs',
+          data: [0, 0, 0, 0, 0],
+          backgroundColor: [
+            'rgba(59,130,246,0.7)',
+            'rgba(16,185,129,0.7)',
+            'rgba(245,158,11,0.7)',
+            'rgba(99,102,241,0.7)',
+            'rgba(239,68,68,0.7)',
+          ],
+        },
+      ],
+    };
+
+    const stateChart = new Chart(stateCtx, {
+      type: 'bar',
+      data: stateData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true } },
+        animation: { duration: 0 },
+      },
+    });
+
+    function normalizeTime(row) {
+      if (row.time) {
+        return new Date(row.time).toLocaleTimeString();
+      }
+      if (row.timestamp) {
+        return new Date(row.timestamp * 1000).toLocaleTimeString();
+      }
+      return 'N/A';
+    }
+
+    function setCards(row) {
+      if (!row) {
+        return;
+      }
+      document.getElementById('throughput').textContent = row.throughput ?? 0;
+      document.getElementById('avg-duration').textContent = row.avg_duration ?? '—';
+      document.getElementById('retries').textContent = row.retries ?? 0;
+      document.getElementById('failures').textContent = row.failures ?? 0;
+      document.getElementById('waiting-count').textContent = row.waiting ?? 0;
+      document.getElementById('active-count').textContent = row.active ?? 0;
+      document.getElementById('total-queues').textContent = row.total_queues ?? 0;
+      document.getElementById('total-workers').textContent = row.total_workers ?? 0;
+    }
+
+    function setStateChart(row) {
+      if (!row) {
+        return;
+      }
+      stateData.datasets[0].data = [
+        row.waiting ?? 0,
+        row.active ?? 0,
+        row.delayed ?? 0,
+        row.completed ?? 0,
+        row.failed ?? 0,
+      ];
+      stateChart.update();
+    }
+
+    function setMetricsChart(rows) {
+      const ordered = [...rows].reverse();
+      metricsData.labels = ordered.map(normalizeTime).slice(-maxPoints);
+      metricsData.datasets[0].data = ordered.map(r => r.throughput ?? 0).slice(-maxPoints);
+      metricsData.datasets[1].data = ordered.map(r => r.retries ?? 0).slice(-maxPoints);
+      metricsData.datasets[2].data = ordered.map(r => r.failures ?? 0).slice(-maxPoints);
+      metricsChart.update();
+    }
+
+    function setHistoryTable(rows) {
+      const tbody = document.getElementById('metrics-history-body');
+      tbody.innerHTML = '';
+
+      const recent = rows.slice(0, 20);
+      if (recent.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-gray-500 italic">No history yet.</td></tr>';
+        return;
+      }
+
+      recent.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50';
+        tr.innerHTML = `
+          <td class="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">${normalizeTime(row)}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.throughput ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.retries ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.failures ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.waiting ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.active ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.delayed ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.completed ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.failed ?? 0}</td>
+          <td class="px-4 py-3 text-sm text-gray-900">${row.total_workers ?? 0}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderHistory(rows) {
+      setMetricsChart(rows);
+      setHistoryTable(rows);
+      setCards(rows[0]);
+      setStateChart(rows[0]);
+    }
+
+    async function refreshHistory() {
       try {
-        const m = JSON.parse(e.data);
-        const ts = new Date().toLocaleTimeString();
-
-        // Update the cards
-        document.getElementById('throughput').textContent   = m.throughput;
-        document.getElementById('avg-duration').textContent = m.avg_duration ?? '—';
-        document.getElementById('retries').textContent      = m.retries;
-        document.getElementById('failures').textContent     = m.failures;
-
-        // Push new point
-        chartData.labels.push(ts);
-        chartData.datasets[0].data.push(m.throughput);
-        chartData.datasets[1].data.push(m.retries);
-        chartData.datasets[2].data.push(m.failures);
-
-        // Trim old points
-        if (chartData.labels.length > maxPoints) {
-          chartData.labels.shift();
-          chartData.datasets.forEach(ds => ds.data.shift());
+        const resp = await fetch('{{ url_prefix }}/metrics/history?limit=60', {
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!resp.ok) {
+          return;
         }
-        metricsChart.update();
+        const payload = await resp.json();
+        const rows = Array.isArray(payload.history) ? payload.history : [];
+        renderHistory(rows);
+      } catch (err) {
+        console.warn('metrics history fetch failed', err);
+      }
+    }
+
+    function appendLiveMetric(m) {
+      const ts = new Date().toLocaleTimeString();
+      metricsData.labels.push(ts);
+      metricsData.datasets[0].data.push(m.throughput ?? 0);
+      metricsData.datasets[1].data.push(m.retries ?? 0);
+      metricsData.datasets[2].data.push(m.failures ?? 0);
+
+      while (metricsData.labels.length > maxPoints) {
+        metricsData.labels.shift();
+        metricsData.datasets.forEach(ds => ds.data.shift());
+      }
+      metricsChart.update();
+
+      document.getElementById('throughput').textContent = m.throughput ?? 0;
+      document.getElementById('avg-duration').textContent = m.avg_duration ?? '—';
+      document.getElementById('retries').textContent = m.retries ?? 0;
+      document.getElementById('failures').textContent = m.failures ?? 0;
+    }
+
+    renderHistory(initialHistory);
+    refreshHistory();
+    setInterval(refreshHistory, 15000);
+
+    const source = new EventSource('{{ url_prefix }}/events');
+    source.addEventListener('metrics', event => {
+      try {
+        const m = JSON.parse(event.data);
+        appendLiveMetric(m);
       } catch (err) {
         console.error('Metrics SSE parse error', err);
       }
     });
-    source.onerror = () => console.warn('SSE error on metrics – retrying');
+
+    source.addEventListener('jobdist', event => {
+      try {
+        const dist = JSON.parse(event.data);
+        document.getElementById('waiting-count').textContent = dist.waiting ?? 0;
+        document.getElementById('active-count').textContent = dist.active ?? 0;
+        stateData.datasets[0].data = [
+          dist.waiting ?? 0,
+          dist.active ?? 0,
+          dist.delayed ?? 0,
+          dist.completed ?? 0,
+          dist.failed ?? 0,
+        ];
+        stateChart.update();
+      } catch (err) {
+        console.error('Job distribution SSE parse error', err);
+      }
+    });
+
+    source.addEventListener('overview', event => {
+      try {
+        const d = JSON.parse(event.data);
+        document.getElementById('total-queues').textContent = d.total_queues ?? 0;
+        document.getElementById('total-workers').textContent = d.total_workers ?? 0;
+      } catch (err) {
+        console.error('Overview SSE parse error', err);
+      }
+    });
+
+    source.onerror = () => console.warn('SSE error on metrics; continuing with polling');
   </script>
 {% endblock %}

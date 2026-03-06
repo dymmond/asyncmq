@@ -8,6 +8,7 @@ from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.controllers._counts import get_queue_state_counts
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
@@ -98,11 +99,47 @@ class QueueController(DashboardMixin, TemplateController):
         action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
-            await backend.pause_queue(q)
-            add_message(request, "success", f"Queue '{q}' paused.")
+            try:
+                await backend.pause_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to pause queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.list",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' paused.")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.list",
+                    queue=q,
+                )
         elif action == "resume" and hasattr(backend, "resume_queue"):
-            await backend.resume_queue(q)
-            add_message(request, "success", f"Queue '{q}' resumed.")
+            try:
+                await backend.resume_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to resume queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.list",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' resumed.")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.list",
+                    queue=q,
+                )
 
         # Redirect to the queue detail using the named route
         return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)
@@ -162,11 +199,47 @@ class QueueDetailController(DashboardMixin, TemplateController):
         action: str | None = form.get("action")
 
         if action == "pause" and hasattr(backend, "pause_queue"):
-            await backend.pause_queue(q)
-            add_message(request, "success", f"Queue '{q}' paused.")
+            try:
+                await backend.pause_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to pause queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.detail",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' paused.")
+                record_audit_event(
+                    request=request,
+                    action="queue.pause",
+                    source="queues.detail",
+                    queue=q,
+                )
         elif action == "resume" and hasattr(backend, "resume_queue"):
-            await backend.resume_queue(q)
-            add_message(request, "success", f"Queue '{q}' resumed.")
+            try:
+                await backend.resume_queue(q)
+            except Exception as exc:
+                add_message(request, "error", f"Failed to resume queue '{q}': {exc}")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.detail",
+                    status="failed",
+                    queue=q,
+                    error=str(exc),
+                )
+            else:
+                add_message(request, "success", f"Queue '{q}' resumed.")
+                record_audit_event(
+                    request=request,
+                    action="queue.resume",
+                    source="queues.detail",
+                    queue=q,
+                )
 
         # Redirect back to the detail page itself
         return RedirectResponse(self.get_return_url(request, "queue-detail", name=q), status_code=303)

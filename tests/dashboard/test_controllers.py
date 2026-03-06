@@ -10,6 +10,8 @@ from lilya.testclient import TestClient
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.application import create_dashboard_app
+from asyncmq.contrib.dashboard.audit import clear_audit_events
+from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
 
 
 class FakeBackend:
@@ -37,13 +39,35 @@ class FakeBackend:
             ("emails", "failed"): [
                 {
                     "id": "f1",
+                    "task_id": "send-welcome",
                     "args": ["a"],
                     "kwargs": {"x": 1},
-                    "created": self._now - 60,
+                    "created_at": self._now - 60,
                 },
-                {"id": "f2", "args": [], "kwargs": {}, "created": self._now - 30},
+                {
+                    "id": "f2",
+                    "task_id": "send-reminder",
+                    "args": [],
+                    "kwargs": {},
+                    "created_at": self._now - 30,
+                },
             ],
-            ("emails", "waiting"): [{"id": "w1", "payload": {"x": 1}, "state": "waiting"}],
+            ("emails", "waiting"): [
+                {
+                    "id": "w1",
+                    "task_id": "send-welcome",
+                    "payload": {"message": "welcome"},
+                    "state": "waiting",
+                    "created_at": self._now - 20,
+                },
+                {
+                    "id": "w2",
+                    "task_id": "send-invoice",
+                    "payload": {"message": "invoice"},
+                    "state": "waiting",
+                    "created_at": self._now - 10,
+                },
+            ],
             ("reports", "delayed"): [{"id": "d1", "payload": {"topic": "q3"}, "state": "delayed"}],
         }
         self._workers = [
@@ -107,6 +131,10 @@ class FakeBackend:
             arr[:] = [j for j in arr if j.get("id") != job_id]
             removed += n0 - len(arr)
         return removed
+
+    async def cancel_job(self, queue: str, job_id: str) -> bool:
+        removed = await self.remove_job(queue, job_id)
+        return bool(removed)
 
     async def retry_all(self, queue: str) -> int:
         bucket = list(self._jobs.get((queue, "failed"), []))
@@ -173,6 +201,15 @@ def _patch_settings(fake_backend, monkeypatch):
     settings.debug = True
     settings.backend = fake_backend
     return settings
+
+
+@pytest.fixture(autouse=True)
+def _clear_dashboard_transient_state():
+    clear_audit_events()
+    clear_metrics_history()
+    yield
+    clear_audit_events()
+    clear_metrics_history()
 
 
 @pytest.fixture(scope="package")
@@ -343,6 +380,39 @@ def test_metrics_page(client, app):
 
     assert response.status_code == 200
     assert b"Metrics" in response.content or b"processed" in response.content or b"failed" in response.content
+
+
+def test_job_list_search_filters(client, app):
+    response = client.get(url(app, "queue-jobs", name="emails") + "?state=waiting&task=send-welcome&q=welcome")
+
+    assert response.status_code == 200
+    assert b"w1" in response.content
+    assert b"w2" not in response.content
+
+
+def test_audit_page_reflects_job_action(client, app):
+    action_url = url(app, "job-action", name="emails", job_id="f1", action="retry")
+    response = client.post(action_url)
+    assert response.status_code == 200
+
+    audit_response = client.get(url(app, "audit"))
+    assert audit_response.status_code == 200
+    assert b"job.retry" in audit_response.content
+    assert b"f1" in audit_response.content
+
+
+def test_metrics_history_endpoint_returns_snapshots(client, app):
+    metrics_response = client.get(url(app, "metrics"))
+    assert metrics_response.status_code == 200
+
+    history_response = client.get(url(app, "metrics-history") + "?limit=5")
+    assert history_response.status_code == 200
+
+    payload = history_response.json()
+    assert "history" in payload
+    assert len(payload["history"]) >= 1
+    first = payload["history"][0]
+    assert {"throughput", "retries", "failures", "waiting", "active", "total_workers"}.issubset(first.keys())
 
 
 def xtest_sse_headers(client, app):

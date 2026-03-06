@@ -1,6 +1,6 @@
 # Authentication Backends
 
-Dashboard auth is pluggable via the `AuthBackend` protocol.
+Dashboard authentication is pluggable through the `AuthBackend` protocol.
 
 ## Auth Flow
 
@@ -32,7 +32,7 @@ from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.jwt import JWTAuthBackend
 
 backend = JWTAuthBackend(
-    secret="change-me",
+    secret="change-me-with-strong-secret",
     algorithms=["HS256"],
     audience=None,
     issuer=None,
@@ -45,11 +45,12 @@ admin = AsyncMQAdmin(enable_login=True, backend=backend)
 ```
 
 Behavior:
-- `authenticate()` decodes token and returns user dict (`id`, `name`, `claims`) or `None`.
-- `login()` returns informational HTML (no form-based JWT issuance).
+
+- `authenticate()` decodes token and returns a user dict (`id`, `name`, `claims`) or `None`.
+- `login()` returns informational HTML (JWT issuance is external to AsyncMQ).
 - `logout()` redirects to `/login`.
 
-Install:
+Install dependency:
 
 ```bash
 pip install pyjwt
@@ -61,7 +62,7 @@ pip install pyjwt
 import jwt
 
 payload = {"sub": "ops-user", "name": "Ops User"}
-token = jwt.encode(payload, "change-me", algorithm="HS256")
+token = jwt.encode(payload, "change-me-with-strong-secret", algorithm="HS256")
 print(token)
 ```
 
@@ -70,6 +71,13 @@ Use in request header:
 ```text
 Authorization: Bearer <token>
 ```
+
+### Hardening Checklist for JWT
+
+1. Use a secret of at least 32 bytes for HS256.
+2. Set `audience` and `issuer` if tokens come from a central IdP.
+3. Keep token lifetimes short and rotate signing keys.
+4. Terminate TLS before any dashboard path.
 
 ## SimpleUsernamePasswordBackend
 
@@ -93,10 +101,23 @@ backend = SimpleUsernamePasswordBackend(verify=verify)
 admin = AsyncMQAdmin(enable_login=True, backend=backend)
 ```
 
+## Mount Prefix and Auth Redirects
+
+When mounting under a prefix, build app links with `with_url_prefix=True` to keep login/logout and sidebar links correct.
+
+```python
+from fastapi import FastAPI
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+
+app = FastAPI()
+admin = AsyncMQAdmin(enable_login=True, backend=backend)
+app.mount("/ops", admin.get_asgi_app(with_url_prefix=True))
+```
+
 ## Security Checklist
 
-1. Enforce HTTPS.
-2. Rotate JWT/session secrets.
-3. Use narrow audience/issuer checks for JWT where possible.
-4. Keep auth backend errors opaque to clients.
-5. Limit dashboard exposure to trusted operator networks.
+- Enforce HTTPS.
+- Rotate JWT/session secrets.
+- Keep auth backend errors opaque to clients.
+- Restrict dashboard exposure to trusted operator networks.
+- Review `/audit` regularly for sensitive actions.

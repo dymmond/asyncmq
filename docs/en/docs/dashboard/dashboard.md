@@ -1,14 +1,22 @@
 # Dashboard
 
-AsyncMQ ships a built-in dashboard ASGI app under `asyncmq.contrib.dashboard`.
+AsyncMQ ships a built-in operations dashboard ASGI app in `asyncmq.contrib.dashboard`.
 
-Wrapper class: `AsyncMQAdmin`.
+Wrapper class: `AsyncMQAdmin`
 
-This dashboard is designed for queue operations visibility and safe controls, similar in spirit to Flower-style day-to-day operations (queue health, failed-job handling, worker visibility, and live updates).
+This dashboard is designed for day-to-day queue operations and incident response:
+
+- queue, job, and worker visibility
+- retry/remove/cancel controls
+- DLQ and repeatable management
+- action audit trail
+- live + historical metrics views
 
 Related pages:
+
 - [Dashboard Capabilities](capabilities.md)
 - [Dashboard Operations Playbook](operations.md)
+- [Dashboard API and Route Reference](reference.md)
 - [Authentication Backends](jwt.md)
 
 ## Architecture
@@ -22,7 +30,22 @@ flowchart LR
     E --> F["Controllers"]
     F --> G["Configured AsyncMQ Backend"]
     E --> H["SSE Endpoint (/events)"]
-    H --> I["Live Charts/Tables"]
+    E --> I["Metrics History (/metrics/history)"]
+    E --> J["Audit Trail (/audit)"]
+```
+
+## Visual Page Map
+
+```mermaid
+flowchart TD
+    O["Overview /"] --> Q["Queues /queues"]
+    Q --> QD["Queue Detail /queues/{name}"]
+    QD --> J["Jobs /queues/{name}/jobs"]
+    QD --> D["DLQ /queues/{name}/dlq"]
+    QD --> R["Repeatables /queues/{name}/repeatables"]
+    O --> M["Metrics /metrics"]
+    O --> W["Workers /workers"]
+    O --> A["Audit /audit"]
 ```
 
 ## What the Dashboard Covers
@@ -32,14 +55,14 @@ flowchart LR
 | Overview | `/` | queue/job/worker totals, live charts, latest jobs/queues |
 | Queues | `/queues` | inspect queue state, pause/resume |
 | Queue Details | `/queues/{name}` | queue-level status and controls |
-| Jobs | `/queues/{name}/jobs` | filter by state, retry/remove/cancel |
-| Job Actions | `/queues/{name}/jobs/{job_id}/{action}` | single-action API endpoint |
+| Jobs | `/queues/{name}/jobs` | state tabs, text search, task/id filters, retry/remove/cancel |
 | DLQ | `/queues/{name}/dlq` | retry/remove failed jobs |
 | Repeatables | `/queues/{name}/repeatables` | pause/resume/remove repeatable definitions |
-| New Repeatable | `/queues/{name}/repeatables/new` | create repeatable definition |
 | Workers | `/workers` | active worker visibility |
-| Metrics | `/metrics` | throughput/retry/failure summaries |
-| SSE Stream | `/events` | pushes live updates to UI |
+| Metrics | `/metrics` | throughput/retry/failure cards, history charts/tables |
+| Metrics History API | `/metrics/history` | JSON snapshots for historical chart/table rendering |
+| Audit Trail | `/audit` | searchable log of queue/job/dlq/repeatable actions |
+| SSE Stream | `/events` | near-real-time updates to UI cards/charts/tables |
 
 ## Quick Start
 
@@ -98,75 +121,79 @@ class AppSettings(Settings):
         )
 ```
 
+## High-Value Workflows
+
+### 1. Find and retry a bad job quickly
+
+1. Open `/queues/{name}/jobs?state=failed`.
+2. Narrow results with `task=...`, `job_id=...`, or `q=...`.
+3. Trigger `Retry` on selected jobs.
+4. Verify action visibility in `/audit`.
+
+Example filter URL:
+
+```text
+/queues/emails/jobs?state=failed&task=send-reminder&q=tenant-42&sort=newest
+```
+
+### 2. Track operator actions during an incident
+
+1. Open `/audit`.
+2. Filter by `queue`, `status=failed`, or a specific `action`.
+3. Search free-text (`q`) across action/source/error/details.
+
+Example filter URL:
+
+```text
+/audit?action=job.retry&queue=emails&status=success&limit=100
+```
+
+### 3. Investigate recent throughput and failure trend
+
+1. Open `/metrics`.
+2. Use live charts and the "Recent Metrics History" table.
+3. Correlate with queue backlog and worker counts.
+4. Pull raw snapshots from `/metrics/history` if needed for tooling.
+
+```bash
+curl -s http://localhost:8000/metrics/history?limit=20
+```
+
+## Data Flow for Metrics
+
+```mermaid
+sequenceDiagram
+    participant UI as Metrics UI
+    participant SSE as /events
+    participant API as /metrics/history
+    participant BE as Backend
+
+    UI->>API: GET /metrics/history
+    API->>BE: list_queues/list_workers/list_jobs summaries
+    API-->>UI: history snapshots
+
+    UI->>SSE: open EventSource
+    SSE->>BE: periodic aggregate polling
+    SSE-->>UI: metrics/jobdist/overview events
+```
+
 ## Authentication
 
 Set `enable_login=True` and provide an `AuthBackend` implementation.
 
 Built-ins:
+
 - `SimpleUsernamePasswordBackend`
 - `JWTAuthBackend`
 
 See [Authentication Backends](jwt.md).
 
-## Live Updates (SSE)
-
-Dashboard pages use the `/events` SSE stream to update charts and tables in near real time.
-
-Current event types emitted:
-- `overview`
-- `jobdist`
-- `metrics`
-- `queues`
-- `workers`
-- `latest_jobs`
-- `latest_queues`
-
-## Operator Workflows
-
-### 1. Pause a noisy queue
-
-1. Open `/queues`.
-2. Select queue card or detail page.
-3. Click pause action.
-4. Verify state changes to paused.
-
-### 2. Recover from failure burst
-
-1. Open `/queues/{name}/dlq`.
-2. Select affected jobs.
-3. Retry jobs after fixing root cause.
-4. Monitor `/metrics` and `/queues/{name}/jobs?state=failed`.
-
-### 3. Confirm worker availability
-
-1. Open `/workers`.
-2. Validate heartbeat recency and queue assignment.
-3. Cross-check queue backlog on `/queues`.
-
-## Request Flow Example
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant D as Dashboard UI
-    participant C as Controller
-    participant B as AsyncMQ Backend
-
-    U->>D: Click "Retry" on failed job
-    D->>C: POST /queues/{name}/jobs/{id}/retry
-    C->>B: retry_job(queue, id)
-    B-->>C: success/failure
-    C-->>D: JSON response
-    D->>D: refresh row/state
-```
-
 ## Production Guidance
 
-- keep dashboard behind authentication and HTTPS
-- use non-default secrets for session/JWT
-- restrict network exposure to operator/admin paths
-- keep worker and dashboard on the same backend configuration source
+- Keep dashboard behind authentication and HTTPS.
+- Use non-default session/JWT secrets.
+- Restrict dashboard network exposure to operator/admin paths.
+- Treat dashboard actions as operational controls and keep an audit review process.
+- Use external observability for long-term analytics/retention.
 
-## Flower-Level Capability Notes
-
-For a direct capability matrix (supported vs current limits), see [Dashboard Capabilities](capabilities.md).
+For capability boundaries, see [Dashboard Capabilities](capabilities.md).

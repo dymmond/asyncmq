@@ -10,6 +10,7 @@ from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 from asyncmq.queues import Queue
 
@@ -115,24 +116,45 @@ class RepeatablesController(DashboardMixin, TemplateController):
         posted_job_def = cast(dict[str, Any], json.loads(form["job_def"]))
         job_def = cast(dict[str, Any], posted_job_def.get("job_def", posted_job_def))
         backend: Any = monkay.settings.backend
+        task_id = str(job_def.get("task_id") or job_def.get("id") or "unknown")
 
-        if action == "pause":
-            await backend.pause_repeatable(queue, job_def)
-        elif action == "resume":
-            await backend.resume_repeatable(queue, job_def)
-        elif action == "remove":
-            remove_repeatable = getattr(backend, "remove_repeatable", None)
-            if callable(remove_repeatable):
-                try:
-                    await cast(Any, remove_repeatable)(queue, job_def)
-                except TypeError:
-                    repeat_id = cast(str | None, job_def.get("id") or job_def.get("repeat_id"))
-                    if repeat_id is None:
-                        repeat_id = json.dumps(job_def, sort_keys=True)
-                    await cast(Any, remove_repeatable)(queue, repeat_id)
+        try:
+            if action == "pause":
+                await backend.pause_repeatable(queue, job_def)
+            elif action == "resume":
+                await backend.resume_repeatable(queue, job_def)
+            elif action == "remove":
+                remove_repeatable = getattr(backend, "remove_repeatable", None)
+                if callable(remove_repeatable):
+                    try:
+                        await cast(Any, remove_repeatable)(queue, job_def)
+                    except TypeError:
+                        repeat_id = cast(str | None, job_def.get("id") or job_def.get("repeat_id"))
+                        if repeat_id is None:
+                            repeat_id = json.dumps(job_def, sort_keys=True)
+                        await cast(Any, remove_repeatable)(queue, repeat_id)
+            else:
+                raise ValueError(f"Unknown action: {action}")
+        except Exception as exc:
+            record_audit_event(
+                request=request,
+                action=f"repeatable.{action or 'unknown'}",
+                source="repeatables",
+                status="failed",
+                queue=queue,
+                job_id=task_id,
+                details={"job_def": job_def},
+                error=str(exc),
+            )
         else:
-            # unknown action
-            pass
+            record_audit_event(
+                request=request,
+                action=f"repeatable.{action}",
+                source="repeatables",
+                queue=queue,
+                job_id=task_id,
+                details={"job_def": job_def},
+            )
 
         # Redirect back to GET, preserving query string (state, page, etc.)
         qs: str = request.url.query or ""
@@ -205,6 +227,15 @@ class RepeatablesNewController(DashboardMixin, TemplateController):
             await cast(Any, enqueue_repeatable)(queue_name, payload, float(data["every"]))
         else:
             queue.add_repeatable(**data)
+
+        record_audit_event(
+            request=request,
+            action="repeatable.create",
+            source="repeatables.new",
+            queue=queue_name,
+            job_id=str(jd.get("task_id") or "unknown"),
+            details={"job_def": data},
+        )
 
         # 3. Redirect back to the main list
         qs: str = request.url.query or ""

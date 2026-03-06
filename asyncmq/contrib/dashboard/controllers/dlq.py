@@ -10,6 +10,7 @@ from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
+from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
@@ -134,6 +135,7 @@ class DLQController(DashboardMixin, TemplateController):
         backend = monkay.settings.backend
         form: FormData = await request.form()
         action: str | None = form.get("action")
+        canonical_action = "remove" if action == "delete" else action
 
         # Page is retrieved to redirect the user back to the correct page after the action
         page: int = int(form.get("page", 1))
@@ -157,7 +159,7 @@ class DLQController(DashboardMixin, TemplateController):
 
         except KeyError:
             # 2. Handle case where no job IDs were selected
-            if action == "remove":
+            if canonical_action == "remove":
                 add_message(request, "error", "You need to select a job to be deleted first.")
             else:
                 add_message(request, "info", "You need to select a job to be retried first.")
@@ -165,10 +167,32 @@ class DLQController(DashboardMixin, TemplateController):
 
         # 3. Process actions for selected IDs
         for job_id in job_ids:
-            if action == "retry":
-                await backend.retry_job(queue, job_id)
-            elif action == "remove":
-                await backend.remove_job(queue, job_id)
+            try:
+                if canonical_action == "retry":
+                    await backend.retry_job(queue, job_id)
+                elif canonical_action == "remove":
+                    await backend.remove_job(queue, job_id)
+                else:
+                    raise ValueError(f"Unknown action: {action}")
+            except Exception as exc:
+                record_audit_event(
+                    request=request,
+                    action=f"dlq.{canonical_action or 'unknown'}",
+                    source="dlq.bulk",
+                    status="failed",
+                    queue=queue,
+                    job_id=job_id,
+                    error=str(exc),
+                )
+                continue
+
+            record_audit_event(
+                request=request,
+                action=f"dlq.{canonical_action}",
+                source="dlq.bulk",
+                queue=queue,
+                job_id=job_id,
+            )
 
         # 4. Redirect back to the original page
         return RedirectResponse(f"{self.get_return_url(request, name=queue)}?page={page}", status_code=303)

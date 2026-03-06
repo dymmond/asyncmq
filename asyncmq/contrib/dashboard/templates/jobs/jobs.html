@@ -1,20 +1,18 @@
 {% extends "layout.html" %}
 {% block content %}
-  <!-- Header + Pill Tabs -->
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-3xl font-bold">{{ page_header }}</h1>
-    <nav class="mt-4 flex flex-wrap gap-2">
-      {% set tabs = [
-           ("waiting",   "Waiting"),
-           ("active",    "Active"),
-           ("completed", "Completed"),
-           ("failed",    "Failed"),
-           ("delayed",   "Delayed"),
-           ("repeatable","Repeatable")
-         ] %}
+  <div class="mb-6 space-y-4">
+    <div class="flex items-center justify-between">
+      <h1 class="text-3xl font-bold">{{ page_header }}</h1>
+      <a href="{{ url_prefix }}/queues/{{ queue }}"
+         class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
+        ← Back to Queue
+      </a>
+    </div>
+
+    <nav class="flex flex-wrap gap-2">
       {% for key, label in tabs %}
         <a
-          href="?state={{ key }}{% if page>1 %}&page={{ page }}{% endif %}"
+          href="{{ tab_urls[key] }}"
           class="px-3 py-1 rounded-full text-sm font-medium transition
                  {% if key == state %}
                    bg-indigo-600 text-white
@@ -26,28 +24,57 @@
         </a>
       {% endfor %}
     </nav>
-    <a href="{{ url_prefix }}/queues/{{ queue }}"
-       class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
-      ← Back to Queue
-    </a>
+
+    <form method="get" class="bg-white rounded-lg shadow-sm ring-1 ring-gray-200 p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
+      <input type="hidden" name="state" value="{{ state }}">
+      <input type="text"
+             name="q"
+             value="{{ q }}"
+             placeholder="Search payload text"
+             class="md:col-span-2 rounded border border-gray-300 px-3 py-2 text-sm">
+      <input type="text"
+             name="task"
+             value="{{ task }}"
+             placeholder="Task contains"
+             class="rounded border border-gray-300 px-3 py-2 text-sm">
+      <input type="text"
+             name="job_id"
+             value="{{ job_id }}"
+             placeholder="Job ID contains"
+             class="rounded border border-gray-300 px-3 py-2 text-sm">
+      <select name="sort" class="rounded border border-gray-300 px-3 py-2 text-sm">
+        <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
+        <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
+      </select>
+      <select name="size" class="rounded border border-gray-300 px-3 py-2 text-sm">
+        {% for option in [20, 50, 100] %}
+          <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
+        {% endfor %}
+      </select>
+      <button type="submit"
+              class="rounded bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+        Apply
+      </button>
+      <a href="?state={{ state }}&sort={{ sort }}&size={{ size }}"
+         class="rounded bg-gray-100 text-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 text-center">
+        Clear Filters
+      </a>
+    </form>
   </div>
 
-  <!-- Job Cards Grid -->
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {% for job in jobs %}
       <div class="job-card bg-white shadow-sm rounded-lg overflow-hidden flex flex-col">
-        <!-- Card Header -->
         <div class="px-4 py-3 border-b">
           <h2 class="text-lg font-semibold truncate">ID: {{ job.id }}</h2>
+          <p class="text-xs text-gray-500 mt-1">Task: {{ job.task_id }}</p>
           <p class="text-xs text-gray-500 mt-1">
             {{ job.status | capitalize }} on {{ job.run_at or job.created_at }}
           </p>
         </div>
-        <!-- Payload Preview -->
         <div class="p-4 flex-1 overflow-auto bg-gray-50">
           <pre class="text-xs whitespace-pre-wrap">{{ job.payload | tojson(indent=2) }}</pre>
         </div>
-        <!-- Actions -->
         <div class="px-4 py-3 border-t bg-white flex justify-end space-x-2">
           <button
             class="retry-btn px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
@@ -70,20 +97,16 @@
     {% endfor %}
   </div>
 
-  <!-- Pagination -->
   <div class="mt-8 flex justify-center items-center space-x-4">
-    {% if page > 1 %}
-      <a href="?state={{ state }}&page={{ page-1 }}"
-         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">← Previous</a>
+    {% if prev_page_url %}
+      <a href="{{ prev_page_url }}" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">← Previous</a>
     {% endif %}
     <span class="text-sm text-gray-600">Page {{ page }} of {{ total_pages }}</span>
-    {% if page < total_pages %}
-      <a href="?state={{ state }}&page={{ page+1 }}"
-         class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next →</a>
+    {% if next_page_url %}
+      <a href="{{ next_page_url }}" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next →</a>
     {% endif %}
   </div>
 
-  <!-- Row‐level AJAX actions script -->
   <script>
     (function() {
       const prefix = window.location.pathname.replace(/\/$/, '');
@@ -96,10 +119,6 @@
         if (!json.ok) {
           return alert(`Error ${action} ${jobId}: ${json.error || res.statusText}`);
         }
-        // Remove the corresponding job-card
-        const btn = document.querySelector(`.${action}-btn[data-job-id="${jobId}"]`)
-                  || document.querySelector(`button[data-job-id="${jobId}"].${action}-btn`);
-        // Fallback: check by class name
         const selector = action === 'retry'
           ? '.retry-btn'
           : action === 'remove'
@@ -117,7 +136,6 @@
           e.preventDefault();
           doAction(btn.dataset.jobId, 'retry');
           showToast(`Job ${btn.dataset.jobId} has been retried`, "success");
-
         })
       );
       document.querySelectorAll('.remove-btn').forEach(btn =>

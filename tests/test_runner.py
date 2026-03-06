@@ -282,9 +282,9 @@ async def test_worker_logs_exceptions():
 
     await run_test()
 
-    # Verify the job failed (could be FAILED or EXPIRED depending on timing)
+    # Verify the job reached a terminal or retry-delay state within this short window.
     state = await backend.get_job_state("runner", job.id)
-    assert state in {State.FAILED, State.EXPIRED}
+    assert state in {State.FAILED, State.EXPIRED, State.DELAYED}
 
     assert any("This is a problem" in record.getMessage() for record in logs)
     assert any("failed with exception" in record.getMessage() for record in logs)

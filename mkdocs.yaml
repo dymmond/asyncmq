@@ -86,6 +86,7 @@ nav:
   - dashboard/dashboard.md
   - dashboard/capabilities.md
   - dashboard/operations.md
+  - dashboard/reference.md
   - dashboard/jwt.md
 - Reference:
   - reference/index.md

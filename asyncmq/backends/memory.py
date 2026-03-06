@@ -132,6 +132,15 @@ class InMemoryBackend(BaseBackend):
             payload: A dictionary containing the job data, including an 'id'.
         """
         async with self.lock:
+            job_id = payload.get("id")
+            if job_id is not None:
+                self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
+                self.delayed[queue_name] = [
+                    (run_at, j) for run_at, j in self.delayed.get(queue_name, []) if j.get("id") != job_id
+                ]
+                self.active_jobs.pop((queue_name, str(job_id)), None)
+                self.heartbeats.pop((queue_name, str(job_id)), None)
+
             # Get or create the list for the DLQ.
             dlq = self.dlqs.setdefault(queue_name, [])
             # Append the failed job payload to the DLQ list.
@@ -780,6 +789,8 @@ class InMemoryBackend(BaseBackend):
                 # Check if the job's last heartbeat timestamp is older than the threshold
                 if ts < older_than:
                     payload = self.active_jobs.get((q, jid))
+                    if payload is None:
+                        payload = self._fetch_job_data(q, jid)
                     # If a corresponding job payload was found in the queue, add it
                     # to the list of stalled jobs with its queue name.
                     if payload:

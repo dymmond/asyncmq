@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import (
     Any,
     AsyncGenerator,
+    cast,
 )
 
 import anyio
@@ -14,6 +15,7 @@ from lilya.responses import StreamingResponse
 
 from asyncmq import monkay
 from asyncmq.contrib.dashboard.controllers._counts import JOB_STATES, get_queue_state_counts
+from asyncmq.contrib.dashboard.metrics_history import record_metrics_snapshot
 
 BackendJobRecord = dict[str, Any]
 BackendWorkerRecord = Any
@@ -96,6 +98,12 @@ class SSEController(Controller):
                     "failures": dist["failed"],
                 }
                 yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
+                record_metrics_snapshot(
+                    metrics=metrics,
+                    counts=dist,
+                    total_queues=total_queues,
+                    total_workers=total_workers,
+                )
 
                 # --- QUEUE STATS: Per-Queue Detail ---
                 qrows: list[dict[str, Any]] = []
@@ -115,22 +123,38 @@ class SSEController(Controller):
                     wk: list[BackendWorkerRecord] = await backend.list_workers()
                 except Exception:
                     wk = []
-                wk_rows: list[dict[str, Any]] = [
-                    {
-                        "id": w.id,
-                        "queue": w.queue,
-                        "concurrency": w.concurrency,
-                        "heartbeat": w.heartbeat,
-                    }
-                    for w in wk
-                ]
+                wk_rows: list[dict[str, Any]] = []
+                for worker in wk:
+                    if isinstance(worker, dict):
+                        worker_dict = cast(dict[str, Any], worker)
+                        wk_rows.append(
+                            {
+                                "id": worker_dict.get("id"),
+                                "queue": worker_dict.get("queue"),
+                                "concurrency": worker_dict.get("concurrency"),
+                                "heartbeat": worker_dict.get("heartbeat"),
+                            }
+                        )
+                    else:
+                        wk_rows.append(
+                            {
+                                "id": getattr(worker, "id", None),
+                                "queue": getattr(worker, "queue", None),
+                                "concurrency": getattr(worker, "concurrency", None),
+                                "heartbeat": getattr(worker, "heartbeat", None),
+                            }
+                        )
                 yield f"event: workers\ndata: {json.dumps(wk_rows)}\n\n"
 
                 # --- LATEST 10 JOBS (Time-Intensive Aggregation) ---
                 all_jobs_raw: list[dict[str, Any]] = []
                 for q in queues:
                     for s in JOB_STATES:
-                        for job in await backend.list_jobs(q, s):
+                        try:
+                            jobs = await backend.list_jobs(q, s)
+                        except Exception:
+                            jobs = []
+                        for job in jobs:
                             # Extract timestamp (ts) using fallbacks
                             ts: float = job.get("timestamp") or job.get("created_at") or 0
                             all_jobs_raw.append(

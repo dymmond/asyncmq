@@ -8,6 +8,7 @@ from lilya.types import ASGIApp
 
 from asyncmq import monkay
 from asyncmq.contrib.dashboard.controllers import (
+    audit,
     dlq,
     home,
     jobs,
@@ -103,6 +104,18 @@ def create_dashboard_app() -> ASGIApp:
                         metrics.MetricsController,
                         methods=["GET"],
                         name="metrics",
+                    ),
+                    RoutePath(
+                        "/metrics/history",
+                        metrics.MetricsHistoryController,
+                        methods=["GET"],
+                        name="metrics-history",
+                    ),
+                    RoutePath(
+                        "/audit",
+                        audit.AuditController,
+                        methods=["GET"],
+                        name="audit",
                     ),
                     # New SSE endpoint for real-time updates
                     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),
