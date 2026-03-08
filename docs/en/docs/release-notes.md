@@ -33,7 +33,7 @@
 
 ### Changed
 
-- Brought AsyncMQ to practical BullMQ parity while preserving AsyncMQ's backend-neutral architecture rather than coupling behavior to Redis-only data structures.
+- Brought AsyncMQ to practical parity while preserving AsyncMQ's backend-neutral architecture rather than coupling behavior to Redis-only data structures.
 - Queue producer semantics now behave consistently across single-job and bulk-job creation, including custom job identifiers, deduplication windows, delayed replacement, and duplicate suppression.
 - Repeatable scheduling now supports both local code-defined schedules and durable backend-managed schedules in one coherent runtime model.
 - Scheduler ownership for durable repeatables is now coordinated under queue-scoped locks so multiple workers do not all advance the same backend schedule at once.
@@ -45,7 +45,7 @@
 ### Fixed
 
 - Sandbox execution integration now respects the configured sandbox handler path consistently during worker execution.
-- PostgreSQL job identity semantics are now queue-scoped, aligning custom `job_id` handling with BullMQ-style duplicate suppression behavior.
+- PostgreSQL job identity semantics are now queue-scoped, aligning custom `job_id` handling  duplicate suppression behavior.
 - Retry and job-payload persistence paths were aligned across backends so stateful metadata such as deduplication, dependency updates, and retried payload state are preserved correctly.
 - MongoDB payload replacement now removes stale job metadata fields instead of leaving outdated values behind after payload mutation.
 - RabbitMQ metadata persistence and locking fallbacks were aligned with the shared backend contract for queue inspection, schedule management, and deduplication-aware updates.
