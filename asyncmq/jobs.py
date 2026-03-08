@@ -40,6 +40,7 @@ class Job:
         priority: int = 5,
         repeat_every: float | int | None = None,
         depends_on: list[str] | None = None,
+        deduplication: dict[str, Any] | None = None,
     ) -> None:
         """
         Initializes a new Job instance.
@@ -85,6 +86,10 @@ class Job:
             depends_on: An optional list of job IDs (strings) that this job depends on.
                         This job will not be executed until all jobs listed in
                         `depends_on` have completed successfully. Defaults to None.
+            deduplication: Optional BullMQ-style deduplication metadata stored
+                           with the job payload. AsyncMQ uses this to enforce
+                           simple, throttle, and debounce-style producer
+                           semantics across supported backends.
         """
         # Generate a unique ID if none is provided.
         self.id: str = job_id or str(uuid.uuid4())
@@ -105,6 +110,7 @@ class Job:
         self.repeat_every: float | int | None = repeat_every
         # Ensure depends_on is always a list, defaulting to empty if None.
         self.depends_on: list[str] = depends_on or []
+        self.deduplication: dict[str, Any] | None = dict(deduplication) if deduplication is not None else None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "Job":
@@ -136,6 +142,7 @@ class Job:
             priority=data.get("priority", 5),
             repeat_every=data.get("repeat_every"),
             depends_on=data.get("depends_on", []),
+            deduplication=data.get("deduplication"),
         )
         # Set remaining attributes from the dictionary data.
         job.status = data.get("status", State.WAITING)
@@ -234,4 +241,5 @@ class Job:
             "priority": self.priority,
             "depends_on": self.depends_on,
             "repeat_every": self.repeat_every,
+            "deduplication": self.deduplication,
         }

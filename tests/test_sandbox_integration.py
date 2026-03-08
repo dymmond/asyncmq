@@ -59,12 +59,19 @@ def restore_sandbox_settings():
 
 
 @pytest.fixture(params=test_dbs)
-async def backend(request, redis):
+async def backend(request):
     name = request.param
     if name == "memory":
         yield InMemoryBackend()
     elif name == "redis":
-        yield RedisBackend()
+        b = RedisBackend()
+        await b.redis.flushall()
+        try:
+            yield b
+        finally:
+            await b.redis.flushall()
+            await b.redis.aclose()
+            await b.job_store.redis.aclose()
     elif name == "mongodb":
         db_name = f"test_asyncmq_{uuid4().hex}"
         b = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=db_name)
@@ -86,11 +93,12 @@ async def run_one_job(queue_name, backend, job_id, **runner_kwargs):
     task_runner = asyncio.create_task(run_worker(queue_name, backend=backend, **runner_kwargs))
     try:
         start = time.time()
-        while time.time() - start < 4.0:  # 🔼 increase timeout
+        await asyncio.sleep(0.05)
+        while time.time() - start < 4.0:
             result = await backend.get_job_result(queue_name, job_id)
             if result is not None:
                 return result
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.1)
         raise TimeoutError(f"Job {job_id} did not complete in time")
     finally:
         task_runner.cancel()

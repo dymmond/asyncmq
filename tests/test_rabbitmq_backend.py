@@ -242,7 +242,7 @@ async def test_list_jobs_by_state(backend, state):
     jobs = await backend.list_jobs(queue, state)
     assert isinstance(jobs, list)
     # every returned job should carry our payload.task
-    assert all(j["payload"]["task"] == "filter_test" for j in jobs)
+    assert all(j["task"] == "filter_test" for j in jobs)
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
@@ -266,9 +266,9 @@ async def test_list_jobs_filters_correctly(backend):
     d = await backend.list_jobs(queue, "delayed")
     f = await backend.list_jobs(queue, "failed")
 
-    assert all(j["payload"]["task"] == "A" for j in w)
-    assert all(j["payload"]["task"] == "B" for j in d)
-    assert all(j["payload"]["task"] == "C" for j in f)
+    assert all(j["task"] == "A" for j in w)
+    assert all(j["task"] == "B" for j in d)
+    assert all(j["task"] == "C" for j in f)
 
 
 async def test_list_jobs_case_sensitive_state(backend):

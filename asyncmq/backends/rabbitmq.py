@@ -8,9 +8,12 @@ try:
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
+import anyio
+
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.inspection import matches_job_type, normalize_job_type
 from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.base import BaseJobStore
@@ -62,6 +65,7 @@ class RabbitMQBackend(BaseBackend):
         # Track unacked consumed messages so ack() can acknowledge after processing.
         self._in_flight: dict[tuple[str, str], aio_pika.abc.AbstractIncomingMessage] = {}
         self._in_flight_lock = asyncio.Lock()
+        self._locks: dict[str, anyio.Lock] = {}
 
     async def _connect(self) -> None:
         """
@@ -92,6 +96,24 @@ class RabbitMQBackend(BaseBackend):
 
     async def _store_entry(self, queue_name: str, job_id: str) -> dict[str, Any]:
         return await self._state.load(queue_name, job_id) or {"id": job_id}
+
+    def _normalize_stored_job(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """
+        Convert a RabbitMQ job-store entry into the canonical public job shape.
+
+        RabbitMQ stores payload and metadata separately. Queue inspection APIs
+        expect a single dictionary, so this helper merges both views without
+        discarding backend-maintained status, result, or dependency metadata.
+        """
+        payload = entry.get("payload")
+        merged = dict(payload) if isinstance(payload, dict) else {}
+        if entry.get("id") is not None:
+            merged.setdefault("id", entry["id"])
+        for key, value in entry.items():
+            if key == "payload":
+                continue
+            merged[key] = value
+        return merged
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -555,6 +577,23 @@ class RabbitMQBackend(BaseBackend):
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
 
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist an updated canonical payload in the RabbitMQ metadata store.
+
+        Args:
+            queue_name: The queue that owns the job.
+            payload: The full canonical payload to persist.
+        """
+        job_id = str(payload["id"])
+        entry = await self._store_entry(queue_name, job_id)
+        entry["id"] = job_id
+        entry["payload"] = dict(payload)
+        entry["status"] = payload.get("status", entry.get("status"))
+        if "result" in payload:
+            entry["result"] = payload.get("result")
+        await self._state.save(queue_name, job_id, entry)
+
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
         Retrieves the current status of a specific job.
@@ -982,8 +1021,15 @@ class RabbitMQBackend(BaseBackend):
             An object representing the acquired lock. The specific type depends
             on the underlying job store's implementation.
         """
-        # Delegate the lock creation to the job store.
-        return await self._state.create_lock(key, ttl)
+        create_lock = getattr(self._state, "create_lock", None)
+        if callable(create_lock):
+            return await cast(Any, create_lock)(key, ttl)
+
+        # Fall back to an in-process keyed lock when the metadata store does
+        # not expose a distributed implementation.
+        if key not in self._locks:
+            self._locks[key] = anyio.Lock()
+        return self._locks[key]
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
@@ -1075,8 +1121,16 @@ class RabbitMQBackend(BaseBackend):
             A list of dictionaries, where each dictionary represents a job
             matching the specified status.
         """
-        # Retrieve jobs filtered by the given status from the job store.
-        return await self._state.jobs_by_status(queue_name, state)
+        normalized = normalize_job_type(state)
+        if normalized == "waiting-children":
+            jobs = [self._normalize_stored_job(job) for job in await self._state.all_jobs(queue_name)]
+            return [job for job in jobs if matches_job_type(job, normalized)]
+
+        if normalized in {"paused", "prioritized"}:
+            return []
+
+        jobs = [self._normalize_stored_job(job) for job in await self._state.jobs_by_status(queue_name, normalized)]
+        return [job for job in jobs if matches_job_type(job, normalized)]
 
     async def list_queues(self) -> list[str]:
         """

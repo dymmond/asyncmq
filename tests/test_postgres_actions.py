@@ -51,7 +51,7 @@ async def test_retry_job_postgres(backend):
             INSERT INTO {jobs_table}
                (queue_name, job_id, data, status)
             VALUES ($1, $2, $3::jsonb, $4)
-            ON CONFLICT (job_id) DO UPDATE
+            ON CONFLICT (queue_name, job_id) DO UPDATE
               SET status = EXCLUDED.status
             """,
             queue,
@@ -89,7 +89,7 @@ async def test_remove_job_postgres(backend):
             INSERT INTO {jobs_table}
                (queue_name, job_id, data, status)
             VALUES ($1, $2, $3::jsonb, $4)
-            ON CONFLICT (job_id) DO NOTHING
+            ON CONFLICT (queue_name, job_id) DO NOTHING
             """,
             queue,
             job_id,
@@ -113,3 +113,22 @@ async def test_remove_job_postgres(backend):
             queue,
         )
     assert row is None
+
+
+async def test_postgres_job_ids_are_scoped_per_queue(backend):
+    await backend.store.save("q1", "shared-job", {"id": "shared-job", "status": "waiting", "task": "a"})
+    await backend.store.save("q2", "shared-job", {"id": "shared-job", "status": "waiting", "task": "b"})
+
+    async with backend.pool.acquire() as conn:
+        count = await conn.fetchval(
+            f"""
+            SELECT COUNT(*)
+              FROM {settings.postgres_jobs_table_name}
+             WHERE job_id = $1
+            """,
+            "shared-job",
+        )
+
+    assert count == 2
+    assert (await backend.store.load("q1", "shared-job"))["task"] == "a"
+    assert (await backend.store.load("q2", "shared-job"))["task"] == "b"

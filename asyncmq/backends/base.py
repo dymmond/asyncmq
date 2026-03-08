@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import asyncmq
+from asyncmq.core.inspection import paginate_jobs, sanitize_job_types
 
 if TYPE_CHECKING:
     from asyncmq.conf.global_settings import Settings
@@ -214,6 +215,24 @@ class BaseBackend(ABC):
             queue_name: The name of the queue the job belonged to.
             job_id: The unique identifier of the job whose result is to be saved.
             result: The result data of the job (can be any serializable type).
+        """
+        ...
+
+    @abstractmethod
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist a full canonical job payload without changing queue placement.
+
+        AsyncMQ uses this hook for administrative mutations that need to edit
+        stored metadata in place, such as clearing a deduplication key or
+        extending an existing throttle window. Implementations must update the
+        durable payload together with any in-memory mirrors used for dequeueing
+        or inspection while preserving the job's current queue membership.
+
+        Args:
+            queue_name: The queue that owns the job payload.
+            payload: The full canonical job payload. It must include the job
+                identifier under ``id`` and should retain the current status.
         """
         ...
 
@@ -640,6 +659,212 @@ class BaseBackend(ABC):
         """List jobs by queue and state."""
         ...
 
+    async def get_job(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+        """
+        Retrieve the canonical stored payload for a specific job identifier.
+
+        The default implementation performs an inspection-oriented scan across
+        all known queue buckets. Backends with native point lookups should
+        override this for efficiency, but the fallback preserves a portable
+        contract for dashboard and administration tooling.
+
+        Args:
+            queue_name: The queue that owns the job.
+            job_id: The identifier of the job to retrieve.
+
+        Returns:
+            The stored job payload if it can be located, otherwise ``None``.
+        """
+        for job in await self._inspect_all_jobs(queue_name):
+            current_id = job.get("id") or job.get("job_id")
+            if current_id is not None and str(current_id) == job_id:
+                return dict(job)
+        return None
+
+    async def get_jobs(
+        self,
+        queue_name: str,
+        types: list[str] | tuple[str, ...] | None = None,
+        *,
+        start: int = 0,
+        end: int = -1,
+        asc: bool = False,
+    ) -> list[dict[str, Any]]:
+        """
+        Return jobs from one or more inspection buckets with pagination.
+
+        This mirrors BullMQ's queue getter surface closely enough for
+        operational APIs and dashboards while remaining backend-neutral. Jobs
+        are grouped in the order requested by ``types`` and paginated after the
+        groups are concatenated.
+
+        Args:
+            queue_name: The queue to inspect.
+            types: The job types to include. When omitted, the default
+                BullMQ-compatible inspection set is used.
+            start: Zero-based inclusive start offset.
+            end: Zero-based inclusive end offset. ``-1`` means "until the end".
+            asc: Whether to keep ascending order within each state bucket.
+
+        Returns:
+            The matching jobs after pagination is applied.
+        """
+        selected_types = sanitize_job_types(types)
+        jobs: list[dict[str, Any]] = []
+        for job_type in selected_types:
+            jobs.extend(await self.list_jobs(queue_name, job_type))
+        return paginate_jobs(jobs, start=start, end=end, asc=asc)
+
+    async def get_job_counts(self, queue_name: str, *types: str) -> dict[str, int]:
+        """
+        Count jobs per inspection bucket for a queue.
+
+        Args:
+            queue_name: The queue to inspect.
+            *types: Optional job types to count. When omitted, the default
+                BullMQ-compatible inspection set is used.
+
+        Returns:
+            A mapping of job type to count.
+        """
+        counts: dict[str, int] = {}
+        for job_type in sanitize_job_types(types or None):
+            counts[job_type] = len(await self.list_jobs(queue_name, job_type))
+        return counts
+
+    async def get_job_count_by_types(self, queue_name: str, *types: str) -> int:
+        """
+        Return the total number of jobs across one or more inspection buckets.
+
+        Args:
+            queue_name: The queue to inspect.
+            *types: Optional job types to include in the total.
+
+        Returns:
+            The summed job count.
+        """
+        counts = await self.get_job_counts(queue_name, *types)
+        return sum(counts.values())
+
+    async def count(self, queue_name: str) -> int:
+        """
+        Return the number of jobs waiting to be processed.
+
+        In BullMQ this total includes waiting, delayed, prioritized, paused,
+        and waiting-children buckets. AsyncMQ does not materialize distinct
+        paused or prioritized buckets, so their contribution is zero unless a
+        backend implements them explicitly.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            The total queued workload count.
+        """
+        return await self.get_job_count_by_types(
+            queue_name,
+            "waiting",
+            "paused",
+            "delayed",
+            "prioritized",
+            "waiting-children",
+        )
+
+    async def drain_queue(self, queue_name: str, *, include_delayed: bool = False) -> list[str]:
+        """
+        Remove jobs that are still queued and have not started executing.
+
+        Args:
+            queue_name: The queue to drain.
+            include_delayed: Whether delayed jobs should also be removed.
+
+        Returns:
+            The identifiers of the removed jobs.
+        """
+        states = ["waiting"]
+        if include_delayed:
+            states.append("delayed")
+
+        removed_ids: list[str] = []
+        for state in states:
+            for job in await self.list_jobs(queue_name, state):
+                job_id = job.get("id") or job.get("job_id")
+                if job_id is None:
+                    continue
+                if await self.remove_job(queue_name, str(job_id)):
+                    removed_ids.append(str(job_id))
+        return removed_ids
+
+    async def clean_jobs(
+        self,
+        queue_name: str,
+        *,
+        state: str = "completed",
+        grace: float = 0,
+        limit: int = 0,
+    ) -> list[str]:
+        """
+        Remove jobs from a queue based on their inspection bucket and age.
+
+        Args:
+            queue_name: The queue to clean.
+            state: The job bucket to clean.
+            grace: The minimum age in seconds a job must have before removal.
+            limit: The maximum number of jobs to delete. ``0`` means no limit.
+
+        Returns:
+            The identifiers of the removed jobs.
+        """
+        deadline = time.time() - grace
+        removed_ids: list[str] = []
+        for job in await self.list_jobs(queue_name, state):
+            if limit and len(removed_ids) >= limit:
+                break
+
+            reference_ts = self._job_cleanup_timestamp(job, state)
+            if reference_ts > deadline:
+                continue
+
+            job_id = job.get("id") or job.get("job_id")
+            if job_id is None:
+                continue
+            if await self.remove_job(queue_name, str(job_id)):
+                removed_ids.append(str(job_id))
+        return removed_ids
+
+    async def obliterate_queue(self, queue_name: str, *, force: bool = False) -> list[str]:
+        """
+        Irreversibly remove all jobs and repeatable definitions for a queue.
+
+        Args:
+            queue_name: The queue to obliterate.
+            force: When ``False``, active jobs block the operation.
+
+        Returns:
+            The identifiers of removed jobs.
+
+        Raises:
+            RuntimeError: If active jobs exist and ``force`` is not enabled.
+        """
+        active = await self.list_jobs(queue_name, "active")
+        if active and not force:
+            raise RuntimeError("Cannot obliterate a queue that still has active jobs. Pass force=True to override.")
+
+        removed_ids: list[str] = []
+        for job in await self._inspect_all_jobs(queue_name):
+            job_id = job.get("id") or job.get("job_id")
+            if job_id is None:
+                continue
+            if await self.remove_job(queue_name, str(job_id)):
+                removed_ids.append(str(job_id))
+
+        remove_repeatable = getattr(self, "remove_repeatable", None)
+        if callable(remove_repeatable):
+            for record in await self.list_repeatables(queue_name):
+                await remove_repeatable(queue_name, record.job_def)
+
+        return removed_ids
+
     @abstractmethod
     async def queue_stats(self, queue_name: str) -> dict[str, int]: ...
 
@@ -676,3 +901,57 @@ class BaseBackend(ABC):
     @property
     def _json_serializer(self) -> JSONSerializer:
         return self._settings.json_serializer
+
+    async def _inspect_all_jobs(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Collect a de-duplicated set of jobs across all portable inspection buckets.
+
+        This helper powers backend-neutral queue getters and admin operations.
+        The result is intentionally conservative: unsupported buckets simply
+        contribute no jobs.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            The de-duplicated stored job payloads.
+        """
+        states = (
+            "waiting",
+            "waiting-children",
+            "active",
+            "completed",
+            "failed",
+            "delayed",
+            "expired",
+            "queued",
+        )
+        seen: dict[str, dict[str, Any]] = {}
+        for state in states:
+            for job in await self.list_jobs(queue_name, state):
+                job_id = job.get("id") or job.get("job_id")
+                if job_id is None:
+                    continue
+                seen[str(job_id)] = dict(job)
+        return list(seen.values())
+
+    def _job_cleanup_timestamp(self, job: dict[str, Any], state: str) -> float:
+        """
+        Choose the timestamp used when evaluating whether a job is old enough
+        for a cleanup operation.
+
+        Args:
+            job: The stored job payload.
+            state: The cleanup bucket requested by the caller.
+
+        Returns:
+            The timestamp that should be compared against the cleanup grace
+            deadline.
+        """
+        if state == "completed":
+            return float(job.get("completed_at") or job.get("updated_at") or job.get("created_at") or 0.0)
+        if state in {"failed", "expired"}:
+            return float(job.get("failed_at") or job.get("updated_at") or job.get("created_at") or 0.0)
+        if state == "delayed":
+            return float(job.get("delay_until") or job.get("updated_at") or job.get("created_at") or 0.0)
+        return float(job.get("updated_at") or job.get("created_at") or 0.0)

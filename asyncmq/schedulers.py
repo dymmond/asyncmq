@@ -6,6 +6,7 @@ from croniter import croniter
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend, RepeatableInfo
+from asyncmq.core.locks import release_backend_lock, try_acquire_backend_lock
 from asyncmq.core.repeatables import build_repeatable_job, normalize_repeatable_job_def
 
 
@@ -107,7 +108,11 @@ async def repeatable_scheduler(
                     # Update the last run time to the current time
                     job_def["_last_run"] = now
 
-        backend_next_run = await _process_backend_repeatables(queue_name, backend)
+        backend_next_run = await _process_backend_repeatables_with_lock(
+            queue_name,
+            backend,
+            lock_ttl=max(5, int(check_interval * 4)),
+        )
 
         # Calculate the time until the next event (either check_interval or next cron run)
         # This helps ensure the scheduler doesn't miss nearby cron schedules
@@ -183,6 +188,44 @@ async def _process_backend_repeatables(queue_name: str, backend: BaseBackend) ->
     if not next_runs:
         return None
     return min(next_runs)
+
+
+async def _process_backend_repeatables_with_lock(
+    queue_name: str,
+    backend: BaseBackend,
+    *,
+    lock_ttl: int,
+) -> float | None:
+    """
+    Process backend repeatables under a queue-scoped scheduler ownership lock.
+
+    Multiple workers may start a repeatable scheduler for the same queue. This
+    helper ensures only one scheduler instance advances backend-managed
+    repeatables at a time when the backend can coordinate through its lock
+    implementation. Backends limited to in-process locks still gain protection
+    against duplicate scheduling within a single host process.
+
+    Args:
+        queue_name: The queue whose backend repeatables should be processed.
+        backend: The backend holding durable repeatable definitions.
+        lock_ttl: The lock lifetime in seconds.
+
+    Returns:
+        The earliest pending next-run timestamp, if any.
+    """
+    lock = await backend.create_lock(f"asyncmq:{queue_name}:repeatable-scheduler", ttl=lock_ttl)
+    acquired = await try_acquire_backend_lock(lock)
+    try:
+        if not acquired:
+            repeatables = await backend.list_repeatables(queue_name)
+            next_runs = [record.next_run for record in repeatables if not record.paused]
+            if not next_runs:
+                return None
+            return min(next_runs)
+        return await _process_backend_repeatables(queue_name, backend)
+    finally:
+        if acquired:
+            await release_backend_lock(lock)
 
 
 def compute_next_run(job_def: dict[str, Any]) -> Any:

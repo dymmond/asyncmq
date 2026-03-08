@@ -83,6 +83,7 @@ flowchart LR
 - [Quickstart](features/quickstart.md)
 - [Tasks](features/tasks.md)
 - [Queues](features/queues.md)
+- [Deduplication](features/deduplication.md)
 - [Workers](features/workers.md)
 - [CLI](features/cli.md)
 - [Dashboard](dashboard/dashboard.md)

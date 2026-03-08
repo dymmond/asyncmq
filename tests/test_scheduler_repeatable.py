@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -215,3 +216,25 @@ async def test_repeatable_scheduler_preserves_sandbox_setting():
         assert monkay.settings.sandbox_enabled is True
     finally:
         monkay.settings.sandbox_enabled = previous
+
+
+async def test_repeatable_scheduler_coordinates_backend_repeatables_with_lock():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=3600)
+    repeatable_id = next(iter(backend.repeatables["repeatable"]))
+    backend.repeatables["repeatable"][repeatable_id]["next_run"] = time.time() - 0.01
+
+    scheduler_one = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    scheduler_two = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    await asyncio.sleep(0.15)
+    scheduler_one.cancel()
+    scheduler_two.cancel()
+
+    for scheduler in (scheduler_one, scheduler_two):
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler
+
+    waiting = await queue.get_waiting(asc=True)
+    assert len(waiting) == 1
