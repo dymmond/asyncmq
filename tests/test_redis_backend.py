@@ -44,6 +44,23 @@ async def test_enqueue_and_dequeue(redis):
     assert result["id"] == job.id
 
 
+async def test_same_priority_jobs_preserve_fifo_order(redis):
+    backend = RedisBackend()
+    first = Job(task_id="redis.first", args=[], kwargs={}, priority=5)
+    second = Job(task_id="redis.second", args=[], kwargs={}, priority=5)
+
+    await backend.enqueue("test", first.to_dict())
+    await backend.enqueue("test", second.to_dict())
+
+    first_out = await backend.dequeue("test")
+    second_out = await backend.dequeue("test")
+
+    assert first_out is not None
+    assert second_out is not None
+    assert first_out["id"] == first.id
+    assert second_out["id"] == second.id
+
+
 async def test_job_state_tracking(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.state", args=[], kwargs={})

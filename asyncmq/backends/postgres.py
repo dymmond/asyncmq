@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, cast
 
+import anyio
 from asyncpg import Pool, Record
 
 from asyncmq import monkay
@@ -17,6 +18,8 @@ from asyncmq.backends.base import (
     WorkerInfo,
 )
 from asyncmq.core.enums import State
+from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.repeatables import normalize_repeatable_job_def
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
 
@@ -344,10 +347,106 @@ class PostgresBackend(BaseBackend):
             for r in rows
         ]
 
-    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Create or update a durable repeatable definition in PostgreSQL.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_ts = compute_next_run(clean_def)
+        next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                INSERT INTO {self._settings.postgres_repeatables_table_name}
+                  (queue_name, job_def, next_run, paused)
+                VALUES ($1, $2::jsonb, $3, FALSE)
+                ON CONFLICT (queue_name, job_def)
+                DO UPDATE SET next_run = EXCLUDED.next_run,
+                              paused = FALSE
+                """,
+                queue_name,
+                self._json_serializer.to_json(clean_def),
+                next_dt,
+            )
+        return next_ts
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return durable repeatables whose next execution time is due.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next-run time.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT job_def, next_run, paused
+                FROM {self._settings.postgres_repeatables_table_name}
+                WHERE queue_name = $1
+                  AND paused = FALSE
+                  AND next_run <= now()
+                ORDER BY next_run
+                """,
+                queue_name,
+            )
+        return [
+            RepeatableInfo(
+                job_def=r["job_def"],
+                next_run=r["next_run"].timestamp(),
+                paused=r["paused"],
+            )
+            for r in rows
+        ]
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Advance a durable repeatable definition after one occurrence is enqueued.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The newly persisted next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_ts = compute_next_run(clean_def)
+        next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                UPDATE {self._settings.postgres_repeatables_table_name}
+                SET next_run = $1,
+                    paused = FALSE
+                WHERE queue_name = $2
+                  AND job_def = $3::jsonb
+                """,
+                next_dt,
+                queue_name,
+                self._json_serializer.to_json(clean_def),
+            )
+        return next_ts
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
         """
         Remove a repeatable definition.
         """
+        if isinstance(job_def, str):
+            raise TypeError("Postgres repeatable removal expects the repeatable job definition, not an identifier.")
+        clean_def = normalize_repeatable_job_def(job_def)
         await self.connect()
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -355,16 +454,17 @@ class PostgresBackend(BaseBackend):
                 DELETE
                 FROM {self._settings.postgres_repeatables_table_name}
                 WHERE queue_name = $1
-                  AND job_def = $2
+                  AND job_def = $2::jsonb
                 """,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean_def),
             )
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
         Mark a repeatable as paused so the scheduler will skip it.
         """
+        clean_def = normalize_repeatable_job_def(job_def)
         await self.connect()
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -372,10 +472,10 @@ class PostgresBackend(BaseBackend):
                 UPDATE {self._settings.postgres_repeatables_table_name}
                 SET paused = TRUE
                 WHERE queue_name = $1
-                  AND job_def = $2
+                  AND job_def = $2::jsonb
                 """,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean_def),
             )
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
@@ -383,7 +483,7 @@ class PostgresBackend(BaseBackend):
         Un-pause a repeatable, recompute next_run, and return the new timestamp.
         """
         await self.connect()
-        clean = {k: v for k, v in job_def.items() if k != "paused"}
+        clean = normalize_repeatable_job_def(job_def)
         next_ts = compute_next_run(clean)
         next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
         async with self.pool.acquire() as conn:
@@ -393,11 +493,11 @@ class PostgresBackend(BaseBackend):
                 SET paused   = FALSE,
                     next_run = $1
                 WHERE queue_name = $2
-                  AND job_def = $3
+                  AND job_def = $3::jsonb
                 """,
                 next_dt,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean),
             )
         return next_ts
 
@@ -468,6 +568,17 @@ class PostgresBackend(BaseBackend):
             job["result"] = result
             # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
+
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist an updated canonical payload in PostgreSQL.
+
+        Args:
+            queue_name: The queue that owns the job.
+            payload: The full canonical payload to persist.
+        """
+        await self.connect()
+        await self.store.save(queue_name, str(payload["id"]), dict(payload))
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
@@ -882,6 +993,14 @@ class PostgresBackend(BaseBackend):
         Returns:
             A list of job payload dictionaries.
         """
+        normalized = normalize_job_type(state)
+        if normalized == "waiting-children":
+            jobs = await self.store.all_jobs(queue_name)
+            return [job for job in jobs if matches_job_type(job, normalized)]
+
+        if normalized in {"paused", "prioritized"}:
+            return []
+
         await self.connect()
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
@@ -891,9 +1010,10 @@ class PostgresBackend(BaseBackend):
                 WHERE queue_name = $1 AND status = $2
                 """,
                 queue_name,
-                state,
+                normalized,
             )
-            return [self._json_serializer.to_dict(row["data"]) for row in rows]
+            jobs = [self._json_serializer.to_dict(row["data"]) for row in rows]
+            return [job for job in jobs if matches_job_type(job, normalized)]
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -927,22 +1047,16 @@ class PostgresBackend(BaseBackend):
             True if a job with the given ID and queue name was found in the
             'failed' state and successfully updated to 'waiting', False otherwise.
         """
-        # Acquire a connection from the job store's pool.
-        # Note: This accesses the pool via the job store, which differs from
-        # other methods using `self.pool.acquire()`.
         await self.connect()
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                f"""
-                        UPDATE {self._settings.postgres_jobs_table_name}
-                        SET status = 'waiting'
-                        WHERE job_id = $1
-                          AND queue_name = $2
-                          AND status = 'failed'
-                        """,
-                job_id,
-                queue_name,
-            )
+        job = await self.store.load(queue_name, job_id)
+        if job is None:
+            return False
+
+        job["status"] = State.WAITING
+        job.pop("result", None)
+        job.pop("failed_at", None)
+        job["updated_at"] = time.time()
+        await self.store.save(queue_name, job_id, job)
         return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
@@ -1185,24 +1299,48 @@ class PostgresLock:
         self.pool: Pool = pool
         self.key: str = key
         self.ttl: int = ttl  # Note: TTL is not directly enforced by pg_advisory_lock
+        self._conn: asyncpg.Connection | None = None
+
+    async def try_acquire(self) -> bool:
+        """
+        Attempt to acquire the advisory lock without blocking.
+
+        PostgreSQL advisory locks are session-scoped, so the connection that
+        acquires the lock must stay pinned to this lock object until release.
+
+        Returns:
+            ``True`` if the lock was acquired, otherwise ``False``.
+        """
+        if self._conn is not None:
+            return True
+
+        conn = await self.pool.acquire()
+        try:
+            result: bool | None = await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", self.key)
+            if result:
+                self._conn = conn
+                return True
+        except Exception:
+            await self.pool.release(conn)
+            raise
+
+        await self.pool.release(conn)
+        return False
 
     async def acquire(self) -> bool:
         """
-        Asynchronously attempts to acquire the PostgreSQL advisory lock.
-
-        Uses `pg_try_advisory_lock` which attempts to acquire the lock without
-        blocking.
+        Asynchronously acquires the PostgreSQL advisory lock.
 
         Returns:
             True if the lock was successfully acquired, False otherwise.
         """
-        # Acquire a connection from the pool.
-        async with self.pool.acquire() as conn:
-            # Attempt to acquire the advisory lock using the hash of the key.
-            result: bool | None = await conn.fetchval("SELECT pg_try_advisory_lock(hashtext($1))", self.key)
-            # pg_try_advisory_lock returns boolean True/False.
-            # fetchval might return None if query fails, though unlikely here.
-            return result if result is not None else False
+        if self._conn is not None:
+            return True
+
+        while True:
+            if await self.try_acquire():
+                return True
+            await anyio.sleep(0.05)
 
     async def release(self) -> None:
         """
@@ -1214,9 +1352,12 @@ class PostgresLock:
         Args:
             None.
         """
-        # Acquire a connection from the pool.
-        async with self.pool.acquire() as conn:
-            # Release the advisory lock using the hash of the key.
-            # The return value of pg_advisory_unlock indicates success/failure,
-            # but the original code doesn't check it, so we just execute.
+        if self._conn is None:
+            return
+
+        conn = self._conn
+        self._conn = None
+        try:
             await conn.execute("SELECT pg_advisory_unlock(hashtext($1))", self.key)
+        finally:
+            await self.pool.release(conn)

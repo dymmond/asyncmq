@@ -11,6 +11,8 @@ from asyncmq.backends.base import (
 )
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 
 _JobKey = tuple[str, str]
@@ -37,7 +39,7 @@ class InMemoryBackend(BaseBackend):
         self.dlqs: dict[str, list[dict[str, Any]]] = {}
         # Delayed jobs: queue_name -> list of (run_at_ts, payload)
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
-        # Repeatable definitions: queue_name -> { raw_json_def -> { job_def, next_run, paused } }
+        # Repeatable definitions: queue_name -> { repeatable_id -> { job_def, next_run, paused } }
         self.repeatables: dict[str, dict[str, dict[str, Any]]] = {}
         # Cancelled jobs: queue_name -> set of job_ids
         self.cancelled: dict[str, set[str]] = {}
@@ -46,6 +48,7 @@ class InMemoryBackend(BaseBackend):
         self.job_states: dict[_JobKey, str] = {}
         self.job_results: dict[_JobKey, Any] = {}
         self.job_progress: dict[_JobKey, float] = {}
+        self.job_payloads: dict[_JobKey, dict[str, Any]] = {}
 
         # Dependency tracking (existing features)
         self.deps_pending: dict[_JobKey, set[str]] = {}
@@ -60,6 +63,7 @@ class InMemoryBackend(BaseBackend):
 
         # Workers
         self._worker_registry: dict[str, WorkerInfo] = {}
+        self._locks: dict[str, anyio.Lock] = {}
 
         # anyio Lock for thread-safe in-process synchronization
         self.lock = anyio.Lock()
@@ -93,6 +97,7 @@ class InMemoryBackend(BaseBackend):
             queue.sort(key=lambda job: job.get("priority", 5))
             # Update the job's state to WAITING.
             self.job_states[(queue_name, payload["id"])] = State.WAITING
+            self.job_payloads[(queue_name, payload["id"])] = {**payload, "status": State.WAITING}
             return cast(str, payload["id"])
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
@@ -150,6 +155,13 @@ class InMemoryBackend(BaseBackend):
             if target_status not in {State.FAILED, State.EXPIRED}:
                 target_status = State.FAILED
             self.job_states[(queue_name, payload["id"])] = target_status
+            now = time.time()
+            self.job_payloads[(queue_name, payload["id"])] = {
+                **payload,
+                "status": target_status,
+                "updated_at": now,
+                "failed_at": now,
+            }
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -186,6 +198,12 @@ class InMemoryBackend(BaseBackend):
             delayed_list.append((run_at, payload))
             # Update the job's state to DELAYED.
             self.job_states[(queue_name, payload["id"])] = State.DELAYED
+            self.job_payloads[(queue_name, payload["id"])] = {
+                **payload,
+                "status": State.DELAYED,
+                "delay_until": run_at,
+                "updated_at": time.time(),
+            }
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -242,40 +260,104 @@ class InMemoryBackend(BaseBackend):
         """
         async with self.lock:
             out: list[RepeatableInfo] = []
-            for raw, rec in self.repeatables.get(queue_name, {}).items():
-                jd = self._json_serializer.to_dict(raw)
-                out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
+            for rec in self.repeatables.get(queue_name, {}).values():
+                out.append(RepeatableInfo(job_def=dict(rec["job_def"]), next_run=rec["next_run"], paused=rec["paused"]))
             return sorted(out, key=lambda x: x.next_run)
 
-    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Register or update a backend-managed repeatable definition in memory.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        async with self.lock:
+            self.repeatables.setdefault(queue_name, {})[repeatable_id] = {
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+            }
+        return next_run
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return repeatables that are ready to produce a new job occurrence.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next run time.
+        """
+        async with self.lock:
+            now = time.time()
+            due = [
+                RepeatableInfo(job_def=dict(rec["job_def"]), next_run=rec["next_run"], paused=rec["paused"])
+                for rec in self.repeatables.get(queue_name, {}).values()
+                if not rec["paused"] and rec["next_run"] <= now
+            ]
+        return sorted(due, key=lambda item: item.next_run)
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Recompute and persist the next run time for a repeatable definition.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The new next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        async with self.lock:
+            record = self.repeatables.setdefault(queue_name, {}).setdefault(
+                repeatable_id,
+                {"job_def": clean_def, "paused": False},
+            )
+            record["job_def"] = clean_def
+            record["next_run"] = next_run
+            record["paused"] = False
+        return next_run
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
         """
         Remove a repeatable definition.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            self.repeatables.get(queue_name, {}).pop(raw, None)
+            repeatable_id = job_def if isinstance(job_def, str) else repeatable_identity(job_def)
+            self.repeatables.get(queue_name, {}).pop(repeatable_id, None)
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
         Mark the given repeatable paused so scheduler skips it.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            if raw in self.repeatables.get(queue_name, {}):
-                self.repeatables[queue_name][raw]["paused"] = True
+            repeatable_id = repeatable_identity(job_def)
+            if repeatable_id in self.repeatables.get(queue_name, {}):
+                self.repeatables[queue_name][repeatable_id]["paused"] = True
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Un-pause the repeatable and return its newly computed next_run timestamp.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            rec = self.repeatables.get(queue_name, {}).pop(raw, None)
+            repeatable_id = repeatable_identity(job_def)
+            rec = self.repeatables.get(queue_name, {}).get(repeatable_id)
             if rec is None:
                 raise KeyError(f"Repeatable job not found: {job_def}")
-            clean_def = {k: v for k, v in rec["job_def"].items() if k != "paused"}
+            clean_def = normalize_repeatable_job_def(rec["job_def"])
             next_run = compute_next_run(clean_def)
-            self.repeatables.setdefault(queue_name, {})[self._json_serializer.to_json(clean_def)] = {
+            self.repeatables.setdefault(queue_name, {})[repeatable_id] = {
                 "job_def": clean_def,
                 "next_run": next_run,
                 "paused": False,
@@ -322,6 +404,15 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             # Update the state for the job key.
             self.job_states[(queue_name, job_id)] = state
+            payload = self.job_payloads.get((queue_name, job_id))
+            if payload is not None:
+                now = time.time()
+                payload["status"] = state
+                payload["updated_at"] = now
+                if state == State.COMPLETED:
+                    payload["completed_at"] = now
+                elif state in {State.FAILED, State.EXPIRED}:
+                    payload["failed_at"] = now
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
         """
@@ -335,6 +426,48 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             # Store the result for the job key.
             self.job_results[(queue_name, job_id)] = result
+            payload = self.job_payloads.get((queue_name, job_id))
+            if payload is not None:
+                payload["result"] = result
+                payload["updated_at"] = time.time()
+
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist an updated canonical payload inside the in-memory backend.
+
+        This updates every in-memory structure that may still hold a copy of
+        the payload so queue inspection and future dequeues observe the same
+        deduplication metadata and timestamps.
+
+        Args:
+            queue_name: The queue that owns the job.
+            payload: The full canonical payload to persist.
+        """
+        job_id = str(payload["id"])
+        stored = dict(payload)
+        async with self.lock:
+            self.job_payloads[(queue_name, job_id)] = stored
+            status = stored.get("status")
+            if isinstance(status, str):
+                self.job_states[(queue_name, job_id)] = status
+
+            for index, job in enumerate(self.queues.get(queue_name, [])):
+                if job.get("id") == job_id:
+                    self.queues[queue_name][index] = dict(stored)
+
+            delayed_jobs = self.delayed.get(queue_name, [])
+            for index, (run_at, job) in enumerate(delayed_jobs):
+                if job.get("id") == job_id:
+                    delayed_jobs[index] = (run_at, dict(stored))
+
+            dlq_jobs = self.dlqs.get(queue_name, [])
+            for index, job in enumerate(dlq_jobs):
+                if job.get("id") == job_id:
+                    dlq_jobs[index] = dict(stored)
+
+            active = self.active_jobs.get((queue_name, job_id))
+            if active is not None:
+                self.active_jobs[(queue_name, job_id)] = dict(stored)
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
@@ -389,6 +522,10 @@ class InMemoryBackend(BaseBackend):
 
         # Store the set of parent IDs the child is waiting on.
         self.deps_pending[child_pend_key] = parent_deps
+        payload = self.job_payloads.get(child_pend_key)
+        if payload is not None:
+            payload["depends_on"] = sorted(parent_deps)
+            payload["updated_at"] = time.time()
         # For each parent ID, register the child as a dependent.
         for parent_id in parent_deps:
             parent_children_key: _JobKey = (queue_name, parent_id)
@@ -419,14 +556,21 @@ class InMemoryBackend(BaseBackend):
             if child_pend_key in self.deps_pending:
                 # Remove the completed parent's ID from the child's pending set.
                 self.deps_pending[child_pend_key].discard(parent_id)
+                payload = self.job_payloads.get(child_pend_key)
+                if payload is not None:
+                    if self.deps_pending[child_pend_key]:
+                        payload["depends_on"] = sorted(self.deps_pending[child_pend_key])
+                    else:
+                        payload.pop("depends_on", None)
+                    payload["updated_at"] = time.time()
                 # Check if the child job now has no pending dependencies.
                 if not self.deps_pending[child_pend_key]:
                     # If all dependencies are met, fetch the job data.
-                    raw: dict[str, Any] | None = self._fetch_job_data(queue_name, child_id)
+                    raw: dict[str, Any] | None = self.job_payloads.get((queue_name, child_id))
                     # If the job data was found.
                     if raw:
                         # Enqueue the child job.
-                        await self.enqueue(queue_name, raw)
+                        await self.enqueue(queue_name, {**raw, "depends_on": []})
                         # Emit an event indicating the job is now ready.
                         await event_emitter.emit("job:ready", {"id": child_id})
                     # Delete the child's empty pending dependencies entry.
@@ -478,6 +622,10 @@ class InMemoryBackend(BaseBackend):
         """
         # Store the progress for the job key.
         self.job_progress[(queue_name, job_id)] = progress
+        payload = self.job_payloads.get((queue_name, job_id))
+        if payload is not None:
+            payload["progress"] = progress
+            payload["updated_at"] = time.time()
 
     async def bulk_enqueue(self, queue_name: str, jobs: list[dict[str, Any]]) -> None:
         """
@@ -559,8 +707,11 @@ class InMemoryBackend(BaseBackend):
         Returns:
             An anyio.Lock instance.
         """
-        # Return a standard anyio.Lock instance.
-        return anyio.Lock()
+        # Reuse a keyed lock so concurrent producers/schedulers in this process
+        # coordinate on the same critical section.
+        if key not in self._locks:
+            self._locks[key] = anyio.Lock()
+        return self._locks[key]
 
     async def atomic_add_flow(
         self,
@@ -602,6 +753,9 @@ class InMemoryBackend(BaseBackend):
         Returns:
             The job data dictionary if found, otherwise None.
         """
+        payload = self.job_payloads.get((queue_name, job_id))
+        if payload is not None:
+            return dict(payload)
         # Iterate through jobs in the waiting queue.
         for job in self.queues.get(queue_name, []):
             # Check if the job ID matches.
@@ -655,15 +809,34 @@ class InMemoryBackend(BaseBackend):
             A list of job dictionaries.
         """
         async with self.lock:
-            match state:
-                case "waiting":
-                    return list(self.queues.get(queue_name, []))
-                case "delayed":
-                    return [job for _, job in self.delayed.get(queue_name, [])]
-                case "failed":
-                    return list(self.dlqs.get(queue_name, []))
-                case _:
-                    return []  # Unsupported state
+            normalized = normalize_job_type(state)
+
+            if normalized == "waiting":
+                return [
+                    dict(self.job_payloads.get((queue_name, job["id"]), job))
+                    for job in self.queues.get(queue_name, [])
+                    if matches_job_type(self.job_payloads.get((queue_name, job["id"]), job), normalized)
+                ]
+
+            if normalized == "delayed":
+                return [
+                    dict(self.job_payloads.get((queue_name, job["id"]), job))
+                    for _, job in self.delayed.get(queue_name, [])
+                    if matches_job_type(self.job_payloads.get((queue_name, job["id"]), job), normalized)
+                ]
+
+            if normalized == "failed":
+                return [
+                    dict(self.job_payloads.get((queue_name, job["id"]), job))
+                    for job in self.dlqs.get(queue_name, [])
+                    if matches_job_type(self.job_payloads.get((queue_name, job["id"]), job), normalized)
+                ]
+
+            return [
+                dict(payload)
+                for (job_queue, _), payload in self.job_payloads.items()
+                if job_queue == queue_name and matches_job_type(payload, normalized)
+            ]
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -692,6 +865,11 @@ class InMemoryBackend(BaseBackend):
                     self.queues.setdefault(queue_name, []).append(job)
                     # Update the job's state to WAITING.
                     self.job_states[(queue_name, job_id)] = State.WAITING
+                    self.job_payloads[(queue_name, job_id)] = {
+                        **job,
+                        "status": State.WAITING,
+                        "updated_at": time.time(),
+                    }
                     return True  # Indicate successful retry.
             return False  # Indicate job was not found in DLQ.
 
@@ -736,6 +914,7 @@ class InMemoryBackend(BaseBackend):
                 self.job_progress.pop(key, None)
                 self.active_jobs.pop(key, None)
                 self.heartbeats.pop(key, None)
+                self.job_payloads.pop(key, None)
                 return True
 
             return False
@@ -758,6 +937,10 @@ class InMemoryBackend(BaseBackend):
             # Store the heartbeat timestamp. The key is a tuple combining
             # queue name and job ID for uniqueness.
             self.heartbeats[(queue_name, job_id)] = timestamp
+            payload = self.job_payloads.get((queue_name, job_id))
+            if payload is not None:
+                payload["heartbeat"] = timestamp
+                payload["updated_at"] = time.time()
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
@@ -824,6 +1007,11 @@ class InMemoryBackend(BaseBackend):
             # list as its value before appending the job_data.
             self.queues.setdefault(queue_name, []).append(job_data)
             self.job_states[(queue_name, job_data["id"])] = State.WAITING
+            self.job_payloads[(queue_name, job_data["id"])] = {
+                **job_data,
+                "status": State.WAITING,
+                "updated_at": time.time(),
+            }
 
             # Remove the heartbeat entry for this specific job from the heartbeats
             # dictionary. This stops tracking its heartbeat as it's now re-enqueued.

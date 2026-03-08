@@ -1,14 +1,28 @@
 import asyncio
+import time
 
 import pytest
 
+from asyncmq import monkay
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
+from asyncmq.queues import Queue
+from asyncmq.runners import run_worker
 from asyncmq.schedulers import repeatable_scheduler
 from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def disable_sandbox_for_repeatable_tests():
+    previous = monkay.settings.sandbox_enabled
+    monkay.settings.sandbox_enabled = False
+    try:
+        yield
+    finally:
+        monkay.settings.sandbox_enabled = previous
 
 
 # Helper to fetch task IDs dynamically
@@ -145,3 +159,82 @@ async def test_repeatable_job_interval_variation():
     while await backend.dequeue("repeatable"):
         count += 1
     assert count >= 2
+
+
+@task(queue="repeatable")
+async def durable_ping():
+    durable_ping.counter += 1
+    return "durable-pong"
+
+
+durable_ping.counter = 0
+
+
+async def test_repeatable_scheduler_picks_up_backend_registered_repeatables():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+    durable_ping.counter = 0
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=0.25)
+
+    scheduler = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    worker = asyncio.create_task(handle_all_jobs(backend, "repeatable"))
+    await asyncio.sleep(0.9)
+    scheduler.cancel()
+    worker.cancel()
+
+    assert durable_ping.counter >= 2
+
+
+async def test_run_worker_processes_backend_repeatables_without_local_repeatables():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+    durable_ping.counter = 0
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=0.2)
+
+    worker = asyncio.create_task(
+        run_worker("repeatable", backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+    )
+    await asyncio.sleep(0.75)
+    worker.cancel()
+
+    assert durable_ping.counter >= 2
+
+
+async def test_repeatable_scheduler_preserves_sandbox_setting():
+    backend = InMemoryBackend()
+    previous = monkay.settings.sandbox_enabled
+    monkay.settings.sandbox_enabled = True
+    try:
+        scheduler = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+        await asyncio.sleep(0.12)
+        scheduler.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler
+
+        assert monkay.settings.sandbox_enabled is True
+    finally:
+        monkay.settings.sandbox_enabled = previous
+
+
+async def test_repeatable_scheduler_coordinates_backend_repeatables_with_lock():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=3600)
+    repeatable_id = next(iter(backend.repeatables["repeatable"]))
+    backend.repeatables["repeatable"][repeatable_id]["next_run"] = time.time() - 0.01
+
+    scheduler_one = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    scheduler_two = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    await asyncio.sleep(0.15)
+    scheduler_one.cancel()
+    scheduler_two.cancel()
+
+    for scheduler in (scheduler_one, scheduler_two):
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler
+
+    waiting = await queue.get_waiting(asc=True)
+    assert len(waiting) == 1

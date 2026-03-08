@@ -83,9 +83,15 @@ flowchart LR
 - [Quickstart](features/quickstart.md)
 - [Tasks](features/tasks.md)
 - [Queues](features/queues.md)
+- [Deduplication](features/deduplication.md)
+- [Jobs](features/jobs.md)
 - [Workers](features/workers.md)
+- [Schedulers](features/schedulers.md)
+- [Flows](features/flows.md)
 - [CLI](features/cli.md)
 - [Dashboard](dashboard/dashboard.md)
+- [Production Operations](learn/production-operations.md)
+- [BullMQ Migration](reference/bullmq-migration.md)
 - [Troubleshooting](troubleshooting.md)
 
 ## Minimal Quickstart (In-Memory)
@@ -140,4 +146,5 @@ asyncmq worker start emails --concurrency 1
 
 1. Configure your target backend in [Settings](features/settings.md).
 2. Add failure handling and retries with [Jobs](features/jobs.md) and [Workers](features/workers.md).
-3. Add operations visibility with the [Dashboard](dashboard/dashboard.md) and [CLI reference](reference/cli-reference.md).
+3. Add scheduling and orchestration with [Schedulers](features/schedulers.md) and [Flows](features/flows.md).
+4. Add operations visibility with the [Dashboard](dashboard/dashboard.md), [CLI reference](reference/cli-reference.md), and [Production Operations](learn/production-operations.md).

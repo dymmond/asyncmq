@@ -119,3 +119,19 @@ class RabbitMQJobStore(BaseJobStore):
             metadata of a job matching the specified status in the queue.
         """
         return await self._store.jobs_by_status(queue_name, status)
+
+    async def create_lock(self, key: str, ttl: int) -> Any:
+        """
+        Delegate distributed lock creation to the underlying metadata store.
+
+        Args:
+            key: The logical lock identifier.
+            ttl: The lock timeout in seconds.
+
+        Returns:
+            The backend-native lock object supplied by the underlying store.
+        """
+        create_lock = getattr(self._store, "create_lock", None)
+        if not callable(create_lock):
+            raise NotImplementedError("The configured RabbitMQ job store does not support distributed locks.")
+        return await create_lock(key, ttl)

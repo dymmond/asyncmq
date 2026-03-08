@@ -8,9 +8,14 @@ try:
 except ImportError:
     raise ImportError("Please install aio_pika to use this backend.") from None
 
+import anyio
+
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
+from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.base import BaseJobStore
 from asyncmq.stores.rabbitmq import RabbitMQJobStore
 
@@ -60,6 +65,7 @@ class RabbitMQBackend(BaseBackend):
         # Track unacked consumed messages so ack() can acknowledge after processing.
         self._in_flight: dict[tuple[str, str], aio_pika.abc.AbstractIncomingMessage] = {}
         self._in_flight_lock = asyncio.Lock()
+        self._locks: dict[str, anyio.Lock] = {}
 
     async def _connect(self) -> None:
         """
@@ -90,6 +96,24 @@ class RabbitMQBackend(BaseBackend):
 
     async def _store_entry(self, queue_name: str, job_id: str) -> dict[str, Any]:
         return await self._state.load(queue_name, job_id) or {"id": job_id}
+
+    def _normalize_stored_job(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """
+        Convert a RabbitMQ job-store entry into the canonical public job shape.
+
+        RabbitMQ stores payload and metadata separately. Queue inspection APIs
+        expect a single dictionary, so this helper merges both views without
+        discarding backend-maintained status, result, or dependency metadata.
+        """
+        payload = entry.get("payload")
+        merged = dict(payload) if isinstance(payload, dict) else {}
+        if entry.get("id") is not None:
+            merged.setdefault("id", entry["id"])
+        for key, value in entry.items():
+            if key == "payload":
+                continue
+            merged[key] = value
+        return merged
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -329,22 +353,56 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             The unique identifier of the repeatable job.
         """
-        rid = repeat_id or str(payload["id"])
-        next_run = time.time() + interval  # Calculate the next run time.
-        # Save metadata for the repeatable job.
+        rid = repeat_id or str(payload.get("id") or repeatable_identity({"task_id": payload.get("task_id")}))
+        job_def = {
+            "task_id": payload.get("task_id") or payload.get("task"),
+            "task": payload.get("task") or payload.get("task_id"),
+            "args": payload.get("args", []),
+            "kwargs": payload.get("kwargs", {}),
+            "retries": payload.get("retries", 0),
+            "ttl": payload.get("ttl"),
+            "priority": payload.get("priority", 5),
+            "every": interval,
+        }
         await self._state.save(
             queue_name,
             rid,
             {
                 "id": rid,
-                "payload": payload,
-                "repeatable": True,
-                "interval": interval,
-                "next_run": next_run,
+                "job_def": normalize_repeatable_job_def(job_def),
+                "next_run": time.time() + interval,
+                "paused": False,
                 "status": "repeatable",
             },
         )
         return rid
+
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Persist a backend-managed repeatable definition in the RabbitMQ metadata store.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        await self._state.save(
+            queue_name,
+            repeatable_id,
+            {
+                "id": repeatable_id,
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+                "status": "repeatable",
+            },
+        )
+        return next_run
 
     async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
         """
@@ -356,16 +414,72 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             A list of RepeatableInfo objects, each representing a repeatable job.
         """
-        # Retrieve all jobs with 'repeatable' status for the given queue
-        # and convert them into RepeatableInfo objects.
-        return [
-            RepeatableInfo(
-                job_def=j["payload"],
-                next_run=j["next_run"],
-                paused=j.get("paused", False),
+        repeatables = []
+        for entry in await self._state.jobs_by_status(queue_name, "repeatable"):
+            job_def = dict(entry.get("job_def") or {})
+            if not job_def and entry.get("payload"):
+                payload = cast(dict[str, Any], entry["payload"])
+                job_def = {
+                    "task_id": payload.get("task_id") or payload.get("task"),
+                    "task": payload.get("task") or payload.get("task_id"),
+                    "args": payload.get("args", []),
+                    "kwargs": payload.get("kwargs", {}),
+                    "retries": payload.get("retries", 0),
+                    "ttl": payload.get("ttl"),
+                    "priority": payload.get("priority", 5),
+                    "every": entry.get("interval"),
+                }
+            repeatables.append(
+                RepeatableInfo(
+                    job_def=normalize_repeatable_job_def(job_def),
+                    next_run=float(entry["next_run"]),
+                    paused=bool(entry.get("paused", False)),
+                )
             )
-            for j in await self._state.jobs_by_status(queue_name, "repeatable")
-        ]
+        return sorted(repeatables, key=lambda item: item.next_run)
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return backend-managed repeatables whose next run is due.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next-run time.
+        """
+        rows = await self.list_repeatables(queue_name)
+        now = time.time()
+        return [row for row in rows if not row.paused and row.next_run <= now]
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Move a durable repeatable definition to its next scheduled run.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The newly persisted next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        current = await self._state.load(queue_name, repeatable_id) or {}
+        next_run = compute_next_run(clean_def)
+        await self._state.save(
+            queue_name,
+            repeatable_id,
+            {
+                **current,
+                "id": repeatable_id,
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+                "status": "repeatable",
+            },
+        )
+        return next_run
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
@@ -378,14 +492,14 @@ class RabbitMQBackend(BaseBackend):
             job_def: A dictionary representing the repeatable job definition,
                 including its 'id'.
         """
-        # Load the existing entry for the repeatable job.
-        entry = await self._state.load(queue_name, job_def["id"])
+        repeatable_id = cast(str, job_def.get("id") or repeatable_identity(job_def))
+        entry = await self._state.load(queue_name, repeatable_id)
         if entry is None:
             return
         # Set the 'paused' flag to True.
         entry["paused"] = True
         # Save the updated entry back to the job store.
-        await self._state.save(queue_name, job_def["id"], entry)
+        await self._state.save(queue_name, repeatable_id, entry)
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
         """
@@ -402,20 +516,20 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             The newly calculated 'next_run' timestamp for the resumed job.
         """
-        # Load the existing entry for the repeatable job.
-        entry = await self._state.load(queue_name, job_def["id"])
+        repeatable_id = cast(str, job_def.get("id") or repeatable_identity(job_def))
+        entry = await self._state.load(queue_name, repeatable_id)
         if entry is None:
             return 0.0
-        # Remove the 'paused' flag if it exists.
-        entry.pop("paused", None)
-        # Recalculate the next run time based on the job's interval.
-        next_run = time.time() + entry["interval"]
+        clean_def = normalize_repeatable_job_def(entry.get("job_def") or job_def)
+        next_run = compute_next_run(clean_def)
         entry["next_run"] = next_run
+        entry["job_def"] = clean_def
+        entry["paused"] = False
         # Save the updated entry back to the job store.
-        await self._state.save(queue_name, job_def["id"], entry)
+        await self._state.save(queue_name, repeatable_id, entry)
         return next_run
 
-    async def remove_repeatable(self, queue_name: str, repeat_id: str) -> None:
+    async def remove_repeatable(self, queue_name: str, repeat_id: dict[str, Any] | str) -> None:
         """
         Removes a specific repeatable job from the job store.
 
@@ -424,7 +538,8 @@ class RabbitMQBackend(BaseBackend):
             repeat_id: The unique identifier of the repeatable job to remove.
         """
         # Delete the specified repeatable job from the job store.
-        await self._state.delete(queue_name, repeat_id)
+        repeatable_id = repeat_id if isinstance(repeat_id, str) else repeatable_identity(repeat_id)
+        await self._state.delete(queue_name, repeatable_id)
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -460,6 +575,23 @@ class RabbitMQBackend(BaseBackend):
         entry = await self._store_entry(queue_name, job_id)
         entry["result"] = result  # Store the job result.
         # Save the updated entry back to the job store.
+        await self._state.save(queue_name, job_id, entry)
+
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist an updated canonical payload in the RabbitMQ metadata store.
+
+        Args:
+            queue_name: The queue that owns the job.
+            payload: The full canonical payload to persist.
+        """
+        job_id = str(payload["id"])
+        entry = await self._store_entry(queue_name, job_id)
+        entry["id"] = job_id
+        entry["payload"] = dict(payload)
+        entry["status"] = payload.get("status", entry.get("status"))
+        if "result" in payload:
+            entry["result"] = payload.get("result")
         await self._state.save(queue_name, job_id, entry)
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
@@ -889,8 +1021,15 @@ class RabbitMQBackend(BaseBackend):
             An object representing the acquired lock. The specific type depends
             on the underlying job store's implementation.
         """
-        # Delegate the lock creation to the job store.
-        return await self._state.create_lock(key, ttl)
+        create_lock = getattr(self._state, "create_lock", None)
+        if callable(create_lock):
+            return await cast(Any, create_lock)(key, ttl)
+
+        # Fall back to an in-process keyed lock when the metadata store does
+        # not expose a distributed implementation.
+        if key not in self._locks:
+            self._locks[key] = anyio.Lock()
+        return self._locks[key]
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
@@ -982,8 +1121,16 @@ class RabbitMQBackend(BaseBackend):
             A list of dictionaries, where each dictionary represents a job
             matching the specified status.
         """
-        # Retrieve jobs filtered by the given status from the job store.
-        return await self._state.jobs_by_status(queue_name, state)
+        normalized = normalize_job_type(state)
+        if normalized == "waiting-children":
+            jobs = [self._normalize_stored_job(job) for job in await self._state.all_jobs(queue_name)]
+            return [job for job in jobs if matches_job_type(job, normalized)]
+
+        if normalized in {"paused", "prioritized"}:
+            return []
+
+        jobs = [self._normalize_stored_job(job) for job in await self._state.jobs_by_status(queue_name, normalized)]
+        return [job for job in jobs if matches_job_type(job, normalized)]
 
     async def list_queues(self) -> list[str]:
         """

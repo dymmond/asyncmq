@@ -104,12 +104,11 @@ async def run_worker(
                       rate limiter that never acquires is used).
         rate_interval: The time window in seconds over which the `rate_limit`
                        applies. Defaults to 1.0 second.
-        repeatables: An optional list of job definitions (dictionaries) that
-                     should be scheduled periodically. If provided, a separate
-                     scheduler task is started to enqueue these jobs based on
-                     their configured `repeat_every` interval. The specific
-                     structure of the dictionaries is expected by the
-                     `repeatable_scheduler`. Defaults to None.
+        repeatables: An optional list of in-process repeatable definitions
+                     (dictionaries) that should be scheduled periodically.
+                     These are scheduled alongside any backend-managed
+                     repeatables registered via the queue/backend API.
+                     Defaults to None.
         scan_interval: How often to poll for delayed and repeatable jobs.
                        If None, uses monkay.settings.scan_interval.
     """
@@ -164,19 +163,13 @@ async def run_worker(
         # Build the list of core asynchronous tasks that constitute the worker.
         # 1. The main process_job task that pulls jobs from the queue and handles them.
         # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
+        from asyncmq.schedulers import repeatable_scheduler
+
         tasks: list[Any] = [
             process_job(queue_name, limiter, backend=backend, rate_limiter=cast(Any, rate_limiter)),
             delayed_job_scanner(queue_name, backend, interval=scan_interval),
+            repeatable_scheduler(queue_name, repeatables or [], backend=backend, interval=scan_interval),
         ]
-
-        # If repeatable job definitions are provided, add the repeatable scheduler task.
-        if repeatables:
-            # Import the scheduler function here to avoid circular dependencies
-            # if this module is imported elsewhere first.
-            from asyncmq.schedulers import repeatable_scheduler
-
-            # Add the repeatable scheduler task to the list of tasks to run.
-            tasks.append(repeatable_scheduler(queue_name, repeatables, backend=backend, interval=scan_interval))
 
         # Use asyncio.gather to run all the created tasks concurrently.
         # This function will wait for all tasks to complete (which, for these

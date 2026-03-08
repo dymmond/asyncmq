@@ -72,9 +72,11 @@ class PostgresJobStore(BaseJobStore):
         Asynchronously saves or updates the data for a specific job in the
         PostgreSQL database.
 
-        Performs an INSERT operation. If a job with the same `job_id` already
-        exists (due to the UNIQUE constraint), it updates the `data`, `status`,
-        and `updated_at` fields using `ON CONFLICT (job_id) DO UPDATE`.
+        Performs an INSERT operation. If a job with the same
+        ``(queue_name, job_id)`` pair already exists, it updates the `data`,
+        `status`, and `updated_at` fields using
+        ``ON CONFLICT (queue_name, job_id) DO UPDATE``. This keeps job id
+        uniqueness scoped to a queue, matching BullMQ's producer model.
 
         Args:
             queue_name: The name of the queue the job belongs to.
@@ -90,7 +92,7 @@ class PostgresJobStore(BaseJobStore):
                 f"""
                 INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT (job_id)
+                ON CONFLICT (queue_name, job_id)
                 DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
                 """,
                 # Pass parameters to the query to prevent SQL injection.

@@ -51,12 +51,13 @@ async def install_or_drop_postgres_backend(
             CREATE TABLE {settings.postgres_jobs_table_name} (
                 id SERIAL PRIMARY KEY,
                 queue_name TEXT NOT NULL,
-                job_id TEXT NOT NULL UNIQUE,
+                job_id TEXT NOT NULL,
                 data JSONB NOT NULL,
                 status TEXT,
                 delay_until DOUBLE PRECISION,
                 created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                UNIQUE(queue_name, job_id)
             );
 
             -- repeatables table

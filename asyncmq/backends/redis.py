@@ -9,6 +9,8 @@ from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.redis_store import RedisJobStore
 
@@ -143,6 +145,44 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:waiting'
         return f"queue:{name}:waiting"
 
+    def _waiting_sequence_key(self, name: str) -> str:
+        """
+        Return the Redis counter key used to preserve FIFO order within a priority.
+
+        Redis sorted-set scores are IEEE 754 doubles. The previous implementation
+        combined a very large priority multiplier with ``time.time()``, which can
+        collapse multiple same-priority enqueues onto the same score once the
+        magnitude grows large enough. A per-queue monotonic counter keeps waiting
+        jobs stable and deterministic for dashboard inspection and worker dequeue
+        order.
+
+        Args:
+            name: The queue name.
+
+        Returns:
+            The Redis key for the waiting sequence counter.
+        """
+        return f"queue:{name}:waiting:seq"
+
+    async def _next_waiting_score(self, queue_name: str, priority: int) -> int:
+        """
+        Allocate a deterministic waiting score for a queued job.
+
+        The score packs the logical priority and a monotonic enqueue sequence
+        into an integer range that remains exactly representable by Redis' double
+        scores for practical queue sizes. Lower priority numbers still sort
+        first, and jobs with the same priority retain FIFO ordering.
+
+        Args:
+            queue_name: The target queue.
+            priority: The logical priority for the job.
+
+        Returns:
+            An integer score suitable for ``ZADD``.
+        """
+        sequence = await self.redis.incr(self._waiting_sequence_key(queue_name))
+        return priority * 1_000_000_000_000 + sequence
+
     def _active_key(self, name: str) -> str:
         """
         Generates the Redis key for the Hash holding jobs currently being processed.
@@ -219,10 +259,8 @@ class RedisBackend(BaseBackend):
                      an "id" and optionally a "priority" key.
         """
         # Get job priority from the payload, defaulting to 5 if not provided.
-        priority: int = payload.get("priority", 5)
-        # Calculate the score for the Sorted Set: lower priority + earlier time = higher priority.
-        # Using 1e16 ensures priority dominates over timestamp for sorting.
-        score: float = priority * 1e16 + time.time()
+        priority: int = int(payload.get("priority", 5))
+        score = await self._next_waiting_score(queue_name, priority)
         # Get the Redis key for the waiting queue's Sorted Set.
         key: str = self._waiting_key(queue_name)
         # Add the JSON-serialized payload to the Sorted Set with the calculated score.
@@ -232,6 +270,25 @@ class RedisBackend(BaseBackend):
         # Create a new dictionary to avoid modifying the original payload in place.
         await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
         return cast(str, payload["id"])
+
+    async def get_job(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
+        """
+        Retrieve a single stored job payload directly from Redis job storage.
+
+        Redis maintains a canonical per-job record alongside its queue indexes,
+        so point lookups should consult that store directly instead of walking
+        the inspection buckets. This avoids race-prone scans and mirrors the
+        O(1) lookup expectations BullMQ users have for admin APIs.
+
+        Args:
+            queue_name: The queue that owns the job.
+            job_id: The identifier of the job to retrieve.
+
+        Returns:
+            The stored payload if present, otherwise ``None``.
+        """
+        job = await self.job_store.load(queue_name, job_id)
+        return dict(job) if job is not None else None
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -463,6 +520,16 @@ class RedisBackend(BaseBackend):
             job["result"] = result  # Add or update the result field.
             await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
 
+    async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Persist an updated canonical payload in Redis without requeueing it.
+
+        Args:
+            queue_name: The queue that owns the job.
+            payload: The full canonical payload to persist.
+        """
+        await self.job_store.save(queue_name, str(payload["id"]), dict(payload))
+
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
         Asynchronously retrieves the current status string of a specific job
@@ -517,15 +584,25 @@ class RedisBackend(BaseBackend):
             next_run: The absolute timestamp (float, e.g., from time.time()) when the
                       next instance of this repeatable job should be enqueued.
         """
-        # Get the Redis key for the repeatable jobs Sorted Set.
-        key: str = self._repeat_key(queue_name)
-        # Serialize the job definition dictionary to a JSON string.
-        payload: str = self._json_serializer.to_json(job_def)
-        # Add the JSON-serialized definition to the repeatable jobs Sorted Set,
-        # scored by the next_run timestamp. ZADD updates the score if the member exists.
-        await self.redis.zadd(key, {payload: next_run})
+        await self._store_repeatable(queue_name, job_def, next_run=next_run, paused=bool(job_def.get("paused", False)))
 
-    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Create or update a durable repeatable definition in Redis.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_run = compute_next_run(clean_def)
+        await self._store_repeatable(queue_name, clean_def, next_run=next_run, paused=False)
+        return next_run
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
         """
         Asynchronously removes a repeatable job definition from Redis.
 
@@ -537,14 +614,9 @@ class RedisBackend(BaseBackend):
             queue_name: The name of the queue the repeatable job belongs to.
             job_def: The dictionary defining the repeatable job to remove.
         """
-        # Get the Redis key for the repeatable jobs Sorted Set.
-        key: str = self._repeat_key(queue_name)
-        # Serialize the job definition dictionary to a JSON string to match the member.
-        payload: str = self._json_serializer.to_json(job_def)
-        # Remove the specific member (the JSON string) from the Sorted Set.
-        await self.redis.zrem(key, payload)
+        await self._remove_repeatable_members(queue_name, job_def)
 
-    async def get_due_repeatables(self, queue_name: str) -> list[dict[str, Any]]:
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
         """
         Asynchronously retrieves repeatable job definitions from Redis that
         are now due for enqueuing.
@@ -562,14 +634,20 @@ class RedisBackend(BaseBackend):
             A list of dictionaries, where each dictionary is a repeatable job
             definition that is ready to be enqueued.
         """
-        # Get the Redis key for the repeatable jobs Sorted Set.
         key: str = self._repeat_key(queue_name)
-        # Get the current timestamp.
         now: float = time.time()
-        # Retrieve all members from the repeatable set with a score <= now.
-        raw: list[str] = await self.redis.zrangebyscore(key, 0, now)
-        # Deserialize the JSON strings back into dictionaries.
-        return [self._json_serializer.to_dict(item) for item in raw]
+        items: list[tuple[str, float]] = await self.redis.zrangebyscore(key, 0, now, withscores=True)
+        due: list[RepeatableInfo] = []
+        for raw, score in items:
+            job_def = self._json_serializer.to_dict(raw)
+            due.append(
+                RepeatableInfo(
+                    job_def=normalize_repeatable_job_def(job_def),
+                    next_run=score,
+                    paused=bool(job_def.get("paused", False)),
+                )
+            )
+        return [item for item in due if not item.paused]
 
     async def add_dependencies(self, queue_name: str, job_dict: dict[str, Any]) -> None:
         """
@@ -920,8 +998,6 @@ class RedisBackend(BaseBackend):
         """
         lists jobs in a given queue filtered by a specific state.
 
-        Supported states: waiting, delayed, failed.
-
         Args:
             queue_name: The name of the queue.
             state: The job state to filter by.
@@ -929,26 +1005,41 @@ class RedisBackend(BaseBackend):
         Returns:
             A list of job dictionaries.
         """
+        normalized = normalize_job_type(state)
+
+        if normalized == "waiting-children":
+            jobs = await self.job_store.all_jobs(queue_name)
+            return [job for job in jobs if matches_job_type(job, normalized)]
+
+        if normalized in {"paused", "prioritized"}:
+            return []
+
         key_map = {
             "waiting": self._waiting_key(queue_name),
             "delayed": self._delayed_key(queue_name),
             "failed": self._dlq_key(queue_name),  # DLQ is for failed jobs
         }
 
-        key = key_map.get(state)
-        if not key:
-            return []  # Unknown state or unsupported in Redis
+        key = key_map.get(normalized)
+        if key is not None:
+            raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
+            jobs: list[dict[str, Any]] = []
 
-        raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
-        jobs: list[dict[str, Any]] = []
+            for raw in raw_jobs:
+                try:
+                    payload = self._json_serializer.to_dict(raw)
+                except Exception:
+                    continue
 
-        for raw in raw_jobs:
-            try:
-                jobs.append(self._json_serializer.to_dict(raw))
-            except Exception:
-                continue
+                job_id = payload.get("id")
+                stored = await self.job_store.load(queue_name, str(job_id)) if job_id is not None else None
+                candidate = stored or payload
+                if matches_job_type(candidate, normalized):
+                    jobs.append(candidate)
+            return jobs
 
-        return jobs
+        jobs = await self.job_store.jobs_by_status(queue_name, normalized)
+        return [job for job in jobs if matches_job_type(job, normalized)]
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -1265,7 +1356,7 @@ class RedisBackend(BaseBackend):
             # Extract the 'paused' status from the job definition, defaulting to False.
             paused = jd.get("paused", False)
             # Append a new RepeatableInfo instance to the output list.
-            out.append(RepeatableInfo(job_def=jd, next_run=score, paused=paused))
+            out.append(RepeatableInfo(job_def=normalize_repeatable_job_def(jd), next_run=score, paused=paused))
         return out
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
@@ -1284,18 +1375,18 @@ class RedisBackend(BaseBackend):
             job_def: The dictionary defining the repeatable job to pause.
                      This dictionary should ideally include the 'next_run' key.
         """
-        # Get the Redis key for the repeatable jobs Sorted Set.
         key = self._repeat_key(queue_name)
-        # Serialize the original job definition to JSON.
-        raw = self._json_serializer.to_json(job_def)
-        # Remove the original job definition from the Sorted Set.
-        await self.redis.zrem(key, raw)
-        # Create a new job definition dictionary with the 'paused' flag set to True.
-        job_def_paused = {**job_def, "paused": True}
-        # Get the next_run timestamp from the original job definition, defaulting to current time.
-        next_run = job_def.get("next_run", time.time())
-        # Add the modified (paused) job definition back to the Sorted Set with the same score.
-        await self.redis.zadd(key, {self._json_serializer.to_json(job_def_paused): next_run})
+        items = await self.redis.zrange(key, 0, -1, withscores=True)
+        target_id = repeatable_identity(job_def)
+        for raw, score in items:
+            jd = self._json_serializer.to_dict(raw)
+            if repeatable_identity(jd) != target_id:
+                continue
+            await self.redis.zrem(key, raw)
+            await self.redis.zadd(
+                key, {self._json_serializer.to_json({**normalize_repeatable_job_def(jd), "paused": True}): score}
+            )
+            return
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
@@ -1317,19 +1408,59 @@ class RedisBackend(BaseBackend):
         Returns:
             The newly computed timestamp (float) for the next run of the repeatable job.
         """
-        # Get the Redis key for the repeatable jobs Sorted Set.
-        key = self._repeat_key(queue_name)
-        # Serialize the paused version of the job definition to JSON to match the member.
-        raw_paused = self._json_serializer.to_json({**job_def, "paused": True})
-        # Remove the paused job definition from the Sorted Set.
-        await self.redis.zrem(key, raw_paused)
-        # Create a 'clean' job definition dictionary by excluding the 'paused' key.
-        clean_def = {k: v for k, v in job_def.items() if k != "paused"}
-        # Compute the next scheduled run timestamp using the scheduler utility function.
+        clean_def = normalize_repeatable_job_def(job_def)
         next_run = compute_next_run(clean_def)
-        # Add the cleaned job definition back to the Sorted Set with the new next_run score.
-        await self.redis.zadd(key, {self._json_serializer.to_json(clean_def): next_run})
+        await self._store_repeatable(queue_name, clean_def, next_run=next_run, paused=False)
         return next_run  # Return the newly computed next run timestamp.
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Persist the next scheduled run for a repeatable definition after it fires.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The newly persisted next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_run = compute_next_run(clean_def)
+        await self._store_repeatable(queue_name, clean_def, next_run=next_run, paused=False)
+        return next_run
+
+    async def _store_repeatable(
+        self, queue_name: str, job_def: dict[str, Any], *, next_run: float, paused: bool
+    ) -> None:
+        """
+        Store a repeatable definition in Redis after removing previous variants.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+            next_run: The timestamp for the next scheduled run.
+            paused: Whether the stored definition should be marked paused.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        await self._remove_repeatable_members(queue_name, clean_def)
+        stored_def = {**clean_def, "paused": paused} if paused else clean_def
+        await self.redis.zadd(self._repeat_key(queue_name), {self._json_serializer.to_json(stored_def): next_run})
+
+    async def _remove_repeatable_members(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
+        """
+        Remove all Redis members that represent the same logical repeatable definition.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: Either the logical definition or its stable identifier.
+        """
+        key = self._repeat_key(queue_name)
+        target_id = job_def if isinstance(job_def, str) else repeatable_identity(job_def)
+        items = await self.redis.zrange(key, 0, -1)
+        for raw in items:
+            jd = self._json_serializer.to_dict(raw)
+            if repeatable_identity(jd) == target_id:
+                await self.redis.zrem(key, raw)
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """

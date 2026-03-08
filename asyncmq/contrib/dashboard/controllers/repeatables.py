@@ -215,18 +215,27 @@ class RepeatablesNewController(DashboardMixin, TemplateController):
         data: dict[str, Any] = {k: v for k, v in jd.items() if v is not None}
 
         # 2. Add repeatable job to the queue.
-        # Prefer backend-native registration when available.
-        enqueue_repeatable = getattr(backend, "enqueue_repeatable", None)
-        if callable(enqueue_repeatable) and data.get("every"):
-            payload = {
-                "id": f"{queue_name}:{jd['task_id']}",
-                "task_id": jd["task_id"],
-                "args": [],
-                "kwargs": {},
-            }
-            await cast(Any, enqueue_repeatable)(queue_name, payload, float(data["every"]))
-        else:
-            queue.add_repeatable(**data)
+        upsert_repeatable = getattr(queue, "upsert_repeatable", None)
+        try:
+            if callable(upsert_repeatable):
+                await cast(Any, upsert_repeatable)(**data)
+            else:
+                raise NotImplementedError
+        except NotImplementedError:
+            enqueue_repeatable = getattr(backend, "enqueue_repeatable", None)
+            create_repeatable = getattr(backend, "create_repeatable", None)
+            if callable(enqueue_repeatable) and data.get("every"):
+                payload = {
+                    "id": f"{queue_name}:{jd['task_id']}",
+                    "task_id": jd["task_id"],
+                    "args": [],
+                    "kwargs": {},
+                }
+                await cast(Any, enqueue_repeatable)(queue_name, payload, float(data["every"]))
+            elif callable(create_repeatable):
+                await cast(Any, create_repeatable)({"queue": queue_name, **data})
+            else:
+                queue.add_repeatable(**data)
 
         record_audit_event(
             request=request,

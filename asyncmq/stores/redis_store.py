@@ -166,3 +166,16 @@ class RedisJobStore(BaseJobStore):
         filtered_jobs: list[dict[str, Any]] = [job for job in all_jobs if job and job.get("status") == status]
         # Return the filtered list of jobs.
         return filtered_jobs
+
+    async def create_lock(self, key: str, ttl: int) -> redis.lock.Lock:
+        """
+        Create a Redis-backed distributed lock for metadata coordination.
+
+        Args:
+            key: The logical lock identifier.
+            ttl: The lock timeout in seconds.
+
+        Returns:
+            A Redis lock instance.
+        """
+        return self.redis.lock(key, timeout=ttl)
