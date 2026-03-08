@@ -1,5 +1,55 @@
 # Release Notes
 
+## 0.8.0
+
+### Added
+
+- BullMQ-style producer parity for practical Python usage:
+    - queue-scoped `job_id` duplicate suppression on `Queue.add(...)` and `Queue.add_bulk(...)`,
+    - BullMQ-style deduplication, throttle, and debounce semantics via `deduplication={...}` and `debounce={...}`,
+    - deduplication inspection and control APIs such as `get_deduplication_job_id(...)`, `get_debounce_job_id(...)`, and `remove_deduplication_key(...)`.
+- Expanded queue administration and inspection APIs:
+    - `get_job(...)`,
+    - `get_jobs(...)`,
+    - `get_job_counts(...)`,
+    - `get_job_count_by_types(...)`,
+    - `count(...)`,
+    - `remove_job(...)`,
+    - `retry_job(...)`,
+    - `drain(...)`,
+    - `clean_jobs(...)`,
+    - `obliterate(...)`,
+    - BullMQ-style inspection helpers for waiting, delayed, completed, failed, active, and `waiting-children`.
+- Durable repeatable scheduling APIs for production-oriented schedule management:
+    - `upsert_repeatable(...)`,
+    - `remove_repeatable(...)`,
+    - durable backend-managed repeatable discovery across built-in backends.
+- New documentation sections for:
+    - deduplication,
+    - BullMQ parity,
+    - backend capability differences,
+    - production operations,
+    - BullMQ migration guidance.
+
+### Changed
+
+- Brought AsyncMQ to practical BullMQ parity while preserving AsyncMQ's backend-neutral architecture rather than coupling behavior to Redis-only data structures.
+- Queue producer semantics now behave consistently across single-job and bulk-job creation, including custom job identifiers, deduplication windows, delayed replacement, and duplicate suppression.
+- Repeatable scheduling now supports both local code-defined schedules and durable backend-managed schedules in one coherent runtime model.
+- Scheduler ownership for durable repeatables is now coordinated under queue-scoped locks so multiple workers do not all advance the same backend schedule at once.
+- Documentation was substantially expanded and reorganized:
+  - deeper runtime guides for jobs, workers, schedulers, and flows,
+  - richer production and migration guidance,
+  - clearer navigation between features, reference material, and operations documentation.
+
+### Fixed
+
+- Sandbox execution integration now respects the configured sandbox handler path consistently during worker execution.
+- PostgreSQL job identity semantics are now queue-scoped, aligning custom `job_id` handling with BullMQ-style duplicate suppression behavior.
+- Retry and job-payload persistence paths were aligned across backends so stateful metadata such as deduplication, dependency updates, and retried payload state are preserved correctly.
+- MongoDB payload replacement now removes stale job metadata fields instead of leaving outdated values behind after payload mutation.
+- RabbitMQ metadata persistence and locking fallbacks were aligned with the shared backend contract for queue inspection, schedule management, and deduplication-aware updates.
+
 ## 0.7.0
 
 ### Added
