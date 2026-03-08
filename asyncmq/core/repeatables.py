@@ -32,7 +32,9 @@ def normalize_repeatable_job_def(job_def: dict[str, Any]) -> dict[str, Any]:
     Returns:
         A cleaned dictionary containing only the logical schedule definition.
     """
-    clean = {key: value for key, value in job_def.items() if key not in _EPHEMERAL_REPEATABLE_KEYS and value is not None}
+    clean = {
+        key: value for key, value in job_def.items() if key not in _EPHEMERAL_REPEATABLE_KEYS and value is not None
+    }
     if "task" in clean and "task_id" not in clean:
         clean["task_id"] = clean.pop("task")
     return clean

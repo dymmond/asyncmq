@@ -1304,7 +1304,9 @@ class RedisBackend(BaseBackend):
             if repeatable_identity(jd) != target_id:
                 continue
             await self.redis.zrem(key, raw)
-            await self.redis.zadd(key, {self._json_serializer.to_json({**normalize_repeatable_job_def(jd), "paused": True}): score})
+            await self.redis.zadd(
+                key, {self._json_serializer.to_json({**normalize_repeatable_job_def(jd), "paused": True}): score}
+            )
             return
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
@@ -1348,7 +1350,9 @@ class RedisBackend(BaseBackend):
         await self._store_repeatable(queue_name, clean_def, next_run=next_run, paused=False)
         return next_run
 
-    async def _store_repeatable(self, queue_name: str, job_def: dict[str, Any], *, next_run: float, paused: bool) -> None:
+    async def _store_repeatable(
+        self, queue_name: str, job_def: dict[str, Any], *, next_run: float, paused: bool
+    ) -> None:
         """
         Store a repeatable definition in Redis after removing previous variants.
 
