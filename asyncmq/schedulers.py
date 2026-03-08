@@ -45,9 +45,13 @@ async def repeatable_scheduler(
                   sleep time might be shorter to meet the next cron schedule.
                   This argument is advisory and aims to prevent excessive CPU usage.
     """
-    # Use the provided backend or fall back to the one from settings
+    # Use the provided backend or fall back to the one from settings.
+    #
+    # The scheduler must not mutate unrelated worker settings. In particular,
+    # sandbox execution is a worker concern and needs to remain whatever the
+    # caller configured so job execution tests and production workers observe
+    # the same behavior.
     backend = backend or asyncmq.monkay.settings.backend
-    asyncmq.monkay.settings.sandbox_enabled = False
     local_jobs = [normalize_repeatable_job_def(job) for job in (jobs or [])]
 
     # Dictionaries to keep track of cron iterators and their next run times

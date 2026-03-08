@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from asyncmq import monkay
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
 from asyncmq.queues import Queue
@@ -11,6 +12,16 @@ from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.workers import handle_job
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def disable_sandbox_for_repeatable_tests():
+    previous = monkay.settings.sandbox_enabled
+    monkay.settings.sandbox_enabled = False
+    try:
+        yield
+    finally:
+        monkay.settings.sandbox_enabled = previous
 
 
 # Helper to fetch task IDs dynamically
@@ -188,3 +199,19 @@ async def test_run_worker_processes_backend_repeatables_without_local_repeatable
     worker.cancel()
 
     assert durable_ping.counter >= 2
+
+
+async def test_repeatable_scheduler_preserves_sandbox_setting():
+    backend = InMemoryBackend()
+    previous = monkay.settings.sandbox_enabled
+    monkay.settings.sandbox_enabled = True
+    try:
+        scheduler = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+        await asyncio.sleep(0.12)
+        scheduler.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler
+
+        assert monkay.settings.sandbox_enabled is True
+    finally:
+        monkay.settings.sandbox_enabled = previous

@@ -47,6 +47,17 @@ test_dbs = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def restore_sandbox_settings():
+    previous_enabled = settings.sandbox_enabled
+    previous_timeout = settings.sandbox_default_timeout
+    try:
+        yield
+    finally:
+        settings.sandbox_enabled = previous_enabled
+        settings.sandbox_default_timeout = previous_timeout
+
+
 @pytest.fixture(params=test_dbs)
 async def backend(request, redis):
     name = request.param
