@@ -6,6 +6,10 @@ AsyncMQ is intentionally not a Redis clone. When BullMQ relies on Redis-native
 data structures, AsyncMQ prefers a backend-neutral contract first and lets each
 backend implement the capability in its own storage model.
 
+If you are actively migrating an existing BullMQ codebase, start with the
+[BullMQ Migration Guide](bullmq-migration.md) and use this page as the
+capability status summary.
+
 ## Current Matrix
 
 | Domain | BullMQ capability | AsyncMQ status | Notes |

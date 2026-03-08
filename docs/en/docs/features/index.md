@@ -26,6 +26,11 @@ Use this section as API- and behavior-oriented documentation.
 - [CLI](cli.md)
 - [Dashboard](../dashboard/dashboard.md)
 
+## Operations and Migration
+
+- [Production Operations](../learn/production-operations.md)
+- [BullMQ Migration Guide](../reference/bullmq-migration.md)
+
 ## Backends
 
 - [Backend Overview](backends/overview.md)

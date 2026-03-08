@@ -79,6 +79,7 @@ nav:
   - learn/index.md
   - learn/integration.md
   - learn/advanced-patterns.md
+  - learn/production-operations.md
   - learn/performance-tuning-and-benchmarks.md
   - learn/security-and-compliance.md
 - Dashboard:
@@ -91,6 +92,7 @@ nav:
   - reference/settings-reference.md
   - reference/cli-reference.md
   - reference/backend-capabilities.md
+  - reference/bullmq-migration.md
   - reference/bullmq-parity.md
 - Troubleshooting: troubleshooting.md
 - Contributing: contributing.md
