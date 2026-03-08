@@ -61,11 +61,15 @@ await queue.clean("completed")
 await queue.list_delayed()
 await queue.remove_delayed(job_id)
 await queue.list_repeatables()
+next_run = await queue.upsert_repeatable("myapp.tasks.cleanup", every=300)
 await queue.pause_repeatable(job_def)
 await queue.resume_repeatable(job_def)
+await queue.remove_repeatable(job_def)
 ```
 
-`Queue.add_repeatable(...)` registers in-process repeatables used when this queue runs through `queue.run()` / `run_worker(...)`.
+`Queue.add_repeatable(...)` registers an in-process repeatable used only by the current worker process.
+
+`Queue.upsert_repeatable(...)` persists a backend-managed schedule so workers and dashboard flows can discover it without inheriting local producer state. Prefer `upsert_repeatable(...)` for production scheduling and keep `add_repeatable(...)` for tests, local development, or code-defined worker bootstrap.
 
 ## Running a Worker from Queue
 
@@ -74,4 +78,4 @@ await queue.run()  # async
 queue.start()      # blocking wrapper
 ```
 
-`queue.run()` calls `run_worker(...)` with queue-level concurrency, rate-limit, scan interval, and repeatables.
+`queue.run()` calls `run_worker(...)` with queue-level concurrency, rate-limit, scan interval, local repeatables, and backend-managed repeatables.

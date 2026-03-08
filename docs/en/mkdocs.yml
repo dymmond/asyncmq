@@ -91,6 +91,7 @@ nav:
   - reference/settings-reference.md
   - reference/cli-reference.md
   - reference/backend-capabilities.md
+  - reference/bullmq-parity.md
 - Troubleshooting: troubleshooting.md
 - Contributing: contributing.md
 - Sponsorship: sponsorship.md

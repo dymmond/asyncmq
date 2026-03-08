@@ -19,26 +19,31 @@ All built-in backends implement `BaseBackend` methods used by:
 
 - no durable storage across process restarts
 - lock implementation is in-process only
+- repeatable schedules are process-local by design
 
 `RedisBackend`:
 
 - default production-oriented backend
 - distributed lock via Redis lock primitives
+- durable repeatable schedules stored in Redis
 
 `PostgresBackend`:
 
 - SQL persistence and advisory-lock-based lock helper
 - requires schema bootstrap
+- durable repeatable schedules stored in the repeatables table
 
 `MongoDBBackend`:
 
 - document persistence
 - lock helper is in-process (`anyio.Lock`), not distributed
+- durable repeatable schedules stored as `status="repeatable"` documents
 
 `RabbitMQBackend`:
 
 - broker delivery handled by RabbitMQ
 - metadata/state persistence delegated to a job store (Redis-backed by default)
+- durable repeatable schedules stored in the metadata job store
 
 ## Choosing by Requirement
 

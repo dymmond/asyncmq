@@ -17,6 +17,7 @@ from asyncmq.backends.base import (
     WorkerInfo,
 )
 from asyncmq.core.enums import State
+from asyncmq.core.repeatables import normalize_repeatable_job_def
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.postgres import PostgresJobStore
 
@@ -344,10 +345,106 @@ class PostgresBackend(BaseBackend):
             for r in rows
         ]
 
-    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Create or update a durable repeatable definition in PostgreSQL.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_ts = compute_next_run(clean_def)
+        next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                INSERT INTO {self._settings.postgres_repeatables_table_name}
+                  (queue_name, job_def, next_run, paused)
+                VALUES ($1, $2::jsonb, $3, FALSE)
+                ON CONFLICT (queue_name, job_def)
+                DO UPDATE SET next_run = EXCLUDED.next_run,
+                              paused = FALSE
+                """,
+                queue_name,
+                self._json_serializer.to_json(clean_def),
+                next_dt,
+            )
+        return next_ts
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return durable repeatables whose next execution time is due.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next-run time.
+        """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT job_def, next_run, paused
+                FROM {self._settings.postgres_repeatables_table_name}
+                WHERE queue_name = $1
+                  AND paused = FALSE
+                  AND next_run <= now()
+                ORDER BY next_run
+                """,
+                queue_name,
+            )
+        return [
+            RepeatableInfo(
+                job_def=r["job_def"],
+                next_run=r["next_run"].timestamp(),
+                paused=r["paused"],
+            )
+            for r in rows
+        ]
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Advance a durable repeatable definition after one occurrence is enqueued.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The newly persisted next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        next_ts = compute_next_run(clean_def)
+        next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                UPDATE {self._settings.postgres_repeatables_table_name}
+                SET next_run = $1,
+                    paused = FALSE
+                WHERE queue_name = $2
+                  AND job_def = $3::jsonb
+                """,
+                next_dt,
+                queue_name,
+                self._json_serializer.to_json(clean_def),
+            )
+        return next_ts
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
         """
         Remove a repeatable definition.
         """
+        if isinstance(job_def, str):
+            raise TypeError("Postgres repeatable removal expects the repeatable job definition, not an identifier.")
+        clean_def = normalize_repeatable_job_def(job_def)
         await self.connect()
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -355,16 +452,17 @@ class PostgresBackend(BaseBackend):
                 DELETE
                 FROM {self._settings.postgres_repeatables_table_name}
                 WHERE queue_name = $1
-                  AND job_def = $2
+                  AND job_def = $2::jsonb
                 """,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean_def),
             )
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
         Mark a repeatable as paused so the scheduler will skip it.
         """
+        clean_def = normalize_repeatable_job_def(job_def)
         await self.connect()
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -372,10 +470,10 @@ class PostgresBackend(BaseBackend):
                 UPDATE {self._settings.postgres_repeatables_table_name}
                 SET paused = TRUE
                 WHERE queue_name = $1
-                  AND job_def = $2
+                  AND job_def = $2::jsonb
                 """,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean_def),
             )
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
@@ -383,7 +481,7 @@ class PostgresBackend(BaseBackend):
         Un-pause a repeatable, recompute next_run, and return the new timestamp.
         """
         await self.connect()
-        clean = {k: v for k, v in job_def.items() if k != "paused"}
+        clean = normalize_repeatable_job_def(job_def)
         next_ts = compute_next_run(clean)
         next_dt = datetime.fromtimestamp(next_ts, tz=timezone.utc)
         async with self.pool.acquire() as conn:
@@ -393,11 +491,11 @@ class PostgresBackend(BaseBackend):
                 SET paused   = FALSE,
                     next_run = $1
                 WHERE queue_name = $2
-                  AND job_def = $3
+                  AND job_def = $3::jsonb
                 """,
                 next_dt,
                 queue_name,
-                self._json_serializer.to_json(job_def),
+                self._json_serializer.to_json(clean),
             )
         return next_ts
 

@@ -183,6 +183,7 @@ class Queue:
         retries: int = 0,
         ttl: int | None = None,
         priority: int = 5,
+        backoff: float | int | None = None,
     ) -> None:
         """
         Registers a job definition to be scheduled and enqueued repeatedly
@@ -209,11 +210,13 @@ class Queue:
             kwargs: An optional dictionary of keyword arguments to pass to the
                     task function. Defaults to {}.
             retries: The maximum number of retries for each instance of the
-                     repeatable job if it fails. Defaults to 0.
+                  repeatable job if it fails. Defaults to 0.
             ttl: The TTL in seconds for each instance of the repeatable job.
                  Defaults to None.
             priority: The priority for each instance of the repeatable job.
                       Defaults to 5.
+            backoff: The numeric backoff value applied to retries of each
+                     generated job instance. Defaults to None.
 
         Raises:
             ValueError: If neither `every` nor `cron` is provided.
@@ -231,6 +234,8 @@ class Queue:
             "ttl": ttl,
             "priority": priority,
         }
+        if backoff is not None:
+            entry["backoff"] = backoff
         # Add 'every' or 'cron' to the entry if provided.
         if every:
             entry["every"] = every
@@ -239,6 +244,70 @@ class Queue:
 
         # Append the repeatable job entry to the internal list.
         self._repeatables.append(entry)
+
+    async def upsert_repeatable(
+        self,
+        task_id: str,
+        every: float | str | None = None,
+        cron: str | None = None,
+        args: list[Any] | None = None,
+        kwargs: dict[str, Any] | None = None,
+        retries: int = 0,
+        ttl: int | None = None,
+        priority: int = 5,
+        backoff: float | int | None = None,
+    ) -> float:
+        """
+        Create or update a backend-managed repeatable definition.
+
+        Unlike ``add_repeatable``, this API persists the schedule in the
+        backend so workers can discover it without inheriting in-process state
+        from the producer process. This is the recommended API for durable
+        scheduling and dashboard-driven repeatable management.
+
+        Args:
+            task_id: The registered task identifier to execute.
+            every: A fixed interval in seconds between occurrences.
+            cron: A cron expression controlling the schedule.
+            args: Positional arguments passed to each generated job.
+            kwargs: Keyword arguments passed to each generated job.
+            retries: The maximum retries allowed for each generated job.
+            ttl: Optional TTL for each generated job.
+            priority: Priority assigned to each generated job instance.
+            backoff: The numeric backoff value applied to retries of each
+                     generated job instance.
+
+        Returns:
+            The UNIX timestamp for the next scheduled execution.
+
+        Raises:
+            ValueError: If neither ``every`` nor ``cron`` is provided.
+            NotImplementedError: If the configured backend does not support
+                backend-managed repeatables.
+        """
+        if not every and not cron:
+            raise ValueError("Either 'every' (seconds or string) or 'cron' (expression) must be provided.")
+
+        job_def: dict[str, Any] = {
+            "task_id": task_id,
+            "args": args or [],
+            "kwargs": kwargs or {},
+            "retries": retries,
+            "ttl": ttl,
+            "priority": priority,
+        }
+        if backoff is not None:
+            job_def["backoff"] = backoff
+        if every:
+            job_def["every"] = every
+        if cron:
+            job_def["cron"] = cron
+
+        upsert_repeatable = getattr(self.backend, "upsert_repeatable", None)
+        if not callable(upsert_repeatable):
+            raise NotImplementedError("This backend does not support backend-managed repeatables.")
+
+        return await cast(Any, upsert_repeatable)(self.name, job_def)
 
     async def pause(self) -> None:
         """
@@ -396,6 +465,12 @@ class Queue:
 
     async def list_repeatables(self) -> list[RepeatableInfo]:
         return await self.backend.list_repeatables(self.name)
+
+    async def remove_repeatable(self, job_def: dict[str, Any]) -> None:
+        remove_repeatable = getattr(self.backend, "remove_repeatable", None)
+        if not callable(remove_repeatable):
+            raise NotImplementedError("This backend does not support repeatable removal.")
+        await cast(Any, remove_repeatable)(self.name, job_def)
 
     async def pause_repeatable(self, job_def: dict[str, Any]) -> None:
         await self.backend.pause_repeatable(self.name, job_def)

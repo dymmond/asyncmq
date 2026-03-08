@@ -21,6 +21,7 @@ from asyncmq.backends.base import (
 )
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.mongodb import MongoDBStore
 
@@ -59,7 +60,7 @@ class MongoDBBackend(BaseBackend):
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
         # In-memory set of queue names that are currently paused.
         self.paused: set[str] = set()
-        # In-memory repeatable definitions: queue_name -> { raw_json_def -> { job_def, next_run, paused } }
+        # Repeatable definitions are stored durably in MongoDB using status="repeatable".
         self.repeatables: dict[str, dict[str, dict[str, Any]]] = {}
         # In-memory cancelled-job sets: queue_name -> set(job_id). Stores IDs of cancelled jobs.
         self.cancelled: dict[str, set[str]] = {}
@@ -815,14 +816,7 @@ class MongoDBBackend(BaseBackend):
 
     async def list_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
         """
-        Asynchronously retrieves a list of all repeatable job definitions for a
-        specific queue from the in-memory repeatable definitions dictionary.
-
-        Iterates through the in-memory repeatable definitions for the given queue,
-        deserializes the JSON job definitions, and converts them into a list
-        of `RepeatableInfo` dataclass instances. The list is sorted by the
-        `next_run` timestamp. Access to the in-memory repeatable definitions
-        is synchronized using the internal lock.
+        Asynchronously retrieves durable repeatable job definitions for a queue.
 
         Args:
             queue_name: The name of the queue to list repeatable jobs for.
@@ -830,51 +824,114 @@ class MongoDBBackend(BaseBackend):
         Returns:
             A list of `RepeatableInfo` dataclass instances.
         """
-        # Acquire the lock to ensure exclusive access to in-memory repeatable definitions.
-        async with self.lock:
-            out: list[RepeatableInfo] = []  # Initialize a list to store RepeatableInfo instances.
-            # Iterate through the repeatable definitions for the specified queue.
-            # Use .get() with default {} for safety.
-            for raw, rec in self.repeatables.get(queue_name, {}).items():
-                jd = self._json_serializer.to_dict(raw)  # Deserialize the JSON job definition.
-                # Append a new RepeatableInfo instance to the output list.
-                out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
-            # Sort the output list by the 'next_run' timestamp.
-            return sorted(out, key=lambda x: x.next_run)
+        rows = await self.store.jobs_by_status(queue_name, "repeatable")
+        repeatables = [
+            RepeatableInfo(
+                job_def=dict(row["job_def"]),
+                next_run=float(row["next_run"]),
+                paused=bool(row.get("paused", False)),
+            )
+            for row in rows
+        ]
+        return sorted(repeatables, key=lambda item: item.next_run)
+
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Persist a repeatable definition in MongoDB.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        await self.store.save(
+            queue_name,
+            repeatable_id,
+            {
+                "id": repeatable_id,
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+                "status": "repeatable",
+            },
+        )
+        return next_run
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return durable repeatables whose next run is due.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next-run time.
+        """
+        rows = await self.store.jobs_by_status(queue_name, "repeatable")
+        now = time.time()
+        due = [
+            RepeatableInfo(
+                job_def=dict(row["job_def"]),
+                next_run=float(row["next_run"]),
+                paused=bool(row.get("paused", False)),
+            )
+            for row in rows
+            if not row.get("paused", False) and float(row["next_run"]) <= now
+        ]
+        return sorted(due, key=lambda item: item.next_run)
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Advance a durable repeatable definition after one occurrence is emitted.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The new next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        current = await self.store.load(queue_name, repeatable_id) or {}
+        await self.store.save(
+            queue_name,
+            repeatable_id,
+            {
+                **current,
+                "id": repeatable_id,
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+                "status": "repeatable",
+            },
+        )
+        return next_run
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
-        Asynchronously marks a specific repeatable job definition as paused in memory.
-
-        Serializes the job definition to JSON and updates the 'paused' flag to
-        True in the in-memory repeatable definitions dictionary. The scheduler
-        should check this flag and skip scheduling new instances of a paused
-        repeatable job. Access to the in-memory repeatable definitions is
-        synchronized using the internal lock.
+        Pause a durable repeatable definition.
 
         Args:
             queue_name: The name of the queue the repeatable job belongs to.
             job_def: The dictionary defining the repeatable job to pause.
         """
-        # Acquire the lock to ensure exclusive access to in-memory repeatable definitions.
-        async with self.lock:
-            raw = self._json_serializer.to_json(job_def)  # Serialize the job definition to JSON.
-            # Get the record for the repeatable job, safely handling missing queue or job.
-            rec = self.repeatables.get(queue_name, {}).get(raw)
-            # If the record exists.
-            if rec:
-                rec["paused"] = True  # Mark the repeatable job as paused.
+        repeatable_id = repeatable_identity(job_def)
+        current = await self.store.load(queue_name, repeatable_id)
+        if current is None:
+            return
+        current["paused"] = True
+        await self.store.save(queue_name, repeatable_id, current)
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
-        Asynchronously un-pauses a repeatable job definition in memory, computes
-        its next scheduled run time, and updates the definition in memory.
-
-        Serializes the job definition to JSON, removes the old entry from the
-        in-memory repeatable definitions dictionary, computes the next run time
-        using `compute_next_run`, and adds the updated definition back with
-        'paused' set to False. Access to the in-memory repeatable definitions
-        is synchronized using the internal lock.
+        Resume a paused durable repeatable definition.
 
         Args:
             queue_name: The name of the queue the repeatable job belongs to.
@@ -884,31 +941,38 @@ class MongoDBBackend(BaseBackend):
             The newly computed timestamp (float) for the next run of the repeatable job.
 
         Raises:
-            KeyError: If the specified repeatable job definition is not found
-                      in the in-memory definitions.
+            KeyError: If the specified repeatable job definition is not found.
         """
-        # Acquire the lock to ensure exclusive access to in-memory repeatable definitions.
-        async with self.lock:
-            raw = self._json_serializer.to_json(job_def)  # Serialize the job definition to JSON.
-            # Remove the old record for the repeatable job, safely handling missing queue or job.
-            rec = self.repeatables.setdefault(queue_name, {}).pop(raw, None)
-            # If the record was not found, raise a KeyError.
-            if rec is None:
-                raise KeyError(f"Repeatable job not found: {job_def}")
-
-            # Create a clean job definition without the 'paused' key for computing the next run.
-            clean_def = {k: v for k, v in rec["job_def"].items() if k != "paused"}
-            # Compute the next scheduled run timestamp using the scheduler utility function.
-            next_ts = compute_next_run(clean_def)
-
-            # Store the updated repeatable definition under the clean JSON key
-            # with the new next_run timestamp and 'paused' set to False.
-            self.repeatables[queue_name][self._json_serializer.to_json(clean_def)] = {
+        repeatable_id = repeatable_identity(job_def)
+        current = await self.store.load(queue_name, repeatable_id)
+        if current is None:
+            raise KeyError(f"Repeatable job not found: {job_def}")
+        clean_def = normalize_repeatable_job_def(current["job_def"])
+        next_ts = compute_next_run(clean_def)
+        await self.store.save(
+            queue_name,
+            repeatable_id,
+            {
+                **current,
+                "id": repeatable_id,
                 "job_def": clean_def,
                 "next_run": next_ts,
                 "paused": False,
-            }
-            return next_ts  # Return the newly computed next run timestamp.
+                "status": "repeatable",
+            },
+        )
+        return next_ts
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
+        """
+        Remove a durable repeatable definition from MongoDB.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: Either the logical definition or the repeatable identifier.
+        """
+        repeatable_id = job_def if isinstance(job_def, str) else repeatable_identity(job_def)
+        await self.store.delete(queue_name, repeatable_id)
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """

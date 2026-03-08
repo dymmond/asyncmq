@@ -4,6 +4,8 @@ import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.core.enums import State
+from asyncmq.queues import Queue
+from asyncmq.runners import run_worker
 from asyncmq.schedulers import repeatable_scheduler
 from asyncmq.tasks import TASK_REGISTRY, task
 from asyncmq.workers import handle_job
@@ -145,3 +147,44 @@ async def test_repeatable_job_interval_variation():
     while await backend.dequeue("repeatable"):
         count += 1
     assert count >= 2
+
+
+@task(queue="repeatable")
+async def durable_ping():
+    durable_ping.counter += 1
+    return "durable-pong"
+
+
+durable_ping.counter = 0
+
+
+async def test_repeatable_scheduler_picks_up_backend_registered_repeatables():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+    durable_ping.counter = 0
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=0.25)
+
+    scheduler = asyncio.create_task(repeatable_scheduler("repeatable", [], backend=backend, interval=0.05))
+    worker = asyncio.create_task(handle_all_jobs(backend, "repeatable"))
+    await asyncio.sleep(0.9)
+    scheduler.cancel()
+    worker.cancel()
+
+    assert durable_ping.counter >= 2
+
+
+async def test_run_worker_processes_backend_repeatables_without_local_repeatables():
+    backend = InMemoryBackend()
+    queue = Queue("repeatable", backend=backend)
+    durable_ping.counter = 0
+
+    await queue.upsert_repeatable(task_id=get_task_id(durable_ping), every=0.2)
+
+    worker = asyncio.create_task(
+        run_worker("repeatable", backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+    )
+    await asyncio.sleep(0.75)
+    worker.cancel()
+
+    assert durable_ping.counter >= 2

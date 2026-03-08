@@ -1,5 +1,8 @@
+import time
+
 import pytest
 
+from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.logging import logger
 from asyncmq.queues import Queue
 
@@ -66,3 +69,44 @@ async def test_repeatables_mixed_types():
 
     assert cron_job["task_id"] == "cron_task"
     assert interval_job["task_id"] == "interval_task"
+
+
+async def test_upsert_repeatable_persists_backend_definition():
+    backend = InMemoryBackend()
+    queue = Queue(name="test-durable", backend=backend)
+
+    next_run = await queue.upsert_repeatable(
+        task_id="cleanup_temp",
+        every=60,
+        args=[1],
+        kwargs={"tenant": "acme"},
+        retries=2,
+        ttl=600,
+        priority=2,
+        backoff=3,
+    )
+
+    assert next_run >= time.time()
+
+    repeatables = await queue.list_repeatables()
+    assert len(repeatables) == 1
+    record = repeatables[0]
+    assert record.job_def["task_id"] == "cleanup_temp"
+    assert record.job_def["every"] == 60
+    assert record.job_def["retries"] == 2
+    assert record.job_def["backoff"] == 3
+    assert record.paused is False
+
+
+async def test_remove_repeatable_uses_backend_registry():
+    backend = InMemoryBackend()
+    queue = Queue(name="test-durable-remove", backend=backend)
+
+    await queue.upsert_repeatable(task_id="cleanup_temp", every=60)
+    repeatables = await queue.list_repeatables()
+    assert len(repeatables) == 1
+
+    await queue.remove_repeatable(repeatables[0].job_def)
+
+    remaining = await queue.list_repeatables()
+    assert remaining == []

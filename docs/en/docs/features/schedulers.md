@@ -19,11 +19,38 @@ AsyncMQ has two scheduling loops:
 
 `repeatable_scheduler(queue_name, jobs, backend=None, interval=None)`:
 
-- consumes repeatable definitions passed in `jobs`
+- consumes local repeatable definitions passed in `jobs`
+- also polls backend-managed repeatables registered through `Queue.upsert_repeatable(...)`
 - supports `every` and `cron`
-- enqueues due jobs continuously
+- enqueues due jobs continuously and advances backend-managed schedules after each emission
 
-Important: this scheduler operates on in-memory definitions provided at worker startup (for example from `Queue.add_repeatable`).
+AsyncMQ now supports two repeatable registration modes:
+
+- local repeatables via `Queue.add_repeatable(...)`
+- durable repeatables via `Queue.upsert_repeatable(...)`
+
+Use local repeatables when the worker process itself is the source of truth for
+the schedule. Use durable repeatables when the schedule should survive producer
+restarts, dashboard-created schedules, or operational tooling.
+
+Example:
+
+```python
+from asyncmq.queues import Queue
+
+queue = Queue("emails")
+
+# Durable schedule stored in the backend.
+await queue.upsert_repeatable(
+    "myapp.tasks.send_digest",
+    cron="0 7 * * *",
+    kwargs={"tenant": "acme"},
+    retries=3,
+)
+
+# Local schedule only visible to this worker process.
+queue.add_repeatable("myapp.tasks.cleanup", every=60)
+```
 
 ## `compute_next_run(job_def)`
 

@@ -11,6 +11,7 @@ from asyncmq.backends.base import (
 )
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
+from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 
 _JobKey = tuple[str, str]
@@ -37,7 +38,7 @@ class InMemoryBackend(BaseBackend):
         self.dlqs: dict[str, list[dict[str, Any]]] = {}
         # Delayed jobs: queue_name -> list of (run_at_ts, payload)
         self.delayed: dict[str, list[tuple[float, dict[str, Any]]]] = {}
-        # Repeatable definitions: queue_name -> { raw_json_def -> { job_def, next_run, paused } }
+        # Repeatable definitions: queue_name -> { repeatable_id -> { job_def, next_run, paused } }
         self.repeatables: dict[str, dict[str, dict[str, Any]]] = {}
         # Cancelled jobs: queue_name -> set of job_ids
         self.cancelled: dict[str, set[str]] = {}
@@ -242,40 +243,104 @@ class InMemoryBackend(BaseBackend):
         """
         async with self.lock:
             out: list[RepeatableInfo] = []
-            for raw, rec in self.repeatables.get(queue_name, {}).items():
-                jd = self._json_serializer.to_dict(raw)
-                out.append(RepeatableInfo(job_def=jd, next_run=rec["next_run"], paused=rec["paused"]))
+            for rec in self.repeatables.get(queue_name, {}).values():
+                out.append(RepeatableInfo(job_def=dict(rec["job_def"]), next_run=rec["next_run"], paused=rec["paused"]))
             return sorted(out, key=lambda x: x.next_run)
 
-    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Register or update a backend-managed repeatable definition in memory.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The next scheduled UNIX timestamp for the definition.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        async with self.lock:
+            self.repeatables.setdefault(queue_name, {})[repeatable_id] = {
+                "job_def": clean_def,
+                "next_run": next_run,
+                "paused": False,
+            }
+        return next_run
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return repeatables that are ready to produce a new job occurrence.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            Due repeatable definitions ordered by next run time.
+        """
+        async with self.lock:
+            now = time.time()
+            due = [
+                RepeatableInfo(job_def=dict(rec["job_def"]), next_run=rec["next_run"], paused=rec["paused"])
+                for rec in self.repeatables.get(queue_name, {}).values()
+                if not rec["paused"] and rec["next_run"] <= now
+            ]
+        return sorted(due, key=lambda item: item.next_run)
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Recompute and persist the next run time for a repeatable definition.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The new next-run UNIX timestamp.
+        """
+        clean_def = normalize_repeatable_job_def(job_def)
+        repeatable_id = repeatable_identity(clean_def)
+        next_run = compute_next_run(clean_def)
+        async with self.lock:
+            record = self.repeatables.setdefault(queue_name, {}).setdefault(
+                repeatable_id,
+                {"job_def": clean_def, "paused": False},
+            )
+            record["job_def"] = clean_def
+            record["next_run"] = next_run
+            record["paused"] = False
+        return next_run
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
         """
         Remove a repeatable definition.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            self.repeatables.get(queue_name, {}).pop(raw, None)
+            repeatable_id = job_def if isinstance(job_def, str) else repeatable_identity(job_def)
+            self.repeatables.get(queue_name, {}).pop(repeatable_id, None)
 
     async def pause_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> None:
         """
         Mark the given repeatable paused so scheduler skips it.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            if raw in self.repeatables.get(queue_name, {}):
-                self.repeatables[queue_name][raw]["paused"] = True
+            repeatable_id = repeatable_identity(job_def)
+            if repeatable_id in self.repeatables.get(queue_name, {}):
+                self.repeatables[queue_name][repeatable_id]["paused"] = True
 
     async def resume_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> Any:
         """
         Un-pause the repeatable and return its newly computed next_run timestamp.
         """
         async with self.lock:
-            raw = self._json_serializer.to_json(job_def)
-            rec = self.repeatables.get(queue_name, {}).pop(raw, None)
+            repeatable_id = repeatable_identity(job_def)
+            rec = self.repeatables.get(queue_name, {}).get(repeatable_id)
             if rec is None:
                 raise KeyError(f"Repeatable job not found: {job_def}")
-            clean_def = {k: v for k, v in rec["job_def"].items() if k != "paused"}
+            clean_def = normalize_repeatable_job_def(rec["job_def"])
             next_run = compute_next_run(clean_def)
-            self.repeatables.setdefault(queue_name, {})[self._json_serializer.to_json(clean_def)] = {
+            self.repeatables.setdefault(queue_name, {})[repeatable_id] = {
                 "job_def": clean_def,
                 "next_run": next_run,
                 "paused": False,

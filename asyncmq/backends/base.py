@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -552,6 +553,67 @@ class BaseBackend(ABC):
             job_id: The unique identifier of the job to cancel.
         """
         ...
+
+    async def upsert_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Create or update a backend-managed repeatable definition.
+
+        Backends that persist schedules should override this method and return
+        the next computed run time. The default implementation signals that the
+        backend does not support durable repeatable registration.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition.
+
+        Returns:
+            The UNIX timestamp for the next scheduled execution.
+        """
+        raise NotImplementedError("This backend does not support durable repeatable definitions.")
+
+    async def get_due_repeatables(self, queue_name: str) -> list[RepeatableInfo]:
+        """
+        Return repeatable definitions whose next run is due.
+
+        The default implementation derives due schedules from ``list_repeatables``.
+        Backends can override this to use a more efficient or more atomic query.
+
+        Args:
+            queue_name: The queue to inspect.
+
+        Returns:
+            The subset of repeatables that are due now and are not paused.
+        """
+        now = time.time()
+        repeatables = await self.list_repeatables(queue_name)
+        return [record for record in repeatables if not record.paused and record.next_run <= now]
+
+    async def advance_repeatable(self, queue_name: str, job_def: dict[str, Any]) -> float:
+        """
+        Move a repeatable definition forward after one occurrence is enqueued.
+
+        Backends that support durable repeatables should override this method to
+        recompute and persist the next run time. The default implementation
+        signals that the backend cannot advance repeatable schedules.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: The logical repeatable definition that just fired.
+
+        Returns:
+            The newly persisted next-run UNIX timestamp.
+        """
+        raise NotImplementedError("This backend does not support durable repeatable advancement.")
+
+    async def remove_repeatable(self, queue_name: str, job_def: dict[str, Any] | str) -> None:
+        """
+        Remove a backend-managed repeatable definition.
+
+        Args:
+            queue_name: The queue that owns the repeatable definition.
+            job_def: Either the logical definition or a backend-native identifier.
+        """
+        raise NotImplementedError("This backend does not support repeatable removal.")
 
     @abstractmethod
     async def remove_job(self, queue_name: str, job_id: str) -> bool: ...
