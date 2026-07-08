@@ -3,6 +3,7 @@ from types import ModuleType
 
 import pytest
 
+import asyncmq.workers as workers_module
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.tasks import TASK_REGISTRY
@@ -111,7 +112,7 @@ async def test_handle_job_import_fallback(monkeypatch):
         def to_dict(self):
             return {"id": self.id, "task_id": self.task_id}
 
-    monkeypatch.setattr("asyncmq.jobs.Job.from_dict", lambda d: DummyJob(d))
+    monkeypatch.setattr(workers_module.Job, "from_dict", lambda d: DummyJob(d))
 
     backend = DummyBackend()
     await handle_job("q1", raw_job, backend)
