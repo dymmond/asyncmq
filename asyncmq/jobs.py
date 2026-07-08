@@ -34,7 +34,7 @@ class Job:
         retries: int = 0,
         max_retries: int = 3,
         backoff: float | int | Callable | None = 1.5,
-        ttl: int | None = None,
+        ttl: float | int | None = None,
         job_id: str | None = None,
         created_at: float | None = None,
         priority: int = 5,
