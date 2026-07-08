@@ -90,6 +90,7 @@ async def test_remove_deduplication_key_allows_new_job(backend):
     waiting = await queue.get_waiting(asc=True)
 
     assert first != second
+    assert await queue.get_deduplication_job_id("release-key") == second
     assert [job["args"][0] for job in waiting] == ["first", "second"]
 
 
