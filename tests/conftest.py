@@ -48,6 +48,6 @@ async def redis():
     await client.aclose()
 
 
-@pytest.fixture(scope="module", params=["asyncio", "trio"])
+@pytest.fixture(scope="module")
 def anyio_backend():
     return ("asyncio", {"debug": True})
