@@ -26,7 +26,8 @@ def reset_globals():
 # reset_globals()
 
 
-# Automatically clear before and after each test in this module\@pytest.fixture(autouse=True)
+# Automatically clear before and after each test in this module
+@pytest.fixture(autouse=True)
 def clear_between_tests():
     reset_globals()
     yield

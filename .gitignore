@@ -33,3 +33,4 @@ target/
 coverage.*
 example.sqlite
 *.zip
+.studio

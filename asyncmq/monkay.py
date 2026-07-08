@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from monkay import Monkay
@@ -17,6 +18,7 @@ def create_monkay(global_dict: dict) -> Monkay[None, Settings]:
         # settings_extensions_name="extensions",
         settings_path=lambda: os.environ.get("ASYNCMQ_SETTINGS_MODULE", "asyncmq.conf.global_settings.Settings"),
         lazy_imports={
+            "jobs": lambda: import_module("asyncmq.jobs"),
             # this way we have always fresh settings because of the forward
             "settings": "asyncmq.conf.settings",  # Lazy import for application settings
             "BaseJobStore": "asyncmq.stores.base.BaseJobStore",
