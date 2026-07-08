@@ -1,5 +1,11 @@
 # Release Notes
 
+## 0.8.1
+
+### Fixed
+
+- Restored package-level resolution for the `asyncmq.jobs` submodule when AsyncMQ's lazy exports are active, preventing dotted imports such as `asyncmq.jobs.Job` from failing after import-order edge cases on Python 3.11.
+
 ## 0.8.0
 
 ### Added
