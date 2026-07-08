@@ -9,6 +9,16 @@ from asyncmq.tasks import TASK_REGISTRY
 from asyncmq.workers import autodiscover_tasks, handle_job
 
 
+def test_asyncmq_jobs_submodule_is_resolvable_after_parent_attr_loss(monkeypatch):
+    jobs_module = importlib.import_module("asyncmq.jobs")
+    asyncmq_package = importlib.import_module("asyncmq")
+
+    if "jobs" in asyncmq_package.__dict__:
+        monkeypatch.delattr(asyncmq_package, "jobs")
+
+    monkeypatch.setattr("asyncmq.jobs.Job.from_dict", jobs_module.Job.from_dict)
+
+
 class DummyBackend:
     def __init__(self):
         self.calls = {
