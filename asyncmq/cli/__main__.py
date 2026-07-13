@@ -47,9 +47,7 @@ app_cli = Sayer(
 @app_cli.callback(invoke_without_command=True)
 def _app_callback(ctx: click.Context) -> None:
     """AsyncMQ CLI"""
-    tokens = getattr(ctx, "protected_args", None)
-    if tokens is None:
-        tokens = ctx.args
+    tokens = getattr(ctx, "_protected_args", ()) or ctx.args
     if tokens and tokens[0] in ctx.command.commands:
         return
 

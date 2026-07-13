@@ -59,6 +59,8 @@
   startup instead of accepting weak HS* signing keys.
 - Dashboard deployments now expose `/health` for liveness and `/ready` for
   backend reachability/readiness checks.
+- CLI group callbacks now use Click's forward-compatible subcommand detection
+  instead of deprecated `protected_args` access.
 
 ## 0.8.1
 

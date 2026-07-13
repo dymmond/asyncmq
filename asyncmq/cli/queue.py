@@ -40,9 +40,7 @@ def _queue_callback(ctx: click.Context) -> None:
              by the Click library and contains information about the current
              invocation, including the invoked subcommand.
     """
-    tokens = getattr(ctx, "protected_args", None)
-    if tokens is None:
-        tokens = ctx.args
+    tokens = getattr(ctx, "_protected_args", ()) or ctx.args
     if tokens and tokens[0] in ctx.command.commands:
         return
 
