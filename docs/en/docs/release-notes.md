@@ -113,6 +113,8 @@
   scanner loop.
 - Delayed-job scanning now logs transient backend promotion failures and keeps
   retrying on later scans instead of stopping the scanner loop.
+- Repeatable scheduling now logs transient local enqueue and backend
+  repeatable-store failures without stopping the scheduler loop.
 - Retry and DLQ payloads now retain `last_error` and `error_traceback` so
   operators can inspect the failure cause after the worker lifecycle transition.
 - Manual retry operations now requeue clean `waiting` payloads across backends,

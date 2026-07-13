@@ -145,6 +145,10 @@ When a schedule is due, the scheduler:
 Generated job instances are normal jobs. They still go through the standard
 worker lifecycle, retries, TTL, deduplication, events, and admin inspection.
 
+Transient enqueue or backend repeatable-store errors are logged and retried by
+later scheduler iterations. Local repeatable definitions advance their in-memory
+last-run marker only after a generated job is successfully enqueued.
+
 ## Scheduler Ownership
 
 Multiple workers for the same queue may all start a repeatable scheduler. To

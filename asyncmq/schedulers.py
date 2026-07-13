@@ -8,6 +8,7 @@ import asyncmq
 from asyncmq.backends.base import BaseBackend, RepeatableInfo
 from asyncmq.core.locks import release_backend_lock, try_acquire_backend_lock
 from asyncmq.core.repeatables import build_repeatable_job, normalize_repeatable_job_def
+from asyncmq.logging import logger
 
 
 async def repeatable_scheduler(
@@ -89,9 +90,18 @@ async def repeatable_scheduler(
                 next_run = next_runs[repeatable_key]
                 # Check if the current time is on or after the next scheduled time
                 if now >= next_run:
-                    await _enqueue_repeatable_job(queue_name, job_def, backend)
-                    # Calculate the next scheduled run time for this cron job
-                    next_runs[repeatable_key] = itr.get_next(float)  # Explicitly ask for float
+                    try:
+                        await _enqueue_repeatable_job(queue_name, job_def, backend)
+                    except Exception:
+                        logger.error(
+                            "Repeatable scheduler failed to enqueue local cron job %r for queue %r",
+                            job_def.get("task_id"),
+                            queue_name,
+                            exc_info=True,
+                        )
+                    else:
+                        # Calculate the next scheduled run time for this cron job.
+                        next_runs[repeatable_key] = itr.get_next(float)  # Explicitly ask for float
 
             # Handle fixed-interval scheduling
             elif "every" in job_def:
@@ -104,15 +114,32 @@ async def repeatable_scheduler(
                 every = job_def["every"]
                 # Check if the required interval has passed since the last run
                 if now - last_run >= every:
-                    await _enqueue_repeatable_job(queue_name, job_def, backend)
-                    # Update the last run time to the current time
-                    job_def["_last_run"] = now
+                    try:
+                        await _enqueue_repeatable_job(queue_name, job_def, backend)
+                    except Exception:
+                        logger.error(
+                            "Repeatable scheduler failed to enqueue local interval job %r for queue %r",
+                            job_def.get("task_id"),
+                            queue_name,
+                            exc_info=True,
+                        )
+                    else:
+                        # Update the last run time only after a successful enqueue.
+                        job_def["_last_run"] = now
 
-        backend_next_run = await _process_backend_repeatables_with_lock(
-            queue_name,
-            backend,
-            lock_ttl=max(5, int(check_interval * 4)),
-        )
+        try:
+            backend_next_run = await _process_backend_repeatables_with_lock(
+                queue_name,
+                backend,
+                lock_ttl=max(5, int(check_interval * 4)),
+            )
+        except Exception:
+            logger.error(
+                "Repeatable scheduler failed to process backend repeatables for queue %r",
+                queue_name,
+                exc_info=True,
+            )
+            backend_next_run = None
 
         # Calculate the time until the next event (either check_interval or next cron run)
         # This helps ensure the scheduler doesn't miss nearby cron schedules
