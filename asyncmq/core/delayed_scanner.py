@@ -35,8 +35,14 @@ async def delayed_job_scanner(
     logger.info(f"Delayed job scanner started for queue: {queue_name}")
 
     while True:
-        jobs = await backend.promote_due_delayed(queue_name)
+        try:
+            jobs = await backend.promote_due_delayed(queue_name)
+        except Exception:
+            logger.error("Delayed job scanner failed for queue %r", queue_name, exc_info=True)
+            await anyio.sleep(interval)
+            continue
+
         for job_data in jobs:
-            logger.info(f"[{job_data['id']}] Moved delayed job to queue")
+            logger.info(f"[{job_data.get('id', '<unknown>')}] Moved delayed job to queue")
 
         await anyio.sleep(interval)

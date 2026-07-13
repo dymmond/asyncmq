@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import anyio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
@@ -68,6 +69,32 @@ async def test_delayed_scanner_uses_backend_promotion_transition():
     scanner.cancel()
 
     assert backend.promoted is True
+
+
+async def test_delayed_scanner_survives_transient_promotion_failure():
+    class FlakyPromotionBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+            self.promoted: list[str] = []
+
+        async def promote_due_delayed(self, queue_name: str) -> list[dict]:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary delayed store outage")
+            promoted = {"id": "delayed-recovered"}
+            self.promoted.append(promoted["id"])
+            return [promoted]
+
+    backend = FlakyPromotionBackend()
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(delayed_job_scanner, "test", backend, 0.01)
+        with anyio.fail_after(1):
+            while "delayed-recovered" not in backend.promoted:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert backend.calls >= 2
 
 
 async def test_delayed_job_not_due():

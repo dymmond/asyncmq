@@ -111,6 +111,8 @@
 - Delayed-job scanning now delegates due-job promotion to backend-owned
   transitions instead of removing delayed jobs and re-enqueueing them from the
   scanner loop.
+- Delayed-job scanning now logs transient backend promotion failures and keeps
+  retrying on later scans instead of stopping the scanner loop.
 - Retry and DLQ payloads now retain `last_error` and `error_traceback` so
   operators can inspect the failure cause after the worker lifecycle transition.
 - Manual retry operations now requeue clean `waiting` payloads across backends,

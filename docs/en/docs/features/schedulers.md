@@ -64,6 +64,9 @@ The delayed scanner:
    lifecycle transition
 3. sleeps for the configured interval
 
+Transient backend promotion errors are logged and retried on the next scan
+instead of stopping the scanner loop.
+
 `Queue.run()` and `run_worker(...)` start this scanner automatically.
 
 ## Repeatable Jobs
