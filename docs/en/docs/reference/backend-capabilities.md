@@ -49,6 +49,8 @@ All built-in backends implement `BaseBackend` methods used by:
 - broker delivery handled by RabbitMQ
 - metadata/state persistence delegated to a job store (Redis-backed by default)
 - durable repeatable schedules stored in the metadata job store
+- restart stalled recovery discovers queues through the metadata store and uses
+  RabbitMQ redelivery for unacknowledged broker messages
 - coordination quality depends on the metadata store lock implementation
 
 ## Choosing by Requirement

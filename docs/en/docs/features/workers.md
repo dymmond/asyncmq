@@ -214,10 +214,13 @@ This is equivalent in purpose to BullMQ's stalled job handling, but AsyncMQ
 also keeps `asyncmq.core.stalled.stalled_recovery_scheduler(...)` available when
 you deliberately want a separate recovery process.
 
-Redis, PostgreSQL, and MongoDB persist enough active-job state for a separate
-backend instance to release stale jobs after the original worker process exits.
-`InMemoryBackend` recovery is process-local and does not survive process
-restart.
+Redis, PostgreSQL, MongoDB, and RabbitMQ with the default Redis metadata store
+persist enough active-job state for a separate backend instance to release
+stale jobs after the original worker process exits. RabbitMQ recovery relies on
+broker redelivery for unacknowledged messages after restart, so it resets
+metadata instead of publishing a duplicate recovery message when no local
+delivery is available to acknowledge. `InMemoryBackend` recovery is
+process-local and does not survive process restart.
 
 ## Sandbox Execution
 

@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -345,6 +346,51 @@ async def test_reenqueue_stalled_acks_in_flight_delivery(backend, redis_store):
     recovered = await backend.dequeue("test_q")
     assert recovered is not None
     assert recovered["payload"]["id"] == "stalled-release"
+
+
+async def test_reenqueue_stalled_after_restart_uses_broker_redelivery(redis_store):
+    queue = "test_q_stalled_restart"
+    job_id = "stalled-restart"
+    payload = {"id": job_id, "task": "recover-after-restart"}
+    producer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    recovery = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    await producer.drain_queue(queue)
+    try:
+        await producer.enqueue(queue, payload)
+        message = await producer.dequeue(queue)
+        assert message is not None
+        assert (queue, job_id) in producer._in_flight
+
+        await producer.update_job_state(queue, job_id, State.ACTIVE)
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        assert queue in await recovery.list_queues()
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.WAITING
+        assert await recovery.dequeue(queue) is None
+
+        await producer.close()
+
+        recovered = None
+        for _ in range(10):
+            recovered = await recovery.dequeue(queue)
+            if recovered is not None:
+                break
+            await asyncio.sleep(0.1)
+
+        assert recovered is not None
+        assert recovered["payload"]["id"] == job_id
+        await recovery.ack(queue, job_id)
+        assert await recovery.dequeue(queue) is None
+    finally:
+        await producer.close()
+        await recovery.drain_queue(queue)
+        await recovery.close()
 
 
 async def test_bulk_enqueue(backend):

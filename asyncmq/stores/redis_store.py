@@ -167,6 +167,17 @@ class RedisJobStore(BaseJobStore):
         # Return the filtered list of jobs.
         return filtered_jobs
 
+    async def list_queues(self) -> list[str]:
+        """
+        Return queue names that have metadata entries in this Redis store.
+        """
+        queues: set[str] = set()
+        async for raw_key in self.redis.scan_iter(match="jobs:*:ids"):
+            key = raw_key.decode() if isinstance(raw_key, (bytes, bytearray)) else raw_key
+            if isinstance(key, str) and key.startswith("jobs:") and key.endswith(":ids"):
+                queues.add(key[len("jobs:") : -len(":ids")])
+        return sorted(queues)
+
     async def create_lock(self, key: str, ttl: int) -> redis.lock.Lock:
         """
         Create a Redis-backed distributed lock for metadata coordination.

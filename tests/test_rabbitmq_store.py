@@ -39,3 +39,10 @@ async def test_all_jobs_and_jobs_by_status(redis_store):
 
     waiting = await redis_store.jobs_by_status("q2", "waiting")
     assert all(j.get("status") == "waiting" for j in waiting)
+
+
+async def test_list_queues_discovers_persisted_metadata(redis_store):
+    await redis_store.save("q1", "j1", {"status": "waiting"})
+    await redis_store.save("q2", "j2", {"status": "active"})
+
+    assert await redis_store.list_queues() == ["q1", "q2"]

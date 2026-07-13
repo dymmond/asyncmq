@@ -1270,8 +1270,25 @@ class RabbitMQBackend(BaseBackend):
         payload = dict(job_data.get("payload", job_data))
         payload["status"] = State.WAITING
         payload["id"] = job_data.get("id", payload.get("id"))
+        job_id = str(payload["id"])
+        async with self._in_flight_lock:
+            has_local_delivery = (queue_name, job_id) in self._in_flight
+
+        if not has_local_delivery:
+            await self._state.save(
+                queue_name,
+                job_id,
+                {
+                    "id": job_id,
+                    "payload": payload,
+                    "status": State.WAITING,
+                },
+            )
+            self._known_queues.add(queue_name)
+            return
+
         await self.enqueue(queue_name, payload)
-        await self._ack_in_flight(queue_name, str(payload["id"]))
+        await self._ack_in_flight(queue_name, job_id)
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
@@ -1303,8 +1320,11 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             A list of strings, where each string is the name of a queue.
         """
-        # Delegate the listing of queues to the job store.
-        return sorted(self._known_queues)
+        queue_names = set(self._known_queues)
+        list_queues = getattr(self._state, "list_queues", None)
+        if callable(list_queues):
+            queue_names.update(await cast(Any, list_queues)())
+        return sorted(queue_names)
 
     async def close(self) -> None:
         """

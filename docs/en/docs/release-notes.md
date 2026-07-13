@@ -48,6 +48,9 @@
 - MongoDB now persists active-job heartbeat timestamps in job documents and
   indexes active heartbeat scans, allowing a separate recovery process to
   release stale active jobs after the original worker process exits.
+- RabbitMQ stalled recovery now discovers queues from persisted metadata after
+  backend restart and avoids publishing a duplicate recovery message when
+  RabbitMQ broker redelivery already owns the unacknowledged delivery.
 
 ## 0.8.1
 
