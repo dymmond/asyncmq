@@ -307,6 +307,9 @@ class RabbitMQBackend(BaseBackend):
                 continue
             stored = await self._state.load(queue_name, job_id)
             candidate = self._normalize_stored_job(stored) if stored else payload
+            if candidate.get("status") == "cancelled":
+                await msg.ack()
+                continue
             if self._has_stale_delivery_token(payload, candidate):
                 await msg.ack()
                 continue
@@ -378,7 +381,7 @@ class RabbitMQBackend(BaseBackend):
 
     async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
         job_id = str(payload["id"])
-        if await self._is_removed_job(queue_name, job_id):
+        if await self._is_removed_job(queue_name, job_id) or await self.is_job_cancelled(queue_name, job_id):
             await self._ack_in_flight(queue_name, job_id)
             return
         completed_payload = {**payload, "status": State.COMPLETED, "result": result}
@@ -402,7 +405,7 @@ class RabbitMQBackend(BaseBackend):
 
     async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         job_id = str(payload["id"])
-        if await self._is_removed_job(queue_name, job_id):
+        if await self._is_removed_job(queue_name, job_id) or await self.is_job_cancelled(queue_name, job_id):
             await self._ack_in_flight(queue_name, job_id)
             return
         delayed_payload = {**payload, "status": State.DELAYED, "delay_until": run_at}
@@ -446,7 +449,7 @@ class RabbitMQBackend(BaseBackend):
             payload: The payload of the job that failed, including its 'id'.
         """
         job_id = str(payload["id"])
-        if await self._is_removed_job(queue_name, job_id):
+        if await self._is_removed_job(queue_name, job_id) or await self.is_job_cancelled(queue_name, job_id):
             return
         dlq_name = f"{queue_name}.dlq"
         await self._clear_removed_job(dlq_name, job_id)
@@ -1087,8 +1090,19 @@ class RabbitMQBackend(BaseBackend):
         entry = await self._state.load(queue_name, job_id)
         if not entry:
             return False
+        payload = dict(entry.get("payload", entry)) if isinstance(entry.get("payload", entry), dict) else {}
+        payload["id"] = job_id
+        payload["status"] = "cancelled"
         entry["status"] = "cancelled"
+        entry["payload"] = payload
+        entry.pop("result", None)
+        await self._remove_ready_messages_by_id(queue_name, job_id)
+        await self._remove_ready_messages_by_id(f"{queue_name}.dlq", job_id)
         await self._state.save(queue_name, job_id, entry)
+        async with self._in_flight_lock:
+            msg = self._in_flight.pop((queue_name, job_id), None)
+        if msg is not None and not getattr(msg, "processed", False):
+            await msg.ack()
         return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
@@ -1329,7 +1343,7 @@ class RabbitMQBackend(BaseBackend):
             timestamp: The Unix timestamp (float) of the heartbeat.
         """
         # Load the existing job entry or create an empty dictionary if not found.
-        if await self._is_removed_job(queue_name, job_id):
+        if await self._is_removed_job(queue_name, job_id) or await self.is_job_cancelled(queue_name, job_id):
             return
         entry = await self._store_entry(queue_name, job_id)
         entry["heartbeat"] = timestamp  # Update the heartbeat timestamp.

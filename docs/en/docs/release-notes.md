@@ -78,6 +78,9 @@
 - MongoDB cancellation markers are now persisted in MongoDB and checked during
   dequeue and lifecycle transitions, so separate backend instances no longer
   claim cancelled jobs or overwrite cancellation with late completion.
+- RabbitMQ cancellation now updates canonical payload metadata, removes ready
+  broker deliveries, suppresses cancelled deliveries during dequeue, and
+  preserves cancellation when active owners finish late.
 - Dependency flow creation now keeps unresolved children in `waiting-children`
   instead of runnable waiting queues across the built-in backends, and
   dependency resolution promotes children only after the last parent completes.

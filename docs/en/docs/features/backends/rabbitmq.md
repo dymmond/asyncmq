@@ -53,6 +53,9 @@ RabbitMQBackend(
 - Published deliveries include backend-managed delivery tokens. Removed jobs
   leave durable markers so stale broker redeliveries are acknowledged and
   ignored, while an explicit new enqueue with the same id receives a new token.
+- Cancelled jobs keep cancelled metadata, remove ready broker deliveries, and
+  acknowledge local active ownership without allowing late lifecycle writes to
+  overwrite the cancellation.
 - DLQ publish uses `<queue>.dlq`.
 - worker and queue metadata are maintained in the configured job store.
 

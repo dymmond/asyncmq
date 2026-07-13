@@ -61,6 +61,9 @@ RabbitMQ:
 - worker lifecycle transitions are backend-owned and persist metadata before
   acknowledging broker deliveries; RabbitMQ broker state and metadata storage
   are not a single distributed transaction
+- cancellation updates metadata, removes ready broker deliveries, acknowledges
+  locally owned active deliveries, and prevents late lifecycle writes from
+  overwriting cancellation
 - stalled recovery publishes a tokenized replacement delivery when the original
   broker delivery is still owned by another connection, and stale broker
   redeliveries are acknowledged and ignored after recovery

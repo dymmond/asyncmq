@@ -195,6 +195,43 @@ async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     assert await backend.retry_job("test_q", "j6")
 
 
+async def test_cancel_job_suppresses_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "cancel-ready", "task": "cancel"}
+    await backend.enqueue("test_q", payload)
+
+    assert await backend.cancel_job("test_q", "cancel-ready") is True
+
+    stored = await redis_store.load("test_q", "cancel-ready")
+    assert stored["status"] == "cancelled"
+    assert stored["payload"]["status"] == "cancelled"
+    assert await backend.dequeue("test_q") is None
+    assert await backend.is_job_cancelled("test_q", "cancel-ready") is True
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_rabbitmq_marker(redis_store):
+    queue_name = "test_q"
+    job_id = "cancel-active-complete"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "cancel-active"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.cancel_job(queue_name, job_id) is True
+        await owner.complete_active_job(queue_name, claimed["payload"], {"ok": True})
+
+        stored = await redis_store.load(queue_name, job_id)
+        assert stored["status"] == "cancelled"
+        assert stored["payload"]["status"] == "cancelled"
+        assert "result" not in stored
+        assert (queue_name, job_id) not in owner._in_flight
+    finally:
+        await owner.close()
+        await admin.close()
+
+
 async def test_remove_job_removes_ready_broker_delivery(backend, redis_store):
     payload = {"id": "remove-ready", "task": "remove"}
     await backend.enqueue("test_q", payload)
