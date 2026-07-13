@@ -9,6 +9,7 @@ AsyncMQ ships two benchmark entrypoints:
 ```shell
 hatch run benchmark_plan
 hatch run benchmark
+hatch run benchmark_load
 ```
 
 `benchmark_plan` prints the canonical workload dimensions, measurement policy,
@@ -20,6 +21,20 @@ so it can run before optional competitor dependencies are installed.
 covers job object creation/serialization and the `InMemoryBackend` operation
 path. Treat those numbers as AsyncMQ core/runtime microbenchmarks, not as
 networked broker or competitive production throughput results.
+
+`benchmark_load` runs a parameterized AsyncMQ in-memory load benchmark and
+prints JSON with enqueue latency, total latency, throughput, worker count,
+concurrency, payload size, completed jobs, and failed jobs. Use it for local
+runtime smoke measurements before moving to real backend and competitor runs:
+
+```shell
+hatch run python -m benchmarks.load_asyncmq \
+  --jobs 10000 \
+  --workers 100 \
+  --concurrency 1 \
+  --payload-bytes 128 \
+  --json
+```
 
 For competitive runs, install the external queue libraries and brokers in the
 same environment, then require availability before recording results:
@@ -51,6 +66,8 @@ settings, and machine shape attached to every published result.
 Do not compare AsyncMQ with Celery, Dramatiq, Arq, RQ, or Huey unless all
 competitor libraries and required brokers were present in the measured
 environment and the same workload dimensions were used for every system.
+In-memory load results are useful for runtime regression detection, but they are
+not a substitute for broker-backed measurements.
 
 ## Primary Levers
 

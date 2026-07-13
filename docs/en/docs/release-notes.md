@@ -22,6 +22,9 @@
   cancellation, expiration, and backend caveats.
 - Deployment guidance now covers process separation, Docker images, Kubernetes
   probes, rolling worker restarts, backend readiness, and recovery expectations.
+- Benchmark tooling now includes a parameterized AsyncMQ in-memory load runner
+  that emits JSON throughput and latency measurements for local regression
+  checks.
 
 ### Fixed
 
