@@ -90,6 +90,9 @@ and max. Use `time.perf_counter_ns` for local timing, and record CPU, RSS,
 queue depth, and recovery time alongside latency and throughput. Keep broker
 versions, Python version, worker concurrency, connection pool sizes, durability
 settings, and machine shape attached to every published result.
+For competitive runs, `total_latency_ns` and throughput are measured from
+enqueue start until all jobs complete, with workers already running for every
+target.
 
 Do not compare AsyncMQ with Celery, Dramatiq, Arq, RQ, or Huey unless all
 competitor libraries and required brokers were present in the measured

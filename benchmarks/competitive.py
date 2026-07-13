@@ -59,7 +59,8 @@ class CompetitiveResult:
     max_rss_kb: int | None
     completed: int
     failed: int
-    samples: list[dict[str, int | float | None]]
+    timed_out: bool
+    samples: list[dict[str, int | float | bool | None]]
     statistics: dict[str, dict[str, int | float]]
 
 
@@ -231,7 +232,7 @@ async def _run_asyncmq_sample(
     redis_url: str,
     queue: str,
     run_id: str,
-) -> dict[str, int | float | None]:
+) -> dict[str, int | float | bool | None]:
     from redis.asyncio import Redis
 
     payload = "x" * payload_bytes
@@ -243,21 +244,20 @@ async def _run_asyncmq_sample(
 
     try:
         cpu_user_start, cpu_system_start, _ = _resource_snapshot()
-        worker_start = time.perf_counter_ns()
-        worker_startup_ns = time.perf_counter_ns() - worker_start
-
-        enqueue_start = time.perf_counter_ns()
-        for index in range(jobs):
-            job = Job(task_id=ASYNCMQ_TASK_ID, args=[payload, run_id], kwargs={}, job_id=f"{run_id}-{index}")
-            await backend.enqueue(queue, job.to_dict())
-        enqueue_latency_ns = time.perf_counter_ns() - enqueue_start
-
-        total_start = time.perf_counter_ns()
         async with anyio.create_task_group() as tg:
+            worker_start = time.perf_counter_ns()
             for _ in range(workers):
                 tg.start_soon(process_job, queue, anyio.CapacityLimiter(concurrency), None, backend)
+            worker_startup_ns = time.perf_counter_ns() - worker_start
 
-            with anyio.fail_after(timeout):
+            enqueue_start = time.perf_counter_ns()
+            total_start = enqueue_start
+            for index in range(jobs):
+                job = Job(task_id=ASYNCMQ_TASK_ID, args=[payload, run_id], kwargs={}, job_id=f"{run_id}-{index}")
+                await backend.enqueue(queue, job.to_dict())
+            enqueue_latency_ns = time.perf_counter_ns() - enqueue_start
+
+            with anyio.move_on_after(timeout) as scope:
                 while int(await counter.get(_completion_key(run_id)) or 0) < jobs:
                     await anyio.sleep(0.01)
             tg.cancel_scope.cancel()
@@ -283,6 +283,7 @@ async def _run_asyncmq_sample(
             "max_rss_kb": max_rss_kb,
             "completed": completed,
             "failed": jobs - completed,
+            "timed_out": scope.cancel_called,
         }
     finally:
         await backend.redis.aclose()
@@ -440,7 +441,7 @@ async def _run_external_sample(
     queue: str,
     run_id: str,
     worker_startup_delay: float,
-) -> dict[str, int | float | None]:
+) -> dict[str, int | float | bool | None]:
     from redis import Redis
 
     counter = Redis.from_url(redis_url)
@@ -462,6 +463,7 @@ async def _run_external_sample(
         if exited:
             raise RuntimeError(f"{target} worker exited before jobs were enqueued: return_codes={exited}")
         worker_startup_ns = time.perf_counter_ns() - worker_start
+        total_start = time.perf_counter_ns()
         enqueue_latency_ns = await _enqueue_external(
             target,
             target_python=target_python,
@@ -472,8 +474,7 @@ async def _run_external_sample(
             redis_url=redis_url,
         )
 
-        total_start = time.perf_counter_ns()
-        with anyio.fail_after(timeout):
+        with anyio.move_on_after(timeout) as scope:
             while int(counter.get(_completion_key(run_id)) or 0) < jobs:
                 await anyio.sleep(0.01)
         total_latency_ns = time.perf_counter_ns() - total_start
@@ -498,6 +499,7 @@ async def _run_external_sample(
         "max_rss_kb": max_rss_kb,
         "completed": completed,
         "failed": jobs - completed,
+        "timed_out": scope.cancel_called,
     }
 
 
@@ -552,7 +554,7 @@ async def run_target(
                 worker_startup_delay=worker_startup_delay,
             )
 
-    samples: list[dict[str, int | float | None]] = []
+    samples: list[dict[str, int | float | bool | None]] = []
     for _ in range(repetitions):
         run_id = f"sample-{uuid4().hex}"
         if target == "asyncmq":
@@ -602,6 +604,7 @@ async def run_target(
         max_rss_kb=int(stats["max_rss_kb"]["max"]) if "max_rss_kb" in stats else None,
         completed=int(min(sample["completed"] or 0 for sample in samples)),
         failed=int(max(sample["failed"] or 0 for sample in samples)),
+        timed_out=any(bool(sample.get("timed_out")) for sample in samples),
         samples=samples,
         statistics=stats,
     )

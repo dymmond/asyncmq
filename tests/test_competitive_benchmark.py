@@ -4,6 +4,7 @@ import sys
 import pytest
 import redis.asyncio as async_redis
 
+import benchmarks.competitive as competitive
 from benchmarks.competitive import (
     TARGETS,
     _asyncmq_counter_client,
@@ -90,3 +91,41 @@ async def test_asyncmq_benchmark_counter_uses_blocking_pool():
         assert isinstance(client.connection_pool, async_redis.BlockingConnectionPool)
     finally:
         await _close_asyncmq_counter(redis_url)
+
+
+async def test_competitive_runner_records_timed_out_samples(monkeypatch):
+    async def fake_sample(**kwargs):
+        return {
+            "enqueue_latency_ns": 1,
+            "total_latency_ns": 10,
+            "throughput_jobs_per_second": 0.1,
+            "worker_startup_ns": 1,
+            "cpu_user_seconds": 0.0,
+            "cpu_system_seconds": 0.0,
+            "max_rss_kb": 1,
+            "completed": 1,
+            "failed": 4,
+            "timed_out": True,
+        }
+
+    monkeypatch.setattr(competitive, "_run_asyncmq_sample", fake_sample)
+
+    result = await run_target(
+        target="asyncmq",
+        target_python=sys.executable,
+        workload="unit-timeout",
+        jobs=5,
+        workers=1,
+        concurrency=1,
+        payload_bytes=16,
+        timeout=0.01,
+        warmup_jobs=0,
+        repetitions=1,
+        redis_url="redis://localhost:6379/15",
+        worker_startup_delay=0.0,
+    )
+
+    assert result.timed_out is True
+    assert result.completed == 1
+    assert result.failed == 4
+    assert result.samples[0]["timed_out"] is True

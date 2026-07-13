@@ -33,6 +33,8 @@
   cross-process waiting/delayed state.
 - Redis hot paths now avoid queue scans and apply bounded client-pool
   backpressure under high worker fanout.
+- Competitive benchmarks now measure comparable end-to-end completion latency
+  with workers running before enqueue.
 - Worker and scheduler loops now tolerate transient heartbeat, delayed-scan,
   repeatable-schedule, and lifecycle-event listener failures without stopping
   unrelated job processing.
