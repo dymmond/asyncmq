@@ -20,7 +20,9 @@ class SimpleUsernamePasswordBackend(AuthBackend):
     def __init__(self, verify: t.Callable[[str, str], dict | None] | None = None):
         # default "verify" for convenience
         self.verify = verify or (
-            lambda u, p: {"id": "admin", "name": "Admin"} if (u == "admin" and p == "secret") else None
+            lambda u, p: (
+                {"id": "admin", "name": "Admin", "is_admin": True} if (u == "admin" and p == "secret") else None
+            )
         )
 
     async def authenticate(self, request: Request) -> dict | None:

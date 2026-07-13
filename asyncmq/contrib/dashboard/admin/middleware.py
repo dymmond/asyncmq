@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 from lilya.requests import Request
@@ -8,6 +8,61 @@ from lilya.responses import PlainText, RedirectResponse, Response
 from lilya.types import ASGIApp, Receive, Scope, Send
 
 AuthenticateCallable = Callable[[Request], Awaitable[Any | None]]
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in TRUTHY_VALUES
+    return bool(value)
+
+
+def _coerce_roles(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, Mapping):
+        return {str(role) for role in value if role}
+    if isinstance(value, Iterable):
+        return {str(role) for role in value if role}
+    return {str(value)}
+
+
+def _user_roles(user: Any) -> set[str]:
+    roles: set[str] = set()
+    if isinstance(user, Mapping):
+        roles.update(_coerce_roles(user.get("roles")))
+        roles.update(_coerce_roles(user.get("role")))
+        claims = user.get("claims")
+        if isinstance(claims, Mapping):
+            roles.update(_coerce_roles(claims.get("roles")))
+            roles.update(_coerce_roles(claims.get("role")))
+        return roles
+
+    roles.update(_coerce_roles(getattr(user, "roles", None)))
+    extra = getattr(user, "extra", None)
+    if isinstance(extra, Mapping):
+        roles.update(_coerce_roles(extra.get("roles")))
+        roles.update(_coerce_roles(extra.get("role")))
+    return roles
+
+
+def _user_is_admin(user: Any) -> bool:
+    roles = _user_roles(user)
+    if "admin" in roles or "asyncmq:admin" in roles:
+        return True
+
+    if isinstance(user, Mapping):
+        admin_value = user.get("is_admin")
+        claims = user.get("claims")
+        if admin_value is None and isinstance(claims, Mapping):
+            admin_value = claims.get("is_admin", claims.get("admin"))
+        return _truthy(admin_value)
+
+    return _truthy(getattr(user, "is_admin", False))
 
 
 class AuthGateMiddleware:
@@ -28,6 +83,8 @@ class AuthGateMiddleware:
         login_path: str = "/login",
         allowlist: Iterable[str] = ("/login", "/logout", "/static", "/assets"),
         enforce_same_origin: bool = True,
+        require_admin: bool = True,
+        required_roles: Iterable[str] = (),
     ) -> None:
         """
         Initializes the AuthGateMiddleware.
@@ -42,12 +99,17 @@ class AuthGateMiddleware:
                        require authentication. Defaults include login/logout/static assets.
             enforce_same_origin: If True, unsafe authenticated requests must come
                        from the same origin as the dashboard host.
+            require_admin: If True, authenticated users must be admins.
+            required_roles: Optional role allowlist. When provided, the user
+                       must have at least one required role.
         """
         self.app: ASGIApp = app
         self.authenticate: AuthenticateCallable = authenticate
         self.login_path: str = login_path
         self.allowlist: tuple[str, ...] = tuple(allowlist)
         self.enforce_same_origin = enforce_same_origin
+        self.require_admin = require_admin
+        self.required_roles = frozenset(str(role) for role in required_roles)
 
     def _is_same_origin(self, request: Request) -> bool:
         origin = request.headers.get("origin")
@@ -95,6 +157,15 @@ class AuthGateMiddleware:
 
         user: Any | None = await self.authenticate(request)
         if user:
+            if self.require_admin and not _user_is_admin(user):
+                response = PlainText("Dashboard user is not authorized", status_code=403)
+                await response(scope, receive, send)
+                return
+            roles = _user_roles(user)
+            if self.required_roles and roles.isdisjoint(self.required_roles):
+                response = PlainText("Dashboard user is not authorized", status_code=403)
+                await response(scope, receive, send)
+                return
             if self.enforce_same_origin and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
                 if not self._is_same_origin(request):
                     response = PlainText("Cross-origin dashboard request rejected", status_code=403)

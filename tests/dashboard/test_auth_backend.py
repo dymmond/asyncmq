@@ -20,7 +20,9 @@ class SimpleUsernamePasswordBackend(AuthBackend):
     def __init__(self, verify: t.Callable[[str, str], dict | None] | None = None):
         # default "verify" for convenience
         self.verify = verify or (
-            lambda u, p: {"id": "admin", "name": "Admin"} if (u == "admin" and p == "secret") else None
+            lambda u, p: (
+                {"id": "admin", "name": "Admin", "is_admin": True} if (u == "admin" and p == "secret") else None
+            )
         )
 
     async def authenticate(self, request: Request) -> dict | None:
@@ -63,7 +65,7 @@ class HeaderTokenBackend(AuthBackend):
 
     async def authenticate(self, request: Request) -> dict | None:
         user = request.headers.get(self.header)
-        return {"id": user, "name": user} if user else None
+        return {"id": user, "name": user, "is_admin": True} if user else None
 
     async def login(self, request: Request) -> Response:
         # For header-only flows, just show a tiny page explaining how to auth.

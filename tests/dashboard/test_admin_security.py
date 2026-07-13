@@ -8,9 +8,16 @@ from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
 
 
 class HeaderBackend(AuthBackend):
-    async def authenticate(self, request: Request) -> dict[str, str] | None:
+    async def authenticate(self, request: Request) -> dict[str, object] | None:
         user = request.headers.get("X-Authenticated-User")
-        return {"id": user, "name": user} if user else None
+        if not user:
+            return None
+        return {
+            "id": user,
+            "name": user,
+            "is_admin": request.headers.get("X-Authenticated-Admin", "true"),
+            "roles": request.headers.get("X-Authenticated-Roles", "").split(","),
+        }
 
     async def login(self, request: Request) -> Response:
         return HTMLResponse("Header auth required")
@@ -129,3 +136,73 @@ def test_auth_gate_same_origin_enforcement_can_be_disabled():
     )
 
     assert response.status_code != 403
+
+
+def test_auth_gate_rejects_authenticated_non_admin_by_default():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get(
+        "/asyncmq/",
+        headers={
+            "X-Authenticated-User": "alice",
+            "X-Authenticated-Admin": "false",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
+
+
+def test_auth_gate_allows_required_role_when_admin_check_disabled():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+            require_admin=False,
+            required_roles=("ops",),
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get(
+        "/asyncmq/",
+        headers={
+            "X-Authenticated-User": "alice",
+            "X-Authenticated-Admin": "false",
+            "X-Authenticated-Roles": "viewer,ops",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+
+
+def test_auth_gate_rejects_missing_required_role():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+            require_admin=False,
+            required_roles=("ops",),
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get(
+        "/asyncmq/",
+        headers={
+            "X-Authenticated-User": "alice",
+            "X-Authenticated-Roles": "viewer",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"

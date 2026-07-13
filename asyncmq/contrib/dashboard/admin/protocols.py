@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 from lilya.requests import Request
 from lilya.responses import Response
+
+
+def _normalize_roles(roles: Iterable[str] | str | None) -> tuple[str, ...]:
+    if roles is None:
+        return ()
+    if isinstance(roles, str):
+        return (roles,)
+    return tuple(str(role) for role in roles if role)
 
 
 class User:
@@ -14,7 +23,14 @@ class User:
     authentication and attached to the request state.
     """
 
-    def __init__(self, id: str | int, name: str, is_admin: bool = True, **extra: Any):
+    def __init__(
+        self,
+        id: str | int,
+        name: str,
+        is_admin: bool = True,
+        roles: Iterable[str] | str | None = None,
+        **extra: Any,
+    ):
         """
         Initializes the User object.
 
@@ -22,11 +38,13 @@ class User:
             id: The unique identifier for the user.
             name: The display name of the user.
             is_admin: Boolean indicating if the user has administrative privileges (default: True).
+            roles: Optional role names used by dashboard RBAC checks.
             **extra: Additional, arbitrary user data to store (e.g., email, roles).
         """
         self.id: str | int = id
         self.name: str = name
         self.is_admin: bool = is_admin
+        self.roles: tuple[str, ...] = _normalize_roles(roles)
         self.extra: dict[str, Any] = extra
 
 

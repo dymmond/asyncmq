@@ -10,9 +10,18 @@ except ImportError:
 from lilya.requests import Request
 from lilya.responses import HTMLResponse, RedirectResponse, Response
 
-from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+from asyncmq.contrib.dashboard.admin.protocols import AuthBackend, User
 
 MIN_HMAC_SECRET_BYTES = 32
+TRUTHY_CLAIM_VALUES = {"1", "true", "yes", "on"}
+
+
+def _truthy_claim(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in TRUTHY_CLAIM_VALUES
+    return bool(value)
 
 
 class JWTAuthBackend(AuthBackend):
@@ -49,6 +58,8 @@ class JWTAuthBackend(AuthBackend):
         scheme: str = "Bearer",
         user_claim: str = "sub",
         user_name_claim: str = "name",
+        admin_claim: str = "is_admin",
+        roles_claim: str = "roles",
         leeway: int | float = 0,
         verify_options: dict[str, bool] | None = None,
     ) -> None:
@@ -64,6 +75,8 @@ class JWTAuthBackend(AuthBackend):
             scheme: The expected scheme prefix (e.g., "Bearer").
             user_claim: The claim key used to extract the user's unique ID (default: "sub").
             user_name_claim: The claim key used to extract the user's display name (default: "name").
+            admin_claim: The claim key used to determine dashboard admin authorization.
+            roles_claim: The claim key used to extract dashboard role names.
             leeway: Number of seconds of clock skew to allow during time validation.
             verify_options: Dictionary of options passed directly to `jwt.decode` for validation control
                             (e.g., `{"verify_exp": True}`). Defaults to `{"verify_exp": True}`.
@@ -82,10 +95,12 @@ class JWTAuthBackend(AuthBackend):
         self.scheme: str = scheme
         self.user_claim: str = user_claim
         self.user_name_claim: str = user_name_claim
+        self.admin_claim: str = admin_claim
+        self.roles_claim: str = roles_claim
         self.leeway: int | float = leeway
         self.verify_options: dict[str, bool] = verify_options or {"verify_exp": True}
 
-    async def authenticate(self, request: Request) -> dict[str, Any] | None:
+    async def authenticate(self, request: Request) -> User | None:
         """
         Extracts the token from the configured header, decodes and validates it,
         and returns user data if successful.
@@ -131,8 +146,13 @@ class JWTAuthBackend(AuthBackend):
 
         user_name: str = cast(str | None, payload.get(self.user_name_claim)) or user_id
 
-        # Expose claims for templates/logic if needed
-        return {"id": user_id, "name": user_name, "claims": payload}
+        return User(
+            id=user_id,
+            name=user_name,
+            is_admin=_truthy_claim(payload.get(self.admin_claim, False)),
+            roles=payload.get(self.roles_claim),
+            claims=payload,
+        )
 
     async def login(self, request: Request) -> Response:
         """

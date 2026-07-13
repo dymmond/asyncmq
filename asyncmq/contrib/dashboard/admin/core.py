@@ -37,6 +37,8 @@ class AsyncMQAdmin:
         cors_allow_headers: tuple[str, ...] | None = None,
         cors_allow_credentials: bool | None = None,
         enforce_same_origin: bool = True,
+        require_admin: bool = True,
+        required_roles: tuple[str, ...] = (),
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -48,8 +50,12 @@ class AsyncMQAdmin:
             backend: The authentication backend implementing `AuthBackend` methods (required if `enable_login` is True).
             url_prefix: The base URL path where the dashboard should be mounted (e.g., "/asyncmq").
                         Defaults to the value from `monkay.settings.dashboard_config`.
-            scheduler: The active `AsyncIOScheduler` instance to manage. If None, a new
-                       default scheduler is created (in-memory store).
+            enforce_same_origin: If True, reject authenticated unsafe requests
+                        whose Origin does not match the dashboard host.
+            require_admin: If True, authenticated users must expose admin
+                        privileges before dashboard access is allowed.
+            required_roles: Optional role names; when provided, authenticated
+                        users must have at least one of these roles.
 
         Raises:
             ValueError: If `enable_login` is True but no `backend` is provided.
@@ -71,6 +77,8 @@ class AsyncMQAdmin:
         self.cors_allow_headers = cors_allow_headers
         self.cors_allow_credentials = cors_allow_credentials
         self.enforce_same_origin = enforce_same_origin
+        self.require_admin = require_admin
+        self.required_roles = required_roles
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -122,6 +130,8 @@ class AsyncMQAdmin:
                     login_path=self.login_path,
                     allowlist=self.allowlist,
                     enforce_same_origin=self.enforce_same_origin,
+                    require_admin=self.require_admin,
+                    required_roles=self.required_roles,
                 )
             )
 

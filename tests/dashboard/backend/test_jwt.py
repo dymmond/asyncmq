@@ -43,6 +43,8 @@ def _make_token(
     *,
     sub: str = "alice",
     name: str = "Alice",
+    is_admin: bool | None = True,
+    roles: list[str] | None = None,
     secret: str = JWT_SECRET,
     exp_in_seconds: int = 300,
     audience: str | None = None,
@@ -55,6 +57,10 @@ def _make_token(
         "iat": now,
         "exp": now + exp_in_seconds,
     }
+    if is_admin is not None:
+        payload["is_admin"] = is_admin
+    if roles is not None:
+        payload["roles"] = roles
     if audience is not None:
         payload["aud"] = audience
     if issuer is not None:
@@ -82,6 +88,18 @@ def test_jwt_backend_accepts_valid_token(client: TestClient):
 
     # loose check — content depends on templates
     assert "Alice" in response.text or "Dashboard" in response.text
+
+
+def test_jwt_backend_rejects_token_without_admin_authorization(client: TestClient):
+    token = _make_token(is_admin=None)
+    response = client.get(
+        "/asyncmq/",
+        headers={"Authorization": f"Bearer {token}"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
 
 
 def test_jwt_backend_rejects_bad_token(client: TestClient):

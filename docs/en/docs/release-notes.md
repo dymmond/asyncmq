@@ -27,6 +27,8 @@
   checks.
 - Worker execution can now emit optional OpenTelemetry spans with queue, task,
   retry, priority, status, and exception attributes when tracing is enabled.
+- Dashboard authentication now includes an authorization gate for admin users
+  and optional role allowlists.
 
 ### Fixed
 

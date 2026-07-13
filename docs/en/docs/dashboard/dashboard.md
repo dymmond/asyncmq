@@ -271,10 +271,16 @@ Built-ins:
 
 See [Authentication Backends](jwt.md).
 
+Dashboard access also enforces authorization. By default, authenticated users
+must be dashboard admins (`require_admin=True`). For role-based deployments,
+pass `required_roles=("ops", "asyncmq:admin")` and set `require_admin=False`
+when role membership alone should grant access.
+
 ## Production Guidance
 
 - Keep dashboard behind authentication and HTTPS.
 - Use non-default session/JWT secrets.
+- Require explicit dashboard admin or operator roles from your identity provider.
 - Restrict dashboard network exposure to operator/admin paths.
 - Treat dashboard actions as operational controls and keep an audit review process.
 - Use external observability for long-term analytics/retention.
