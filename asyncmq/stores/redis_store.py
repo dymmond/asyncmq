@@ -1,8 +1,15 @@
+import base64
+import binascii
+import zlib
 from typing import Any, cast
 
 import redis.asyncio as redis
 
 from asyncmq.stores.base import BaseJobStore
+
+COMPRESSED_PAYLOAD_PREFIX = "asyncmq:zlib-json:v1:"
+PAYLOAD_SPLIT_MIN_BYTES = 64 * 1024
+PAYLOAD_FIELDS = ("args", "kwargs")
 
 
 class RedisJobStore(BaseJobStore):
@@ -62,6 +69,42 @@ class RedisJobStore(BaseJobStore):
         # Return the formatted Redis key for the set of job IDs for a queue.
         return f"jobs:{queue_name}:ids"
 
+    def _payload_key(self, queue_name: str, job_id: str) -> str:
+        return f"{self._key(queue_name, job_id)}:payload"
+
+    def _encode_payload_text(self, payload_json: str) -> str:
+        raw = payload_json.encode("utf-8")
+        compressed = zlib.compress(raw)
+        encoded = base64.b64encode(compressed).decode("ascii")
+        candidate = f"{COMPRESSED_PAYLOAD_PREFIX}{encoded}"
+        return candidate if len(candidate.encode("utf-8")) < len(raw) else payload_json
+
+    def _decode_payload_text(self, payload_text: str) -> str:
+        if not payload_text.startswith(COMPRESSED_PAYLOAD_PREFIX):
+            return payload_text
+        encoded = payload_text[len(COMPRESSED_PAYLOAD_PREFIX) :]
+        try:
+            return zlib.decompress(base64.b64decode(encoded.encode("ascii"), validate=True)).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, zlib.error) as exc:
+            raise ValueError("Invalid compressed Redis job payload") from exc
+
+    def encode_for_storage(self, data: dict[str, Any]) -> tuple[str, str | None]:
+        job_data_json: str = self._json_serializer.to_json(data)
+        payload_fields = {field: data[field] for field in PAYLOAD_FIELDS if field in data}
+        if len(job_data_json.encode("utf-8")) < PAYLOAD_SPLIT_MIN_BYTES or not payload_fields:
+            return job_data_json, None
+
+        metadata = {key: value for key, value in data.items() if key not in PAYLOAD_FIELDS}
+        payload_json = self._json_serializer.to_json(payload_fields)
+        return self._json_serializer.to_json(metadata), self._encode_payload_text(payload_json)
+
+    def decode_from_storage(self, metadata_text: str, payload_text: str | None = None) -> dict[str, Any]:
+        data = cast(dict[str, Any], self._json_serializer.to_dict(metadata_text))
+        if payload_text is None:
+            return data
+        payload_fields = cast(dict[str, Any], self._json_serializer.to_dict(self._decode_payload_text(payload_text)))
+        return {**data, **payload_fields}
+
     async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """
         Asynchronously saves the data for a specific job in Redis.
@@ -75,12 +118,15 @@ class RedisJobStore(BaseJobStore):
             job_id: The unique identifier of the job.
             data: The dictionary containing the job's data to be saved.
         """
-        # Serialize the job data dictionary to a JSON string.
-        job_data_json: str = self._json_serializer.to_json(data)
-        # Store the JSON data in Redis using the job's key.
-        await self.redis.set(self._key(queue_name, job_id), job_data_json)
-        # Add the job ID to the set of job IDs for this queue.
-        await self.redis.sadd(self._set_key(queue_name), job_id)
+        job_data_json, payload_text = self.encode_for_storage(data)
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.set(self._key(queue_name, job_id), job_data_json)
+        if payload_text is None:
+            pipe.delete(self._payload_key(queue_name, job_id))
+        else:
+            pipe.set(self._payload_key(queue_name, job_id), payload_text)
+        pipe.sadd(self._set_key(queue_name), job_id)
+        await pipe.execute()
 
     async def load(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
@@ -98,9 +144,13 @@ class RedisJobStore(BaseJobStore):
             contains valid JSON, otherwise None.
         """
         # Retrieve the raw JSON string from Redis using the job's key.
-        raw: str | None = await self.redis.get(self._key(queue_name, job_id))
-        # Parse the JSON string into a dictionary if it exists, otherwise return None.
-        return cast(dict[str, Any], self._json_serializer.to_dict(raw)) if raw else None
+        raw: str | bytes | None = await self.redis.get(self._key(queue_name, job_id))
+        if raw is None:
+            return None
+        payload_raw: str | bytes | None = await self.redis.get(self._payload_key(queue_name, job_id))
+        metadata_text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        payload_text = payload_raw.decode("utf-8") if isinstance(payload_raw, bytes) else payload_raw
+        return self.decode_from_storage(metadata_text, payload_text)
 
     async def delete(self, queue_name: str, job_id: str) -> None:
         """
@@ -114,7 +164,7 @@ class RedisJobStore(BaseJobStore):
             job_id: The unique identifier of the job.
         """
         # Delete the Redis key storing the job data.
-        await self.redis.delete(self._key(queue_name, job_id))
+        await self.redis.delete(self._key(queue_name, job_id), self._payload_key(queue_name, job_id))
         # Remove the job ID from the set of job IDs for this queue.
         await self.redis.srem(self._set_key(queue_name), job_id)
 

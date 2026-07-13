@@ -119,14 +119,21 @@ ENQUEUE_SCRIPT: str = """
 -- KEYS[4]: queue job-id set
 -- KEYS[5]: job state hash
 -- KEYS[6]: job result hash
+-- KEYS[7]: split payload key
 -- ARGV[1]: priority
--- ARGV[2]: canonical waiting job JSON
+-- ARGV[2]: canonical waiting job metadata JSON
 -- ARGV[3]: job id
+-- ARGV[4]: optional split payload text
 local priority = tonumber(ARGV[1])
 local sequence = redis.call('INCR', KEYS[2])
 local score = priority * 1000000000000 + sequence
 redis.call('ZADD', KEYS[1], score, ARGV[3])
 redis.call('SET', KEYS[3], ARGV[2])
+if ARGV[4] and ARGV[4] ~= '' then
+  redis.call('SET', KEYS[7], ARGV[4])
+else
+  redis.call('DEL', KEYS[7])
+end
 redis.call('SADD', KEYS[4], ARGV[3])
 redis.call('HSET', KEYS[5], ARGV[3], 'waiting')
 redis.call('HDEL', KEYS[6], ARGV[3])
@@ -776,6 +783,7 @@ class RedisBackend(BaseBackend):
 
         # Get job priority from the payload, defaulting to 5 if not provided.
         priority: int = int(waiting_payload.get("priority", 5))
+        job_data_json, payload_text = self.job_store.encode_for_storage(waiting_payload)
         await self._enqueue_script(
             keys=[
                 self._waiting_key(queue_name),
@@ -784,8 +792,9 @@ class RedisBackend(BaseBackend):
                 self._job_store_ids_key(queue_name),
                 self._job_state_key(queue_name),
                 self._job_result_key(queue_name),
+                self.job_store._payload_key(queue_name, job_id),
             ],
-            args=[priority, self._json_serializer.to_json(waiting_payload), job_id],
+            args=[priority, job_data_json, job_id, payload_text or ""],
         )
         return job_id
 
@@ -839,6 +848,11 @@ class RedisBackend(BaseBackend):
         if raw is None:
             return None
         payload = self._json_serializer.to_dict(raw)
+        if "args" not in payload or "kwargs" not in payload:
+            job_id = str(payload["id"])
+            stored = await self.job_store.load(queue_name, job_id)
+            if stored is not None:
+                payload = {**stored, "status": payload.get("status", stored.get("status"))}
         payload["active_since"] = active_since
         return payload
 

@@ -23,8 +23,8 @@
 - Backend behavior is aligned for priority/FIFO ordering, delayed promotion,
   dependency blocking, cancellation, retry cleanup, pause/resume, and
   RabbitMQ/MongoDB state handling.
-- Redis waiting queues now index job IDs and keep volatile state/result metadata
-  compact, reducing hot-path scans, memory pressure, and large-payload rewrites.
+- Redis waiting queues now index job IDs, keep lifecycle metadata compact, and
+  split/compress large payload fields outside Lua hot paths.
 - Redis dequeue now claims runnable jobs through one backend-owned transition.
 - Competitive benchmarks now bound stalled competitor workers and producers.
 - Competitive benchmark tasks use matching payload-byte counter updates.

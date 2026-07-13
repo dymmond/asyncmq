@@ -11,6 +11,7 @@ from asyncmq.backends.redis import RedisBackend
 from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
+from asyncmq.stores.redis_store import COMPRESSED_PAYLOAD_PREFIX
 
 pytestmark = pytest.mark.asyncio
 
@@ -87,6 +88,90 @@ async def test_enqueue_stores_waiting_member_as_job_id(redis):
     assert dequeued is not None
     assert dequeued["id"] == job.id
     assert dequeued["args"] == [body]
+
+
+async def test_redis_large_payload_uses_compressed_side_payload(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-compressed-payload"
+    body = "x" * 256_000
+    job = Job(task_id="redis.large.compressed", args=[body], kwargs={"marker": body}, job_id="redis-large-compressed")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    canonical = await redis.get(backend._job_store_key(queue, job.id))
+    payload = await redis.get(backend.job_store._payload_key(queue, job.id))
+
+    assert canonical is not None
+    assert payload is not None
+    assert body not in canonical
+    assert payload.startswith(COMPRESSED_PAYLOAD_PREFIX)
+
+    canonical_data = json.loads(canonical)
+    assert "args" not in canonical_data
+    assert "kwargs" not in canonical_data
+    assert canonical_data["id"] == job.id
+
+    stored = await backend.get_job(queue, job.id)
+    assert stored is not None
+    assert stored["args"] == [body]
+    assert stored["kwargs"] == {"marker": body}
+
+    dequeued = await backend.dequeue(queue)
+    assert dequeued is not None
+    assert dequeued["id"] == job.id
+    assert dequeued["args"] == [body]
+    assert dequeued["kwargs"] == {"marker": body}
+    assert dequeued["status"] == State.ACTIVE
+
+
+async def test_redis_small_payload_stays_inline_without_side_payload(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-small-inline-payload"
+    job = Job(task_id="redis.small.inline", args=["small"], kwargs={"marker": "small"}, job_id="redis-small-inline")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    canonical = await redis.get(backend._job_store_key(queue, job.id))
+    payload = await redis.get(backend.job_store._payload_key(queue, job.id))
+
+    assert canonical is not None
+    assert payload is None
+    canonical_data = json.loads(canonical)
+    assert canonical_data["args"] == ["small"]
+    assert canonical_data["kwargs"] == {"marker": "small"}
+    assert await backend.get_job(queue, job.id) == {**canonical_data, "status": State.WAITING}
+
+
+async def test_redis_dequeue_does_not_reload_inline_small_payload(redis, monkeypatch):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-small-inline-dequeue"
+    job = Job(task_id="redis.small.inline.dequeue", args=["small"], kwargs={}, job_id="redis-small-inline-dequeue")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    async def fail_load(*args, **kwargs):
+        raise AssertionError("inline dequeue should not reload the canonical job payload")
+
+    monkeypatch.setattr(backend.job_store, "load", fail_load)
+
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert payload["id"] == job.id
+    assert payload["args"] == ["small"]
+    assert payload["kwargs"] == {}
+
+
+async def test_redis_job_store_loads_legacy_inline_payload(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-legacy-inline-payload"
+    job = Job(task_id="redis.legacy.inline", args=["legacy"], kwargs={}, job_id="redis-legacy-inline").to_dict()
+
+    await redis.set(backend._job_store_key(queue, job["id"]), backend._json_serializer.to_json(job))
+    await redis.sadd(backend._job_store_ids_key(queue), job["id"])
+
+    stored = await backend.job_store.load(queue, job["id"])
+    assert stored == job
 
 
 async def test_dequeue_accepts_legacy_json_waiting_member(redis):

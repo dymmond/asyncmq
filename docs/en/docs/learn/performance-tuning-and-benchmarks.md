@@ -138,8 +138,8 @@ Track at least:
 
 - Redis: monitor latency, memory, and key cardinality. Ready queues index job
   IDs, runnable jobs are claimed with one Redis-side transition, and
-  state/result changes use compact metadata; payload size still affects
-  canonical job storage and network transfer.
+  state/result changes use compact metadata. Large `args`/`kwargs` fields are
+  split from the Lua-readable metadata and compressed when beneficial.
 - Postgres: monitor locks, table/index bloat, and connection pool saturation.
 - MongoDB: monitor write/read latency and collection/index growth.
 - RabbitMQ: monitor queue depth, unacked messages, and broker flow control.
