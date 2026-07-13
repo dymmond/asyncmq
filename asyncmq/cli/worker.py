@@ -17,6 +17,7 @@ from asyncmq.cli.utils import (
     get_centered_logo,
     get_print_banner,
     print_worker_banner,
+    rich_escape,
     run_cmd,
 )
 from asyncmq.logging import logger
@@ -165,7 +166,7 @@ def list_workers() -> None:
     table.add_column("Last Heartbeat", style="yellow")
     for w in workers:
         heartbeat_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(w.heartbeat))
-        table.add_row(w.id, w.queue, str(w.concurrency), heartbeat_str)
+        table.add_row(rich_escape(w.id), rich_escape(w.queue), str(w.concurrency), heartbeat_str)
     console.print(table)
 
 
@@ -183,14 +184,14 @@ def inspect_worker(worker_id: str) -> None:
     workers = run_cmd(backend.list_workers) or []
     worker = next((w for w in workers if str(w.id) == worker_id), None)
     if worker is None:
-        console.print(f"[red]Worker '{worker_id}' was not found.[/red]")
+        console.print(f"[red]Worker '{rich_escape(worker_id)}' was not found.[/red]")
         raise RuntimeError(f"Worker '{worker_id}' was not found.")
 
-    table = Table(title=f"Worker {worker_id}")
+    table = Table(title=f"Worker {rich_escape(worker_id)}")
     table.add_column("Field", style="cyan")
     table.add_column("Value", style="white")
-    table.add_row("Worker ID", str(worker.id))
-    table.add_row("Queue", str(worker.queue))
+    table.add_row("Worker ID", rich_escape(worker.id))
+    table.add_row("Queue", rich_escape(worker.queue))
     table.add_row("Concurrency", str(worker.concurrency))
     table.add_row("Last Heartbeat", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(worker.heartbeat)))
     console.print(table)
@@ -226,7 +227,8 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
         )
     )
     console.print(
-        f":white_check_mark: Worker [bold]{worker_id}[/] registered on queue [bold]{queue}[/] with concurrency {concurrency}."
+        f":white_check_mark: Worker [bold]{rich_escape(worker_id)}[/] registered on queue "
+        f"[bold]{rich_escape(queue)}[/] with concurrency {concurrency}."
     )
 
 
@@ -245,7 +247,7 @@ def deregister_worker(worker_id: str) -> None:
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Deregister Workers")
     backend = asyncmq.monkay.settings.backend
     run_cmd(lambda: backend.deregister_worker(worker_id))
-    console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")
+    console.print(f":white_check_mark: Worker [bold]{rich_escape(worker_id)}[/] deregistered.")
 
 
 worker_cli.add_command(start_worker)

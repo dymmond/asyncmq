@@ -2,6 +2,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 
 import anyio
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
@@ -51,6 +52,10 @@ WORKERS_LOGO = r"""
 ██ ███ ██ ██    ██ ██   ██ ██  ██  ██      ██   ██      ██
  ███ ███   ██████  ██   ██ ██   ██ ███████ ██   ██ ███████
 """.rstrip()
+
+
+def rich_escape(value: Any) -> str:
+    return escape(str(value))
 
 
 def get_centered_logo(display_text: str = ASYNCMQ_LOGO) -> str:

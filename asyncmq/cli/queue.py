@@ -11,7 +11,13 @@ from sayer import Sayer
 
 import asyncmq
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
-from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner, run_cmd
+from asyncmq.cli.utils import (
+    QUEUES_LOGO,
+    get_centered_logo,
+    get_print_banner,
+    rich_escape,
+    run_cmd,
+)
 
 console = Console()
 
@@ -106,7 +112,7 @@ def list_queues() -> None:
             # If queues were found, iterate through the list and print each queue name
             # prefixed with a bullet point.
             for queue in queues:
-                console.print(f"• {queue}")
+                console.print(f"• {rich_escape(queue)}")
         else:
             # If the list of queues is empty, print a message indicating no queues were found.
             console.print("[yellow]No queues found.[/yellow]")
@@ -140,7 +146,7 @@ def pause_queue(queue: str) -> None:
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message indicating that the queue has been paused.
-    console.print(f"[bold red]Paused queue '{queue}'.[/bold red]")
+    console.print(f"[bold red]Paused queue '{rich_escape(queue)}'.[/bold red]")
 
 
 @click.command("resume")
@@ -167,7 +173,7 @@ def resume_queue(queue: str) -> None:
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message indicating that the queue has been resumed.
-    console.print(f"[bold green]Resumed queue '{queue}'.[/bold green]")
+    console.print(f"[bold green]Resumed queue '{rich_escape(queue)}'.[/bold green]")
 
 
 @click.command("info")
@@ -193,7 +199,7 @@ def info_queue(queue: str) -> None:
     # Print a banner for the queue information operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating that data fetching is in progress for the specified queue.
-    console.print(f"[cyan]Fetching info about queue '{queue}'...[/cyan]\n")
+    console.print(f"[cyan]Fetching info about queue '{rich_escape(queue)}'...[/cyan]\n")
 
     # Fetch the paused status of the queue asynchronously using anyio.run.
     # This calls the backend's is_queue_paused method.
@@ -222,7 +228,7 @@ def info_queue(queue: str) -> None:
 
     # Build a nice Rich table to display the fetched queue information.
     table = Table(
-        title=f"Queue '{queue}' Info",  # Title of the table.
+        title=f"Queue '{rich_escape(queue)}' Info",  # Title of the table.
         show_header=True,  # Display column headers.
         header_style="bold magenta",  # Styling for the headers.
     )
@@ -278,9 +284,9 @@ def cli_list_delayed(queue: str) -> None:
         payload_json = json.dumps(job.payload, ensure_ascii=False)
         # Add a row to the table with the job's information.
         table.add_row(
-            job.job_id,  # Job ID from the DelayedInfo instance.
+            rich_escape(job.job_id),  # Job ID from the DelayedInfo instance.
             human_run_at,  # Formatted run_at timestamp.
-            payload_json,  # JSON string of the job payload.
+            rich_escape(payload_json),  # JSON string of the job payload.
         )
     # Print the completed Rich Table to the console.
     console.print(table)
@@ -316,20 +322,20 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
     # Check the boolean result returned by remove_delayed.
     if ok:
         # If True, print a success message with a check mark emoji and the job ID.
-        console.print(f":white_check_mark: Removed delayed job [bold]{job_id}[/]")
+        console.print(f":white_check_mark: Removed delayed job [bold]{rich_escape(job_id)}[/]")
     else:
         # If False, print a failure message with a cross mark emoji and the job ID.
-        console.print(f":cross_mark: No delayed job found with ID [bold]{job_id}[/]")
+        console.print(f":cross_mark: No delayed job found with ID [bold]{rich_escape(job_id)}[/]")
 
 
 def _print_removed_jobs(action: str, queue: str, removed: list[str]) -> None:
     count = len(removed)
-    console.print(f"[bold green]{action} removed {count} job(s) from queue '{queue}'.[/bold green]")
+    console.print(f"[bold green]{action} removed {count} job(s) from queue '{rich_escape(queue)}'.[/bold green]")
     if removed:
         table = Table(show_header=True, header_style="bold magenta")
         table.add_column("Job ID", style="dim", overflow="fold")
         for job_id in removed:
-            table.add_row(str(job_id))
+            table.add_row(rich_escape(job_id))
         console.print(table)
 
 
@@ -421,7 +427,7 @@ def cli_list_repeatables(queue: str) -> None:
         status = "[yellow]paused[/]" if rpt.paused else "[green]active[/]"
         # Add a row to the table with the repeatable job's information.
         table.add_row(
-            job_def_json,  # JSON string of the job definition.
+            rich_escape(job_def_json),  # JSON string of the job definition.
             human_next_run,  # Formatted next_run timestamp.
             status,  # Status string.
         )
@@ -461,7 +467,7 @@ def cli_pause_repeatable(queue: str, job_def_json: str | Any) -> None:
     # passing the job definition dictionary.
     run_cmd(q.pause_repeatable, job_def)
     # Print a confirmation message with a pause emoji and the job definition.
-    console.print(f":pause_button: Paused repeatable [bold]{job_def}[/]")
+    console.print(f":pause_button: Paused repeatable [bold]{rich_escape(job_def)}[/]")
 
 
 @click.command("resume-repeatable")
@@ -501,7 +507,7 @@ def cli_resume_repeatable(queue: str, job_def_json: str | Any) -> None:
     human = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_run))
     # Print a confirmation message with a forward arrow emoji, the job definition,
     # and the human-readable next run time.
-    console.print(f":arrow_forward: Resumed repeatable [bold]{job_def}[/], next run at [bold]{human}[/]")
+    console.print(f":arrow_forward: Resumed repeatable [bold]{rich_escape(job_def)}[/], next run at [bold]{human}[/]")
 
 
 queue_cli.add_command(list_queues)

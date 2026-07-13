@@ -6,7 +6,7 @@ from sayer import Sayer
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend
-from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner, run_cmd
+from asyncmq.cli.utils import JOBS_LOGO, get_centered_logo, get_print_banner, rich_escape, run_cmd
 
 console = Console()
 
@@ -89,7 +89,7 @@ def inspect_job(job_id: str, queue: str) -> None:
         console.print_json(data=job)
     else:
         # If the job was not found, print an error message.
-        console.print(f"[red]Job '{job_id}' not found in queue '{queue}'.[/red]")
+        console.print(f"[red]Job '{rich_escape(job_id)}' not found in queue '{rich_escape(queue)}'.[/red]")
 
 
 @click.command("retry")
@@ -115,12 +115,12 @@ def retry_job(job_id: str, queue: str) -> None:
     # Check if the job was found.
     if job:
         # Print a message indicating the job is being retried.
-        console.print(f"[green]Retrying job '{job_id}' in queue '{queue}'...[/green]")
+        console.print(f"[green]Retrying job '{rich_escape(job_id)}' in queue '{rich_escape(queue)}'...[/green]")
         # Enqueue the job again using anyio.run. This effectively retries it.
         run_cmd(backend.enqueue, queue, job)
     else:
         # If the job was not found, print an error message.
-        console.print(f"[red]Job '{job_id}' not found.[/red]")
+        console.print(f"[red]Job '{rich_escape(job_id)}' not found.[/red]")
 
 
 @click.command("remove")
@@ -143,7 +143,7 @@ def remove_job(job_id: str, queue: str) -> None:
     # Delete the job from the backend's job store using anyio.run.
     run_cmd(backend.job_store.delete, queue, job_id)
     # Print a confirmation message.
-    console.print(f"[bold red]Deleted job '{job_id}' from queue '{queue}'.[/bold red]")
+    console.print(f"[bold red]Deleted job '{rich_escape(job_id)}' from queue '{rich_escape(queue)}'.[/bold red]")
 
 
 @click.command("cancel")
@@ -177,7 +177,7 @@ def cli_cancel_job(queue: str, job_id: str | int) -> None:
     # passing the job ID.
     run_cmd(q.cancel_job, job_id)
     # Print a confirmation message with a no-entry emoji and the job ID.
-    console.print(f":no_entry: Cancellation requested for job [bold]{job_id}[/]")
+    console.print(f":no_entry: Cancellation requested for job [bold]{rich_escape(job_id)}[/]")
 
 
 @click.command("list")
@@ -192,11 +192,13 @@ def list_jobs(queue: str, state: str) -> None:
     q = Queue(queue)
     jobs = run_cmd(q.list_jobs, state)
     if not jobs:
-        console.print(f"[bold yellow]No jobs found in '{queue}' with state '{state}'.[/]")
+        console.print(f"[bold yellow]No jobs found in '{rich_escape(queue)}' with state '{rich_escape(state)}'.[/]")
         return
     for job in jobs:
         console.print(
-            f"[green]ID:[/] {job.get('id')}  [blue]State:[/] {job.get('status')}  [magenta]Task:[/] {job.get('task')}"
+            f"[green]ID:[/] {rich_escape(job.get('id'))}  "
+            f"[blue]State:[/] {rich_escape(job.get('status'))}  "
+            f"[magenta]Task:[/] {rich_escape(job.get('task'))}"
         )
 
 

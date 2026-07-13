@@ -18,6 +18,13 @@ class FakeWorkerBackend:
         ]
 
 
+class MarkupWorkerBackend:
+    async def list_workers(self):
+        return [
+            WorkerInfo(id="[bold]worker[/]", queue="[red]emails[/]", concurrency=3, heartbeat=1_700_000_000.0),
+        ]
+
+
 class FakeSignalStream:
     def __init__(self, signum: signal.Signals) -> None:
         self.signum = signum
@@ -56,6 +63,21 @@ def test_worker_inspect():
     assert "worker-1" in result.output
     assert "emails" in result.output
     assert "3" in result.output
+
+
+def test_worker_inspect_escapes_rich_markup_identifiers():
+    from asyncmq.conf import settings
+
+    original_backend = settings.backend
+    settings.backend = MarkupWorkerBackend()
+    try:
+        result = runner.invoke(app, ["worker", "inspect", "[bold]worker[/]"])
+    finally:
+        settings.backend = original_backend
+
+    assert result.exit_code == 0
+    assert "[bold]worker[/]" in result.output
+    assert "[red]emails[/]" in result.output
 
 
 def test_worker_inspect_missing():

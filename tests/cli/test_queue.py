@@ -31,6 +31,11 @@ class FakeBackend:
         return ["job-1", "job-2"]
 
 
+class MarkupQueueBackend(FakeBackend):
+    async def list_queues(self):
+        return ["[bold red]prod[/]"]
+
+
 @pytest.fixture
 def fake_backend():
     from asyncmq.conf import settings
@@ -52,6 +57,20 @@ def test_queue_list(monkeypatch, fake_backend):
     result = runner.invoke(app, ["queue", "list"])
     assert result.exit_code == 0
     assert "Queue listing not supported for this backend" in result.output
+
+
+def test_queue_list_escapes_rich_markup_identifiers():
+    from asyncmq.conf import settings
+
+    original_backend = settings.backend
+    settings.backend = MarkupQueueBackend()
+    try:
+        result = runner.invoke(app, ["queue", "list"])
+    finally:
+        settings.backend = original_backend
+
+    assert result.exit_code == 0
+    assert "[bold red]prod[/]" in result.output
 
 
 def test_queue_info(monkeypatch, fake_backend):
