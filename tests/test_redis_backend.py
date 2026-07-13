@@ -164,6 +164,35 @@ async def test_complete_active_job_updates_result_and_releases_redis_ownership(r
     assert await redis.zcard(backend._delayed_key(queue)) == 0
 
 
+async def test_redis_claim_and_complete_do_not_rewrite_large_canonical_payload(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-small-metadata"
+    body = "x" * 256_000
+    job = Job(task_id="redis.lifecycle.metadata", args=[body], kwargs={}, job_id="j-small-metadata")
+
+    await backend.enqueue(queue, job.to_dict())
+    canonical_before = await redis.get(backend._job_store_key(queue, job.id))
+
+    payload = await backend.dequeue(queue)
+    canonical_after_claim = await redis.get(backend._job_store_key(queue, job.id))
+
+    assert payload is not None
+    assert canonical_after_claim == canonical_before
+    assert await backend.get_job_state(queue, job.id) == State.ACTIVE
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+    canonical_after_complete = await redis.get(backend._job_store_key(queue, job.id))
+    hydrated = await backend.get_job(queue, job.id)
+
+    assert canonical_after_complete == canonical_before
+    assert await backend.get_job_state(queue, job.id) == State.COMPLETED
+    assert await backend.get_job_result(queue, job.id) == {"ok": True}
+    assert hydrated is not None
+    assert hydrated["status"] == State.COMPLETED
+    assert hydrated["result"] == {"ok": True}
+    assert hydrated["args"] == [body]
+
+
 async def test_complete_active_job_preserves_unrelated_redis_waiting_backlog(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-lifecycle-complete-backlog"

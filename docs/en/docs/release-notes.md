@@ -22,8 +22,8 @@
 - Backend behavior is aligned for priority/FIFO ordering, delayed promotion,
   dependency blocking, cancellation, retry cleanup, pause/resume, and
   RabbitMQ/MongoDB state handling.
-- Redis waiting queues now index job IDs while canonical storage owns payloads,
-  reducing hot-path scans, memory pressure, and large-payload broker writes.
+- Redis waiting queues now index job IDs and keep volatile state/result metadata
+  compact, reducing hot-path scans, memory pressure, and large-payload rewrites.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
 

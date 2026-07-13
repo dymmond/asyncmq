@@ -36,6 +36,8 @@ ENQUEUE_SCRIPT: str = """
 -- KEYS[2]: waiting sequence counter
 -- KEYS[3]: canonical job key
 -- KEYS[4]: queue job-id set
+-- KEYS[5]: job state hash
+-- KEYS[6]: job result hash
 -- ARGV[1]: priority
 -- ARGV[2]: canonical waiting job JSON
 -- ARGV[3]: job id
@@ -45,6 +47,8 @@ local score = priority * 1000000000000 + sequence
 redis.call('ZADD', KEYS[1], score, ARGV[3])
 redis.call('SET', KEYS[3], ARGV[2])
 redis.call('SADD', KEYS[4], ARGV[3])
+redis.call('HSET', KEYS[5], ARGV[3], 'waiting')
+redis.call('HDEL', KEYS[6], ARGV[3])
 return score
 """
 
@@ -95,6 +99,8 @@ PROMOTE_DELAYED: str = """
 -- KEYS[1]: delayed zset
 -- KEYS[2]: waiting zset
 -- KEYS[3]: queue job-id set
+-- KEYS[4]: job state hash
+-- KEYS[5]: job result hash
 -- ARGV[1]: number of candidate jobs
 -- Per candidate:
 --   delayed member JSON
@@ -118,6 +124,8 @@ for _ = 1, total do
     redis.call('ZADD', KEYS[2], waiting_score, job_id)
     redis.call('SET', job_key, waiting_json)
     redis.call('SADD', KEYS[3], job_id)
+    redis.call('HSET', KEYS[4], job_id, 'waiting')
+    redis.call('HDEL', KEYS[5], job_id)
     table.insert(promoted, waiting_json)
   end
 end
@@ -134,18 +142,22 @@ LIFECYCLE_SCRIPT: str = """
 -- KEYS[6]: canonical job key
 -- KEYS[7]: queue job-id set
 -- KEYS[8]: cancelled job-id set
+-- KEYS[9]: job state hash
+-- KEYS[10]: job result hash
 -- ARGV[1]: action: complete, retry, defer, fail, expire, cancel
 -- ARGV[2]: job id
 -- ARGV[3]: canonical job JSON
 -- ARGV[4]: delayed run_at score, when applicable
 -- ARGV[5]: now score, when applicable
 -- ARGV[6]: expected active_since timestamp, when known
+-- ARGV[7]: result JSON, when applicable
 local action = ARGV[1]
 local job_id = ARGV[2]
 local job_json = ARGV[3]
 local run_at = tonumber(ARGV[4])
 local now = tonumber(ARGV[5])
 local expected_active_since = tonumber(ARGV[6])
+local result_json = ARGV[7]
 
 local function remove_job_member(zset_key, target_id)
   redis.call('ZREM', zset_key, target_id)
@@ -164,11 +176,15 @@ if redis.call('SISMEMBER', KEYS[8], job_id) == 1 then
   remove_job_member(KEYS[3], job_id)
   remove_job_member(KEYS[4], job_id)
   remove_job_member(KEYS[5], job_id)
-  local cancelled_job = cjson.decode(job_json)
-  cancelled_job.status = 'cancelled'
-  cancelled_job.result = nil
-  redis.call('SET', KEYS[6], cjson.encode(cancelled_job))
+  if action ~= 'complete' then
+    local cancelled_job = cjson.decode(job_json)
+    cancelled_job.status = 'cancelled'
+    cancelled_job.result = nil
+    redis.call('SET', KEYS[6], cjson.encode(cancelled_job))
+  end
   redis.call('SADD', KEYS[7], job_id)
+  redis.call('HSET', KEYS[9], job_id, 'cancelled')
+  redis.call('HDEL', KEYS[10], job_id)
   return 1
 end
 
@@ -181,6 +197,8 @@ if action == 'cancel' then
   cancelled_job.result = nil
   redis.call('SET', KEYS[6], cjson.encode(cancelled_job))
   redis.call('SADD', KEYS[7], job_id)
+  redis.call('HSET', KEYS[9], job_id, 'cancelled')
+  redis.call('HDEL', KEYS[10], job_id)
   return 1
 end
 
@@ -196,12 +214,26 @@ end
 redis.call('HDEL', KEYS[1], job_id)
 redis.call('HDEL', KEYS[2], job_id)
 
-redis.call('SET', KEYS[6], job_json)
 redis.call('SADD', KEYS[7], job_id)
 
-if action == 'retry' or action == 'defer' then
+if action == 'complete' then
+  redis.call('HSET', KEYS[9], job_id, 'completed')
+  if result_json and result_json ~= '' then
+    redis.call('HSET', KEYS[10], job_id, result_json)
+  end
+elseif action == 'retry' or action == 'defer' then
+  redis.call('SET', KEYS[6], job_json)
+  redis.call('HSET', KEYS[9], job_id, 'delayed')
+  redis.call('HDEL', KEYS[10], job_id)
   redis.call('ZADD', KEYS[4], run_at, job_json)
 elseif action == 'fail' or action == 'expire' then
+  redis.call('SET', KEYS[6], job_json)
+  if action == 'expire' then
+    redis.call('HSET', KEYS[9], job_id, 'expired')
+  else
+    redis.call('HSET', KEYS[9], job_id, 'failed')
+  end
+  redis.call('HDEL', KEYS[10], job_id)
   redis.call('ZADD', KEYS[5], now, job_json)
 end
 
@@ -215,6 +247,8 @@ REENQUEUE_STALLED_SCRIPT: str = """
 -- KEYS[4]: canonical job key
 -- KEYS[5]: queue job-id set
 -- KEYS[6]: cancelled job-id set
+-- KEYS[7]: job state hash
+-- KEYS[8]: job result hash
 -- ARGV[1]: job id
 -- ARGV[2]: waiting job JSON
 -- ARGV[3]: waiting score
@@ -237,15 +271,23 @@ if not current_json then
   return 0
 end
 
-local current = cjson.decode(current_json)
-if current.status ~= 'active' then
+local current_state = redis.call('HGET', KEYS[7], job_id)
+if not current_state then
+  local current = cjson.decode(current_json)
+  current_state = current.status
+end
+if current_state ~= 'active' then
   redis.call('HDEL', KEYS[2], job_id)
   redis.call('HDEL', KEYS[3], job_id)
   return 0
 end
 
 if expected_active_since then
-  local current_active_since = tonumber(current.active_since)
+  local current_active_since = tonumber(redis.call('HGET', KEYS[2], job_id))
+  if not current_active_since then
+    local current = cjson.decode(current_json)
+    current_active_since = tonumber(current.active_since)
+  end
   if not current_active_since or math.abs(current_active_since - expected_active_since) > 0.000001 then
     return 0
   end
@@ -256,6 +298,8 @@ redis.call('HDEL', KEYS[3], job_id)
 redis.call('ZADD', KEYS[1], score, job_id)
 redis.call('SET', KEYS[4], job_json)
 redis.call('SADD', KEYS[5], job_id)
+redis.call('HSET', KEYS[7], job_id, 'waiting')
+redis.call('HDEL', KEYS[8], job_id)
 return 1
 """
 
@@ -361,7 +405,13 @@ class RedisBackend(BaseBackend):
             args.extend([delayed_json, waiting_json, job_id, score, self._job_store_key(queue_name, job_id)])
 
         promoted_raw: list[str | bytes] = await self._promote_delayed_script(
-            keys=[delayed_key, self._waiting_key(queue_name), self._job_store_ids_key(queue_name)],
+            keys=[
+                delayed_key,
+                self._waiting_key(queue_name),
+                self._job_store_ids_key(queue_name),
+                self._job_state_key(queue_name),
+                self._job_result_key(queue_name),
+            ],
             args=args,
         )
         promoted: list[dict[str, Any]] = []
@@ -470,6 +520,12 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:dlq'
         return f"queue:{name}:dlq"
 
+    def _job_state_key(self, queue_name: str) -> str:
+        return f"jobs:{queue_name}:states"
+
+    def _job_result_key(self, queue_name: str) -> str:
+        return f"jobs:{queue_name}:results"
+
     def _member_text(self, member: Any) -> str:
         if isinstance(member, bytes):
             return member.decode("utf-8")
@@ -506,7 +562,8 @@ class RedisBackend(BaseBackend):
         if job_id is None:
             return payload
         stored = await self.job_store.load(queue_name, job_id)
-        return stored or payload
+        candidate = stored or payload
+        return await self._hydrate_job(queue_name, job_id, candidate) if candidate is not None else None
 
     async def _remove_delayed_member(self, queue_name: str, job_id: str) -> bool:
         return await self._remove_zset_job_member(self._delayed_key(queue_name), job_id)
@@ -526,6 +583,53 @@ class RedisBackend(BaseBackend):
             payload = await self._load_indexed_job(queue_name, raw)
             if payload is not None:
                 jobs.append(payload)
+        return jobs
+
+    def _decode_redis_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
+
+    async def _hydrate_job(self, queue_name: str, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        job = dict(payload)
+        read_pipe = self.redis.pipeline(transaction=False)
+        read_pipe.hget(self._job_state_key(queue_name), job_id)
+        read_pipe.hget(self._job_result_key(queue_name), job_id)
+        read_pipe.hget(self._active_key(queue_name), job_id)
+        state_raw, result_raw, active_since_raw = await read_pipe.execute()
+
+        state = self._decode_redis_text(state_raw)
+        if state is not None:
+            job["status"] = state
+        if result_raw is not None:
+            result_text = self._decode_redis_text(result_raw)
+            if result_text is not None:
+                job["result"] = self._json_serializer.to_dict(result_text)
+        elif state == "cancelled":
+            job.pop("result", None)
+        if state == State.ACTIVE and active_since_raw is not None:
+            active_since = self._decode_redis_text(active_since_raw)
+            if active_since is not None:
+                try:
+                    job["active_since"] = float(active_since)
+                except ValueError:
+                    pass
+        return job
+
+    async def _jobs_by_meta_state(self, queue_name: str, state: str) -> list[dict[str, Any]]:
+        raw_states: dict[Any, Any] = await self.redis.hgetall(self._job_state_key(queue_name))
+        jobs: list[dict[str, Any]] = []
+        for raw_job_id, raw_state in raw_states.items():
+            if self._decode_redis_text(raw_state) != state:
+                continue
+            job_id = self._decode_redis_text(raw_job_id)
+            if job_id is None:
+                continue
+            payload = await self.job_store.load(queue_name, job_id)
+            if payload is not None:
+                jobs.append(await self._hydrate_job(queue_name, job_id, payload))
         return jobs
 
     async def _replace_delayed_member(
@@ -596,6 +700,8 @@ class RedisBackend(BaseBackend):
                 self._waiting_sequence_key(queue_name),
                 self._job_store_key(queue_name, job_id),
                 self._job_store_ids_key(queue_name),
+                self._job_state_key(queue_name),
+                self._job_result_key(queue_name),
             ],
             args=[priority, self._json_serializer.to_json(waiting_payload), job_id],
         )
@@ -618,7 +724,7 @@ class RedisBackend(BaseBackend):
             The stored payload if present, otherwise ``None``.
         """
         job = await self.job_store.load(queue_name, job_id)
-        return dict(job) if job is not None else None
+        return await self._hydrate_job(queue_name, job_id, job) if job is not None else None
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -664,6 +770,8 @@ class RedisBackend(BaseBackend):
                     self._job_store_key(queue_name, job_id), self._json_serializer.to_json(cancelled_payload)
                 )
                 write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
+                write_pipe.hset(self._job_state_key(queue_name), job_id, "cancelled")
+                write_pipe.hdel(self._job_result_key(queue_name), job_id)
                 write_pipe.hdel(self._active_key(queue_name), job_id)
                 write_pipe.hdel(self._job_heartbeat_key(queue_name), job_id)
                 await write_pipe.execute()
@@ -673,19 +781,18 @@ class RedisBackend(BaseBackend):
                 write_pipe = self.redis.pipeline(transaction=False)
                 write_pipe.set(self._job_store_key(queue_name, job_id), self._json_serializer.to_json(waiting_payload))
                 write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
+                write_pipe.hset(self._job_state_key(queue_name), job_id, State.WAITING)
+                write_pipe.hdel(self._job_result_key(queue_name), job_id)
                 await write_pipe.execute()
                 continue
-            # Update the job's status to ACTIVE and save the full payload in the job store.
-            # Create a new dictionary to avoid modifying the original payload in place.
             active_since = time.time()
             active_payload = {**candidate, "status": State.ACTIVE, "active_since": active_since}
             write_pipe = self.redis.pipeline(transaction=False)
-            write_pipe.set(self._job_store_key(queue_name, job_id), self._json_serializer.to_json(active_payload))
             write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
-            # The active hash tracks jobs currently being processed.
+            write_pipe.hset(self._job_state_key(queue_name), job_id, State.ACTIVE)
+            write_pipe.hdel(self._job_result_key(queue_name), job_id)
             write_pipe.hset(self._active_key(queue_name), job_id, str(active_since))
             await write_pipe.execute()
-            # Return the dequeued job payload as a dictionary.
             return active_payload
         # If the script returned nil (no jobs in the waiting queue).
         return None
@@ -723,6 +830,10 @@ class RedisBackend(BaseBackend):
 
         # 4) Persist terminal status in the job store
         await self.job_store.save(queue_name, job_id, {**payload, "status": target_status})
+        write_pipe = self.redis.pipeline(transaction=False)
+        write_pipe.hset(self._job_state_key(queue_name), job_id, target_status)
+        write_pipe.hdel(self._job_result_key(queue_name), job_id)
+        await write_pipe.execute()
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -756,6 +867,8 @@ class RedisBackend(BaseBackend):
             self._job_store_key(queue_name, job_id),
             self._job_store_ids_key(queue_name),
             self._cancelled_key(queue_name),
+            self._job_state_key(queue_name),
+            self._job_result_key(queue_name),
         ]
 
     async def _run_lifecycle_transition(
@@ -767,10 +880,12 @@ class RedisBackend(BaseBackend):
         *,
         run_at: float | None = None,
         now: float | None = None,
+        result: Any = None,
     ) -> None:
         # Serialize before running the script so serialization failures do not
         # partially acknowledge or move a job.
-        payload_json = self._json_serializer.to_json(payload)
+        payload_json = "{}" if action == "complete" else self._json_serializer.to_json(payload)
+        result_json = self._json_serializer.to_json(result) if action == "complete" else ""
         await self._lifecycle_script(
             keys=self._lifecycle_keys(queue_name, job_id),
             args=[
@@ -780,6 +895,7 @@ class RedisBackend(BaseBackend):
                 run_at if run_at is not None else 0,
                 now if now is not None else time.time(),
                 payload.get("active_since") or 0,
+                result_json,
             ],
         )
 
@@ -789,7 +905,8 @@ class RedisBackend(BaseBackend):
             queue_name,
             job_id,
             "complete",
-            {**payload, "status": State.COMPLETED, "result": result},
+            {**payload, "status": State.COMPLETED},
+            result=result,
         )
 
     async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
@@ -855,6 +972,8 @@ class RedisBackend(BaseBackend):
         await self.redis.zadd(key, {self._json_serializer.to_json(payload): run_at})
         # Update the job's status to DELAYED and save the full payload in the job store.
         await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.DELAYED})
+        await self.redis.hset(self._job_state_key(queue_name), payload["id"], State.DELAYED)
+        await self.redis.hdel(self._job_result_key(queue_name), payload["id"])
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -933,10 +1052,13 @@ class RedisBackend(BaseBackend):
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
         # If the job data was successfully loaded.
         if job:
-            job["status"] = state  # Update the status field.
             if state == State.ACTIVE:
-                job.setdefault("active_since", time.time())
-            await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
+                active_since = job.get("active_since") or time.time()
+                await self.redis.hset(self._active_key(queue_name), job_id, str(active_since))
+            await self.redis.hset(self._job_state_key(queue_name), job_id, state)
+            if state != State.COMPLETED:
+                job["status"] = state
+                await self.job_store.save(queue_name, job_id, job)
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
         """
@@ -956,8 +1078,7 @@ class RedisBackend(BaseBackend):
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
         # If the job data was successfully loaded.
         if job:
-            job["result"] = result  # Add or update the result field.
-            await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
+            await self.redis.hset(self._job_result_key(queue_name), job_id, self._json_serializer.to_json(result))
 
     async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -968,6 +1089,14 @@ class RedisBackend(BaseBackend):
             payload: The full canonical payload to persist.
         """
         await self.job_store.save(queue_name, str(payload["id"]), dict(payload))
+        if "status" in payload:
+            await self.redis.hset(self._job_state_key(queue_name), str(payload["id"]), payload["status"])
+        if "result" in payload:
+            await self.redis.hset(
+                self._job_result_key(queue_name),
+                str(payload["id"]),
+                self._json_serializer.to_json(payload["result"]),
+            )
 
     async def get_job_state(self, queue_name: str, job_id: str) -> str | None:
         """
@@ -982,9 +1111,10 @@ class RedisBackend(BaseBackend):
             The job's status string if the job is found and has a status,
             otherwise None.
         """
-        # Load the job data from the job store.
+        state = self._decode_redis_text(await self.redis.hget(self._job_state_key(queue_name), job_id))
+        if state is not None:
+            return state
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
-        # Return the status field if the job is found, otherwise None.
         return cast(str, job.get("status")) if job else None
 
     async def get_job_result(self, queue_name: str, job_id: str) -> Any | None:
@@ -1000,9 +1130,12 @@ class RedisBackend(BaseBackend):
             The result of the job's task function if the job is found and has
             a 'result' field, otherwise None.
         """
-        # Load the job data from the job store.
+        result_raw = await self.redis.hget(self._job_result_key(queue_name), job_id)
+        if result_raw is not None:
+            result_text = self._decode_redis_text(result_raw)
+            if result_text is not None:
+                return self._json_serializer.to_dict(result_text)
         job: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
-        # Return the result field if the job is found, otherwise None.
         return job.get("result") if job else None
 
     async def add_repeatable(self, queue_name: str, job_def: dict[str, Any], next_run: float) -> None:
@@ -1486,8 +1619,17 @@ class RedisBackend(BaseBackend):
                     jobs.append(candidate)
             return jobs
 
-        jobs = await self.job_store.jobs_by_status(queue_name, normalized)
-        return [job for job in jobs if matches_job_type(job, normalized)]
+        jobs = await self._jobs_by_meta_state(queue_name, normalized)
+        legacy_jobs = await self.job_store.jobs_by_status(queue_name, normalized)
+        seen = {str(job.get("id")) for job in jobs if job.get("id") is not None}
+        for legacy in legacy_jobs:
+            job_id = legacy.get("id")
+            if job_id is not None and str(job_id) in seen:
+                continue
+            hydrated = await self._hydrate_job(queue_name, str(job_id), legacy) if job_id is not None else legacy
+            if matches_job_type(hydrated, normalized):
+                jobs.append(hydrated)
+        return jobs
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
         """
@@ -1557,6 +1699,8 @@ class RedisBackend(BaseBackend):
         if removed:
             await self.redis.delete(f"deps:{queue_name}:{job_id}:pending")
             await self.redis.delete(f"deps:{queue_name}:parent:{job_id}")
+            await self.redis.hdel(self._job_state_key(queue_name), job_id)
+            await self.redis.hdel(self._job_result_key(queue_name), job_id)
             await self.job_store.delete(queue_name, job_id)
         # Return whether the job was found and removed from any queue.
         return removed
@@ -1682,6 +1826,7 @@ class RedisBackend(BaseBackend):
                     job_data: dict[str, Any] | None = await self.job_store.load(queue_name, job_id)
                     # If the job data was successfully loaded (it exists in the job store).
                     if job_data is not None:
+                        job_data = await self._hydrate_job(queue_name, job_id, job_data)
                         # Add the queue name and job data to the list of stalled jobs.
                         stalled.append({"queue_name": queue_name, "job_data": job_data})
                         seen.add((queue_name, job_id))
@@ -1709,6 +1854,8 @@ class RedisBackend(BaseBackend):
                     except (TypeError, ValueError):
                         pass
                 job_data = await self.job_store.load(queue_name, job_id)
+                if job_data is not None:
+                    job_data = await self._hydrate_job(queue_name, job_id, job_data)
                 if job_data is not None and job_data.get("status") == State.ACTIVE:
                     stalled.append({"queue_name": queue_name, "job_data": job_data})
                     seen.add((queue_name, job_id))
@@ -1749,6 +1896,8 @@ class RedisBackend(BaseBackend):
                 self._job_store_key(queue_name, retry_payload["id"]),
                 self._job_store_ids_key(queue_name),
                 self._cancelled_key(queue_name),
+                self._job_state_key(queue_name),
+                self._job_result_key(queue_name),
             ],
             args=[retry_payload["id"], payload, score, retry_payload.get("active_since") or ""],
         )
@@ -1948,6 +2097,8 @@ class RedisBackend(BaseBackend):
             cancelled_payload = {**stored, "status": "cancelled", "delay_until": None}
             cancelled_payload.pop("result", None)
             await self.job_store.save(queue_name, job_id, cancelled_payload)
+            await self.redis.hset(self._job_state_key(queue_name), job_id, "cancelled")
+            await self.redis.hdel(self._job_result_key(queue_name), job_id)
         return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
