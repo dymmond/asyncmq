@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
 from lilya.requests import Request
@@ -12,6 +12,8 @@ def _normalize_roles(roles: Iterable[str] | str | None) -> tuple[str, ...]:
         return ()
     if isinstance(roles, str):
         return (roles,)
+    if isinstance(roles, Mapping):
+        return ()
     return tuple(str(role) for role in roles if role)
 
 

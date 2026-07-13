@@ -21,7 +21,7 @@ def _truthy_claim(value: Any) -> bool:
         return value
     if isinstance(value, str):
         return value.strip().lower() in TRUTHY_CLAIM_VALUES
-    return bool(value)
+    return False
 
 
 class JWTAuthBackend(AuthBackend):

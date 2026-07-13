@@ -35,6 +35,9 @@
 
 ### Fixed
 
+- Dashboard authorization now fails closed for unsupported admin and role claim
+  shapes, so object or list admin claims and object role claims do not grant
+  dashboard access.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

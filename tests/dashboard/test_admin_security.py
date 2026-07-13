@@ -26,6 +26,20 @@ class HeaderBackend(AuthBackend):
         return RedirectResponse("/login", status_code=303)
 
 
+class StaticUserBackend(AuthBackend):
+    def __init__(self, user: dict[str, object]) -> None:
+        self.user = user
+
+    async def authenticate(self, request: Request) -> dict[str, object] | None:
+        return self.user
+
+    async def login(self, request: Request) -> Response:
+        return HTMLResponse("Header auth required")
+
+    async def logout(self, request: Request) -> Response:
+        return RedirectResponse("/login", status_code=303)
+
+
 def test_admin_does_not_enable_cross_origin_dashboard_access_by_default():
     client = TestClient(AsyncMQAdmin(enable_login=False).get_asgi_app(with_url_prefix=True))
 
@@ -155,6 +169,44 @@ def test_auth_gate_rejects_authenticated_non_admin_by_default():
         },
         follow_redirects=False,
     )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
+
+
+@pytest.mark.parametrize("is_admin", [["true"], {"value": True}])
+def test_auth_gate_rejects_unsupported_admin_claim_shapes(is_admin: object):
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=StaticUserBackend({"id": "alice", "name": "alice", "is_admin": is_admin}),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get("/asyncmq/", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
+
+
+def test_auth_gate_rejects_mapping_roles_with_admin_key():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=StaticUserBackend(
+                {
+                    "id": "alice",
+                    "name": "alice",
+                    "is_admin": False,
+                    "roles": {"admin": False},
+                }
+            ),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get("/asyncmq/", follow_redirects=False)
 
     assert response.status_code == 403
     assert response.text == "Dashboard user is not authorized"

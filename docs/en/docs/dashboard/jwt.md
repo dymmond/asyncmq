@@ -51,8 +51,12 @@ Behavior:
 - `authenticate()` decodes token and returns a dashboard `User` or `None`.
 - Tokens must carry `is_admin=true` by default, or the dashboard authorization
   gate rejects the authenticated user.
+- Admin claims must be booleans or documented truthy strings such as `"true"`;
+  object and list claim values fail closed.
 - Role-based deployments can use `roles` claims with
   `AsyncMQAdmin(require_admin=False, required_roles=("ops",))`.
+- Role claims must be a string or a list of role values; object claims are not
+  interpreted as roles.
 - `login()` returns informational HTML (JWT issuance is external to AsyncMQ).
 - `logout()` redirects to `/login`.
 

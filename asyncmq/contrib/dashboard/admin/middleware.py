@@ -16,7 +16,7 @@ def _truthy(value: Any) -> bool:
         return value
     if isinstance(value, str):
         return value.strip().lower() in TRUTHY_VALUES
-    return bool(value)
+    return False
 
 
 def _coerce_roles(value: Any) -> set[str]:
@@ -25,7 +25,7 @@ def _coerce_roles(value: Any) -> set[str]:
     if isinstance(value, str):
         return {value}
     if isinstance(value, Mapping):
-        return {str(role) for role in value if role}
+        return set()
     if isinstance(value, Iterable):
         return {str(role) for role in value if role}
     return {str(value)}
