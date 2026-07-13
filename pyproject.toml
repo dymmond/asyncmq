@@ -38,7 +38,7 @@ classifiers = [
 ]
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
-    "lilya[standard]>=0.24.3",
+    "lilya[standard]>=0.27.0",
     "sayer>=0.7.4",
     "redis>=7.0.0",
 ]
@@ -227,6 +227,8 @@ replace-imports-with-any = [
     "jwt",
     "jwt.**",
     "lilya.templating.**",
+    "pymongo",
+    "pymongo.**",
     "redis.**",
 ]
 
