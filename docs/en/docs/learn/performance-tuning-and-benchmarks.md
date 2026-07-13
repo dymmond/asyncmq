@@ -23,10 +23,11 @@ path. Treat those numbers as AsyncMQ core/runtime microbenchmarks, not as
 networked broker or competitive production throughput results.
 
 `benchmark_load` runs a parameterized AsyncMQ in-memory load benchmark and
-prints JSON with enqueue latency, total latency, throughput, worker count,
-concurrency, payload size, CPU time, max RSS, completed jobs, and failed jobs.
-Use it for local runtime smoke measurements before moving to real backend and
-competitor runs:
+prints JSON with warmup/repetition counts, per-sample measurements, median,
+P95, P99, min, and max statistics, enqueue latency, total latency, throughput,
+worker count, concurrency, payload size, CPU time, max RSS, completed jobs, and
+failed jobs. Use it for local runtime smoke measurements before moving to real
+backend and competitor runs:
 
 ```shell
 hatch run python -m benchmarks.load_asyncmq \
@@ -34,6 +35,8 @@ hatch run python -m benchmarks.load_asyncmq \
   --workers 100 \
   --concurrency 1 \
   --payload-bytes 128 \
+  --warmup-jobs 1000 \
+  --repetitions 5 \
   --json
 ```
 
