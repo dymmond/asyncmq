@@ -6,7 +6,7 @@ from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
-from asyncmq.workers import Worker
+from asyncmq.workers import Worker, process_job
 
 pytestmark = pytest.mark.anyio
 
@@ -158,6 +158,43 @@ async def test_worker_respects_concurrency_limit():
     # Worker should be deregistered on shutdown
     workers = await backend.list_workers()
     assert workers == []
+
+
+async def test_worker_does_not_prefetch_beyond_concurrency():
+    """
+    A worker must not dequeue more jobs than it can actively execute.
+    """
+    backend = InMemoryBackend()
+    settings.backend = backend
+
+    started = 0
+
+    async def _slow_task(delay: float = 0.3) -> str:
+        nonlocal started
+        started += 1
+        await anyio.sleep(delay)
+        return "ok"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._prefetch_task"] = {"func": _slow_task}
+
+    queue = "test_queue_prefetch"
+    jobs = [Job(task_id="tests._prefetch_task", args=[], kwargs={}, job_id=f"j{i}") for i in range(5)]
+    for job in jobs:
+        await backend.enqueue(queue, job.to_dict())
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(process_job, queue, anyio.CapacityLimiter(1), None, backend)
+        await anyio.sleep(0.05)
+
+        active = sum(1 for queued_name, _ in backend.active_jobs if queued_name == queue)
+        waiting = len(backend.queues.get(queue, []))
+
+        tg.cancel_scope.cancel()
+
+    assert started == 1
+    assert active <= 1
+    assert waiting >= 4
 
 
 async def test_worker_lifecycle_hooks_invoked_in_order(monkeypatch):
