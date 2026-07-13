@@ -27,7 +27,8 @@ Redis:
 - strong feature coverage and good operational fit for queue workloads
 - due delayed jobs are promoted to waiting through a Redis-side script
 - worker lifecycle transitions use Redis-side scripts for active-job
-  completion, retry/defer, expiration, cancellation, and DLQ routing
+  completion, retry/defer, expiration, cancellation, and DLQ routing; active
+  transitions require the current active claim before mutating state
 - stalled recovery requeues use a Redis-side canonical active-state check so
   stale recovery snapshots do not overwrite terminal job state
 - cancellation markers are stored in Redis and respected by lifecycle scripts

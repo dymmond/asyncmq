@@ -51,7 +51,8 @@ Important limits:
   stalled snapshot back to waiting.
 - `RedisBackend` atomically re-checks canonical active state before requeueing
   a stalled snapshot, so recovery does not overwrite jobs that already reached
-  a terminal state.
+  a terminal state. Redis active lifecycle transitions also require the current
+  active claim before writing completion, retry, defer, failure, or expiration.
 - `PostgresBackend` conditionally updates still-active rows during stalled
   recovery, preserving terminal rows if the stalled snapshot is stale.
 - `MongoDBBackend` conditionally updates still-active persisted documents

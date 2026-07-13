@@ -135,10 +135,9 @@ local function remove_job_member(zset_key, target_id)
   end
 end
 
-redis.call('HDEL', KEYS[1], job_id)
-redis.call('HDEL', KEYS[2], job_id)
-
 if redis.call('SISMEMBER', KEYS[8], job_id) == 1 then
+  redis.call('HDEL', KEYS[1], job_id)
+  redis.call('HDEL', KEYS[2], job_id)
   remove_job_member(KEYS[3], job_id)
   remove_job_member(KEYS[4], job_id)
   remove_job_member(KEYS[5], job_id)
@@ -151,6 +150,8 @@ if redis.call('SISMEMBER', KEYS[8], job_id) == 1 then
 end
 
 if action == 'cancel' then
+  redis.call('HDEL', KEYS[1], job_id)
+  redis.call('HDEL', KEYS[2], job_id)
   redis.call('SADD', KEYS[8], job_id)
   local cancelled_job = cjson.decode(job_json)
   cancelled_job.status = 'cancelled'
@@ -160,6 +161,27 @@ if action == 'cancel' then
   return 1
 end
 
+local incoming_job = cjson.decode(job_json)
+local current_json = redis.call('GET', KEYS[6])
+if not current_json then
+  return 0
+end
+
+local current_job = cjson.decode(current_json)
+if current_job.status ~= 'active' then
+  return 0
+end
+
+local expected_active_since = tonumber(incoming_job.active_since)
+if expected_active_since then
+  local current_active_since = tonumber(current_job.active_since)
+  if not current_active_since or math.abs(current_active_since - expected_active_since) > 0.000001 then
+    return 0
+  end
+end
+
+redis.call('HDEL', KEYS[1], job_id)
+redis.call('HDEL', KEYS[2], job_id)
 remove_job_member(KEYS[3], job_id)
 remove_job_member(KEYS[4], job_id)
 
