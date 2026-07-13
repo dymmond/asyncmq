@@ -60,6 +60,14 @@ def test_metrics_history_json(client):
     assert response.headers.get("content-type", "").startswith("application/json")
 
 
+def test_prometheus_metrics_endpoint(client):
+    settings.backend = RedisBackend()
+    response = client.get(reverse("metrics-prometheus", app=app))
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/plain")
+    assert "asyncmq_dashboard_ready 1" in response.text
+
+
 def test_health_endpoint(client):
     response = client.get(reverse("health", app=app))
 
@@ -86,3 +94,13 @@ def test_ready_endpoint_reports_backend_failure(client):
     assert response.json()["status"] == "error"
     assert response.json()["backend"] == "BrokenBackend"
     assert "RuntimeError" in response.json()["error"]
+
+
+def test_prometheus_metrics_endpoint_reports_backend_failure(client):
+    settings.backend = BrokenBackend()
+
+    response = client.get(reverse("metrics-prometheus", app=app))
+
+    assert response.status_code == 503
+    assert "asyncmq_dashboard_ready 0" in response.text
+    assert "RuntimeError" in response.text

@@ -10,6 +10,8 @@
 - Workers now expose cooperative drain controls so application-owned shutdown
   paths can stop claiming new jobs, let in-flight jobs finish, deregister, and
   run shutdown hooks before process termination.
+- Dashboard deployments now expose `/metrics/prometheus` with scrapeable queue,
+  worker, and readiness gauges for Prometheus-compatible monitoring.
 
 ### Fixed
 

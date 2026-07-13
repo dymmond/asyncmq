@@ -86,6 +86,8 @@ and live charts/tables for recent activity.
 
 The metrics page combines live SSE updates with recent history snapshots, helping
 operators correlate throughput, retries, failures, and queue-state distribution.
+Prometheus-compatible queue and worker gauges are exposed at
+`/metrics/prometheus` for scrape-based monitoring.
 
 ![System Metrics Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.41_rvwfqk.png)
 

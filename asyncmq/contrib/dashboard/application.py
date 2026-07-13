@@ -115,6 +115,12 @@ def create_dashboard_app() -> ASGIApp:
                         name="metrics-history",
                     ),
                     RoutePath(
+                        "/metrics/prometheus",
+                        metrics.PrometheusMetricsController,
+                        methods=["GET"],
+                        name="metrics-prometheus",
+                    ),
+                    RoutePath(
                         "/audit",
                         audit.AuditController,
                         methods=["GET"],
