@@ -167,8 +167,15 @@ class InMemoryBackend(BaseBackend):
                 stored = self.job_payloads.get((queue_name, job_id), job)
                 if has_pending_dependencies(stored):
                     continue
-                self.active_jobs[(queue_name, job_id)] = stored
-                return dict(stored)
+                now = time.time()
+                active_payload = {
+                    **stored,
+                    "status": State.ACTIVE,
+                    "active_since": stored.get("active_since", now),
+                    "updated_at": now,
+                }
+                self.active_jobs[(queue_name, job_id)] = active_payload
+                return {**stored, "active_since": active_payload["active_since"]}
             # Return None if the queue is empty.
             return None
 
@@ -538,6 +545,8 @@ class InMemoryBackend(BaseBackend):
                 now = time.time()
                 payload["status"] = state
                 payload["updated_at"] = now
+                if state == State.ACTIVE:
+                    payload.setdefault("active_since", now)
                 if state == State.COMPLETED:
                     payload["completed_at"] = now
                 elif state in {State.FAILED, State.EXPIRED}:
@@ -1118,6 +1127,14 @@ class InMemoryBackend(BaseBackend):
                     # to the list of stalled jobs with its queue name.
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
+
+            seen = {(entry["queue_name"], str(entry["job_data"]["id"])) for entry in stalled}
+            for (q, jid), payload in list(self.active_jobs.items()):
+                if (q, jid) in seen or (q, jid) in self.heartbeats:
+                    continue
+                active_since = payload.get("active_since") or payload.get("updated_at")
+                if isinstance(active_since, (int, float)) and float(active_since) < older_than:
+                    stalled.append({"queue_name": q, "job_data": payload})
 
         return stalled  # Return the list of identified stalled jobs
 

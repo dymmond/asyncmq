@@ -207,6 +207,7 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
+        active_since = time.time()
         # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
@@ -217,7 +218,7 @@ class PostgresBackend(BaseBackend):
                     UPDATE {self._settings.postgres_jobs_table_name}
                     SET
                         status = $3,
-                        data = data || jsonb_build_object('status', $3::text),
+                        data = data || jsonb_build_object('status', $3::text, 'active_since', $4::double precision),
                         updated_at = now()
                     WHERE id = (
                         SELECT id FROM {self._settings.postgres_jobs_table_name}
@@ -240,6 +241,7 @@ class PostgresBackend(BaseBackend):
                     queue_name,
                     State.WAITING,
                     State.ACTIVE,
+                    active_since,
                 )
                 # If a row was returned (a job was dequeued).
                 if row:
@@ -667,6 +669,8 @@ class PostgresBackend(BaseBackend):
         if job:
             # Update the status field.
             job["status"] = state
+            if state == State.ACTIVE:
+                job.setdefault("active_since", time.time())
             # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
@@ -1332,8 +1336,14 @@ class PostgresBackend(BaseBackend):
             f"""
             SELECT queue_name, data
               FROM {self._settings.postgres_jobs_table_name}
-             WHERE (data->>'heartbeat')::float < $1 -- Filter by heartbeat timestamp
-               AND status = $2                      -- Filter by job status being ACTIVE
+             WHERE status = $2
+               AND (
+                   (data ? 'heartbeat' AND (data->>'heartbeat')::float < $1)
+                   OR (
+                       NOT (data ? 'heartbeat')
+                       AND COALESCE((data->>'active_since')::float, EXTRACT(EPOCH FROM updated_at)) < $1
+                   )
+               )
             """,
             older_than,
             State.ACTIVE,

@@ -287,9 +287,21 @@ class RabbitMQBackend(BaseBackend):
                 await msg.ack()
                 continue
 
+            active_since = time.time()
+            active_payload = {**candidate, "status": State.ACTIVE, "active_since": active_since}
+            await self._state.save(
+                queue_name,
+                job_id,
+                {
+                    "id": job_id,
+                    "payload": active_payload,
+                    "status": State.ACTIVE,
+                    "active_since": active_since,
+                },
+            )
             async with self._in_flight_lock:
                 self._in_flight[(queue_name, job_id)] = msg
-            return {"job_id": job_id, "payload": candidate}
+            return {"job_id": job_id, "payload": {**candidate, "active_since": active_since}}
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -710,6 +722,12 @@ class RabbitMQBackend(BaseBackend):
         # Load the existing job entry or create an empty dictionary if not found.
         entry = await self._store_entry(queue_name, job_id)
         entry["status"] = state  # Update the 'status' field.
+        if state == State.ACTIVE:
+            active_since = time.time()
+            entry.setdefault("active_since", active_since)
+            payload = entry.get("payload")
+            if isinstance(payload, dict):
+                payload.setdefault("active_since", active_since)
         # Save the updated entry back to the job store.
         await self._state.save(queue_name, job_id, entry)
 
@@ -1264,9 +1282,17 @@ class RabbitMQBackend(BaseBackend):
                 if j.get("status") != State.ACTIVE:
                     continue
                 heartbeat = j.get("heartbeat")
-                if not isinstance(heartbeat, (int, float)):
+                if isinstance(heartbeat, (int, float)) and float(heartbeat) < older_than:
+                    stalled.append({"queue_name": q_name, "job_data": j})
                     continue
-                if float(heartbeat) < older_than:
+                if heartbeat is not None:
+                    continue
+                active_since = j.get("active_since")
+                if not isinstance(active_since, (int, float)):
+                    payload = j.get("payload")
+                    if isinstance(payload, dict):
+                        active_since = payload.get("active_since")
+                if isinstance(active_since, (int, float)) and float(active_since) < older_than:
                     stalled.append({"queue_name": q_name, "job_data": j})
         return stalled
 

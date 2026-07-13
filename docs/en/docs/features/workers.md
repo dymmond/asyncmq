@@ -176,8 +176,9 @@ can show:
 
 ### Job heartbeats
 
-If `enable_stalled_check=True`, the worker records a heartbeat for the job
-when execution starts and renews it while the handler is still running.
+If `enable_stalled_check=True`, backends record an active-claim timestamp when a
+job is reserved, and the worker records a heartbeat for the job when execution
+starts and renews it while the handler is still running.
 
 The renewal interval is derived from `stalled_threshold` and
 `stalled_check_interval`, so a healthy long-running async handler should not be
@@ -206,7 +207,8 @@ can still recover the job when the worker process stops renewing visibility.
 When `enable_stalled_check=True`, `run_worker(...)` and `Worker.run()` start the
 recovery loop alongside normal processing. The recovery scheduler:
 
-- scans for active jobs whose heartbeat is older than `stalled_threshold`
+- scans for active jobs whose claim timestamp or heartbeat is older than
+  `stalled_threshold`
 - re-enqueues them
 - emits `job:stalled`
 

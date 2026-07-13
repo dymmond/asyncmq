@@ -456,12 +456,17 @@ class RedisBackend(BaseBackend):
                 continue
             # Update the job's status to ACTIVE and save the full payload in the job store.
             # Create a new dictionary to avoid modifying the original payload in place.
-            await self.job_store.save(queue_name, job_id, {**candidate, "status": State.ACTIVE})
+            active_since = time.time()
+            await self.job_store.save(
+                queue_name,
+                job_id,
+                {**candidate, "status": State.ACTIVE, "active_since": active_since},
+            )
             # Add the job ID and the current time to the active jobs Hash.
             # This hash tracks jobs currently being processed.
-            await self.redis.hset(self._active_key(queue_name), job_id, str(time.time()))
+            await self.redis.hset(self._active_key(queue_name), job_id, str(active_since))
             # Return the dequeued job payload as a dictionary.
-            return candidate
+            return {**candidate, "status": State.ACTIVE, "active_since": active_since}
         # If the script returned nil (no jobs in the waiting queue).
         return None
 
@@ -725,6 +730,8 @@ class RedisBackend(BaseBackend):
         # If the job data was successfully loaded.
         if job:
             job["status"] = state  # Update the status field.
+            if state == State.ACTIVE:
+                job.setdefault("active_since", time.time())
             await self.job_store.save(queue_name, job_id, job)  # Save the updated job data.
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
@@ -1468,6 +1475,7 @@ class RedisBackend(BaseBackend):
             each stalled job found.
         """
         stalled: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
         # Scan for all Redis keys that are heartbeat Hashes across all queues.
         # scan_iter is a generator that yields keys matching the pattern.
         async for full_key in self.redis.scan_iter(match="queue:*:heartbeats"):
@@ -1498,6 +1506,34 @@ class RedisBackend(BaseBackend):
                     if job_data is not None:
                         # Add the queue name and job data to the list of stalled jobs.
                         stalled.append({"queue_name": queue_name, "job_data": job_data})
+                        seen.add((queue_name, job_id))
+        async for full_key in self.redis.scan_iter(match="queue:*:active"):
+            key_str = full_key.decode() if isinstance(full_key, bytes) else full_key
+            parts = key_str.split(":")
+            if len(parts) != 3:
+                continue
+            _, queue_name, _ = parts
+            active_jobs: dict[str, str] = await self.redis.hgetall(full_key)
+            for job_id, ts_str in active_jobs.items():
+                if (queue_name, job_id) in seen:
+                    continue
+                try:
+                    active_since = float(ts_str)
+                except (TypeError, ValueError):
+                    continue
+                if active_since >= older_than:
+                    continue
+                heartbeat = await self.redis.hget(self._job_heartbeat_key(queue_name), job_id)
+                if heartbeat is not None:
+                    try:
+                        if float(heartbeat) >= older_than:
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                job_data = await self.job_store.load(queue_name, job_id)
+                if job_data is not None and job_data.get("status") == State.ACTIVE:
+                    stalled.append({"queue_name": queue_name, "job_data": job_data})
+                    seen.add((queue_name, job_id))
         # Return the list of stalled jobs found.
         return stalled
 

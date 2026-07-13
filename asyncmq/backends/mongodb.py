@@ -184,6 +184,7 @@ class MongoDBBackend(BaseBackend):
             The job dictionary if a job was successfully dequeued, otherwise None.
         """
         await self.connect()
+        active_since = time.time()
         claimed = await self.store.collection.find_one_and_update(
             {
                 "queue_name": queue_name,
@@ -194,7 +195,7 @@ class MongoDBBackend(BaseBackend):
                     {"depends_on": []},
                 ],
             },
-            {"$set": {"status": State.ACTIVE}},
+            {"$set": {"status": State.ACTIVE, "active_since": active_since, "updated_at": active_since}},
             sort=[("priority", 1), ("created_at", 1), ("job_id", 1)],
             return_document=ReturnDocument.AFTER,
         )
@@ -432,6 +433,8 @@ class MongoDBBackend(BaseBackend):
             # If the job data was successfully loaded.
             if job:
                 job["status"] = state  # Update the status field with the new state.
+                if state == State.ACTIVE:
+                    job.setdefault("active_since", time.time())
                 await self.store.save(queue_name, job_id, job)  # Save the updated job data.
 
     async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
@@ -927,7 +930,16 @@ class MongoDBBackend(BaseBackend):
             for job in await self.store.collection.find(
                 {
                     "status": State.ACTIVE,
-                    "heartbeat": {"$lt": older_than},
+                    "$or": [
+                        {"heartbeat": {"$lt": older_than}},
+                        {
+                            "heartbeat": {"$exists": False},
+                            "$or": [
+                                {"active_since": {"$lt": older_than}},
+                                {"updated_at": {"$lt": older_than}},
+                            ],
+                        },
+                    ],
                 }
             ).to_list(length=None):
                 queue = job.get("queue_name")

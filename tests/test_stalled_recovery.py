@@ -120,7 +120,8 @@ async def test_scheduler_recovery(backend, monkeypatch):
 
     # Verify recovery
     if isinstance(backend, InMemoryBackend):
-        assert payload in backend.queues.get(queue, [])
+        assert await backend.get_job_state(queue, job_id) == State.WAITING
+        assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
     elif isinstance(backend, RedisBackend):
         items = await backend.redis.zrange(f"queue:{queue}:waiting", 0, -1)
         assert any(json.loads(item)["id"] == job_id for item in items)
@@ -166,6 +167,73 @@ async def test_reenqueue_stalled_releases_dequeued_active_job(backend):
         assert (queue, job_id) not in backend.heartbeats
         assert await backend.get_job_state(queue, job_id) == State.WAITING
         assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
+
+
+async def age_active_claim_without_heartbeat(backend, queue: str, job_id: str, active_since: float) -> None:
+    if isinstance(backend, InMemoryBackend):
+        payload = backend.active_jobs[(queue, job_id)]
+        payload.pop("heartbeat", None)
+        payload["active_since"] = active_since
+        payload["updated_at"] = active_since
+        backend.job_payloads[(queue, job_id)] = payload
+        backend.heartbeats.pop((queue, job_id), None)
+    elif isinstance(backend, RedisBackend):
+        stored = await backend.job_store.load(queue, job_id)
+        stored.pop("heartbeat", None)
+        stored["status"] = State.ACTIVE
+        stored["active_since"] = active_since
+        await backend.job_store.save(queue, job_id, stored)
+        await backend.redis.hset(backend._active_key(queue), job_id, str(active_since))
+        await backend.redis.hdel(backend._job_heartbeat_key(queue), job_id)
+    elif isinstance(backend, PostgresBackend):
+        await backend.connect()
+        async with backend.pool.acquire() as conn:
+            await conn.execute(
+                f"""
+                UPDATE {settings.postgres_jobs_table_name}
+                   SET data = (data || jsonb_build_object('active_since', $3::double precision)) - 'heartbeat',
+                       status = $4,
+                       updated_at = to_timestamp($3)
+                 WHERE queue_name = $1
+                   AND job_id = $2
+                """,
+                queue,
+                job_id,
+                active_since,
+                State.ACTIVE,
+            )
+    elif isinstance(backend, MongoDBBackend):
+        await backend.connect()
+        await backend.store.collection.update_one(
+            {"queue_name": queue, "job_id": job_id},
+            {
+                "$set": {"status": State.ACTIVE, "active_since": active_since, "updated_at": active_since},
+                "$unset": {"heartbeat": ""},
+            },
+        )
+        backend.heartbeats.pop((queue, job_id), None)
+
+
+async def test_fetch_stalled_jobs_recovers_active_claim_without_first_heartbeat(backend):
+    queue = "qa-active-no-first-heartbeat"
+    job_id = "active-no-first-heartbeat"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    await backend.enqueue(queue, payload)
+    raw = await backend.dequeue(queue)
+    assert raw is not None
+
+    old = time.time() - 10
+    await age_active_claim_without_heartbeat(backend, queue, job_id, old)
+
+    stalled = await backend.fetch_stalled_jobs(old + 1)
+    entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+    await backend.reenqueue_stalled(queue, entry["job_data"])
+
+    assert await backend.get_job_state(queue, job_id) == State.WAITING
+    recovered = await backend.dequeue(queue)
+    assert recovered is not None
+    assert recovered["id"] == job_id
 
 
 async def test_redis_stalled_recovery_survives_backend_restart():

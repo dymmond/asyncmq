@@ -38,8 +38,11 @@ offer exactly-once execution.
 ## Visibility and Stalled Recovery
 
 When `enable_stalled_check=True`, workers write active-job heartbeats and renew
-them while handlers run. A recovery loop scans for active jobs whose heartbeat is
-older than `stalled_threshold` and releases them back to runnable work.
+them while handlers run. Backends also record an active-claim timestamp when a
+job is reserved, so a worker that exits before writing its first heartbeat can
+still be recovered once the claim is older than `stalled_threshold`. A recovery
+loop scans stale active claims and stale heartbeats, then releases matching jobs
+back to runnable work.
 
 Important limits:
 
