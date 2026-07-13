@@ -24,6 +24,8 @@ Redis:
 - due delayed jobs are promoted to waiting through a Redis-side script
 - worker lifecycle transitions use Redis-side scripts for active-job
   completion, retry/defer, expiration, cancellation, and DLQ routing
+- cancellation markers are stored in Redis and respected by lifecycle scripts
+  so late completions cannot overwrite cancelled jobs
 
 Postgres:
 

@@ -27,6 +27,7 @@ All built-in backends implement `BaseBackend` methods used by:
 
 - default production-oriented backend
 - queue pause/resume state is stored in Redis and shared by backend instances
+- cancellation markers are stored in Redis and shared by backend instances
 - distributed lock via Redis lock primitives
 - durable repeatable schedules stored in Redis
 - deduplication and scheduler ownership are coordinated across producers/workers

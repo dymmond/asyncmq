@@ -69,6 +69,9 @@
   operators can inspect the failure cause after the worker lifecycle transition.
 - Manual retry operations now requeue clean `waiting` payloads across backends,
   clearing stale result and failure fields before the next execution attempt.
+- Redis cancellation now marks canonical job payloads as cancelled and lifecycle
+  scripts preserve that marker instead of allowing late completion, retry,
+  expiration, or failure transitions to overwrite it.
 - PostgreSQL cancellation now records the cancellation, removes matching
   waiting or delayed rows, marks active rows as cancelled, and prevents late
   lifecycle writes from overwriting cancellation.

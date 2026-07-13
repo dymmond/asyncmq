@@ -113,6 +113,7 @@ LIFECYCLE_SCRIPT: str = """
 -- KEYS[5]: dlq zset
 -- KEYS[6]: canonical job key
 -- KEYS[7]: queue job-id set
+-- KEYS[8]: cancelled job-id set
 -- ARGV[1]: action: complete, retry, defer, fail, expire, cancel
 -- ARGV[2]: job id
 -- ARGV[3]: canonical job JSON
@@ -137,7 +138,25 @@ end
 redis.call('HDEL', KEYS[1], job_id)
 redis.call('HDEL', KEYS[2], job_id)
 
+if redis.call('SISMEMBER', KEYS[8], job_id) == 1 then
+  remove_job_member(KEYS[3], job_id)
+  remove_job_member(KEYS[4], job_id)
+  remove_job_member(KEYS[5], job_id)
+  local cancelled_job = cjson.decode(job_json)
+  cancelled_job.status = 'cancelled'
+  cancelled_job.result = nil
+  redis.call('SET', KEYS[6], cjson.encode(cancelled_job))
+  redis.call('SADD', KEYS[7], job_id)
+  return 1
+end
+
 if action == 'cancel' then
+  redis.call('SADD', KEYS[8], job_id)
+  local cancelled_job = cjson.decode(job_json)
+  cancelled_job.status = 'cancelled'
+  cancelled_job.result = nil
+  redis.call('SET', KEYS[6], cjson.encode(cancelled_job))
+  redis.call('SADD', KEYS[7], job_id)
   return 1
 end
 
@@ -313,6 +332,9 @@ class RedisBackend(BaseBackend):
 
     def _job_heartbeat_key(self, name: str) -> str:
         return f"queue:{name}:heartbeats"
+
+    def _cancelled_key(self, name: str) -> str:
+        return f"queue:{name}:cancelled"
 
     def _worker_heartbeat_key(self, name: str) -> str:
         return f"queue:{name}:worker_heartbeats"
@@ -553,6 +575,7 @@ class RedisBackend(BaseBackend):
             self._dlq_key(queue_name),
             self._job_store_key(queue_name, job_id),
             self._job_store_ids_key(queue_name),
+            self._cancelled_key(queue_name),
         ]
 
     async def _run_lifecycle_transition(
@@ -1370,6 +1393,7 @@ class RedisBackend(BaseBackend):
         if removed:
             await self.redis.delete(f"deps:{queue_name}:{job_id}:pending")
             await self.redis.delete(f"deps:{queue_name}:parent:{job_id}")
+            await self.redis.srem(self._cancelled_key(queue_name), job_id)
             await self.job_store.delete(queue_name, job_id)
         # Return whether the job was found and removed from any queue.
         return removed
@@ -1757,9 +1781,17 @@ class RedisBackend(BaseBackend):
                 await self.redis.zrem(delayed_key, raw)
                 removed = True
 
-        await self.redis.hdel(self._active_key(queue_name), job_id)
-        await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
-        await self.redis.sadd(f"queue:{queue_name}:cancelled", job_id)
+        active_removed = await self.redis.hdel(self._active_key(queue_name), job_id)
+        heartbeat_removed = await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
+        if active_removed > 0 or heartbeat_removed > 0:
+            removed = True
+
+        await self.redis.sadd(self._cancelled_key(queue_name), job_id)
+        stored = await self.job_store.load(queue_name, job_id)
+        if stored is not None:
+            cancelled_payload = {**stored, "status": "cancelled", "delay_until": None}
+            cancelled_payload.pop("result", None)
+            await self.job_store.save(queue_name, job_id, cancelled_payload)
         return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
@@ -1780,7 +1812,7 @@ class RedisBackend(BaseBackend):
             queue, False otherwise.
         """
         # Check if the job ID is a member of the cancelled Set. sismember returns 1 or 0.
-        return bool(await self.redis.sismember(f"queue:{queue_name}:cancelled", job_id))
+        return bool(await self.redis.sismember(self._cancelled_key(queue_name), job_id))
 
     async def register_worker(
         self,

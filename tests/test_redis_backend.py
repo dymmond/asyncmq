@@ -102,6 +102,39 @@ async def test_complete_active_job_updates_result_and_releases_redis_ownership(r
     assert await redis.zcard(backend._delayed_key(queue)) == 0
 
 
+async def test_cancelled_active_job_completion_does_not_overwrite_redis_marker(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-cancel-active"
+    job = Job(task_id="redis.lifecycle.cancel", args=[], kwargs={}, job_id="j-cancel-active")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await backend.is_job_cancelled(queue, job.id) is True
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    assert await backend.get_job_result(queue, job.id) is None
+
+
+async def test_cancelled_waiting_job_is_not_listed_as_redis_waiting(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-cancel-waiting"
+    job = Job(task_id="redis.cancel.waiting", args=[], kwargs={}, job_id="j-cancel-waiting")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    assert await backend.cancel_job(queue, job.id) is True
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    waiting = await backend.list_jobs(queue, State.WAITING)
+    assert all(item["id"] != job.id for item in waiting)
+
+
 async def test_retry_active_job_moves_redis_job_to_delayed_atomically(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-lifecycle-retry"
