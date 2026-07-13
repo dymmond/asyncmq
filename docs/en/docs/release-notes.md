@@ -55,6 +55,8 @@
   wildcard-plus-credentials configurations rejected during admin app startup.
 - Authenticated dashboard mutation requests now enforce same-origin `Origin`
   checks by default to reduce CSRF exposure on queue and job operations.
+- `JWTAuthBackend` now rejects missing or shorter-than-32-byte HMAC secrets at
+  startup instead of accepting weak HS* signing keys.
 
 ## 0.8.1
 

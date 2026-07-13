@@ -32,7 +32,7 @@ from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.jwt import JWTAuthBackend
 
 backend = JWTAuthBackend(
-    secret="change-me-with-strong-secret",
+    secret="change-me-with-at-least-32-bytes",
     algorithms=["HS256"],
     audience=None,
     issuer=None,
@@ -62,7 +62,7 @@ pip install pyjwt
 import jwt
 
 payload = {"sub": "ops-user", "name": "Ops User"}
-token = jwt.encode(payload, "change-me-with-strong-secret", algorithm="HS256")
+token = jwt.encode(payload, "change-me-with-at-least-32-bytes", algorithm="HS256")
 print(token)
 ```
 
@@ -74,7 +74,7 @@ Authorization: Bearer <token>
 
 ### Hardening Checklist for JWT
 
-1. Use a secret of at least 32 bytes for HS256.
+1. Use a secret of at least 32 bytes for HS256; AsyncMQ rejects shorter HS* secrets.
 2. Set `audience` and `issuer` if tokens come from a central IdP.
 3. Keep token lifetimes short and rotate signing keys.
 4. Terminate TLS before any dashboard path.

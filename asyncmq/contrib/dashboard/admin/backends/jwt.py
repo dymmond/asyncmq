@@ -12,6 +12,8 @@ from lilya.responses import HTMLResponse, RedirectResponse, Response
 
 from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
 
+MIN_HMAC_SECRET_BYTES = 32
+
 
 class JWTAuthBackend(AuthBackend):
     """
@@ -66,8 +68,14 @@ class JWTAuthBackend(AuthBackend):
             verify_options: Dictionary of options passed directly to `jwt.decode` for validation control
                             (e.g., `{"verify_exp": True}`). Defaults to `{"verify_exp": True}`.
         """
-        self.secret: str | None = secret
         self.algorithms: list[str] = list(algorithms)
+        if any(algorithm.upper().startswith("HS") for algorithm in self.algorithms):
+            if secret is None:
+                raise ValueError("JWTAuthBackend requires a secret for HS* algorithms.")
+            if len(secret.encode()) < MIN_HMAC_SECRET_BYTES:
+                raise ValueError("JWTAuthBackend HS* secrets must be at least 32 bytes.")
+
+        self.secret: str | None = secret
         self.audience: str | None = audience
         self.issuer: str | None = issuer
         self.header: str = header

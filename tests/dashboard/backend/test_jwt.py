@@ -9,6 +9,8 @@ from lilya.testclient.base import TestClient
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.jwt import JWTAuthBackend
 
+JWT_SECRET = "test-secret-for-asyncmq-jwt-32-bytes"
+
 
 @pytest.fixture
 def lilya_app_jwt_backend() -> Lilya:
@@ -17,7 +19,7 @@ def lilya_app_jwt_backend() -> Lilya:
     admin = AsyncMQAdmin(
         enable_login=True,
         backend=JWTAuthBackend(
-            secret="test-secret",
+            secret=JWT_SECRET,
             algorithms=["HS256"],
             audience=None,  # keep simple for tests
             issuer=None,
@@ -41,7 +43,7 @@ def _make_token(
     *,
     sub: str = "alice",
     name: str = "Alice",
-    secret: str = "test-secret",
+    secret: str = JWT_SECRET,
     exp_in_seconds: int = 300,
     audience: str | None = None,
     issuer: str | None = None,
@@ -65,6 +67,11 @@ def test_jwt_backend_blocks_without_header(client: TestClient):
 
     assert response.status_code == 303
     assert "/asyncmq/login" in response.headers.get("location", "")
+
+
+def test_jwt_backend_rejects_short_hmac_secret():
+    with pytest.raises(ValueError, match="at least 32 bytes"):
+        JWTAuthBackend(secret="test-secret", algorithms=["HS256"])
 
 
 def test_jwt_backend_accepts_valid_token(client: TestClient):
