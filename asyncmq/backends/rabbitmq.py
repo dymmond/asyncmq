@@ -1068,9 +1068,13 @@ class RabbitMQBackend(BaseBackend):
         entry = await self._state.load(queue_name, job_id)
         if not entry:
             return False
+        await self._remove_ready_messages_by_id(queue_name, job_id)
+        await self._remove_ready_messages_by_id(f"{queue_name}.dlq", job_id)
         await self._state.delete(queue_name, job_id)
         async with self._in_flight_lock:
-            self._in_flight.pop((queue_name, job_id), None)
+            msg = self._in_flight.pop((queue_name, job_id), None)
+        if msg is not None and not getattr(msg, "processed", False):
+            await msg.ack()
         return True
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:

@@ -193,6 +193,40 @@ async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     assert await backend.retry_job("test_q", "j6")
 
 
+async def test_remove_job_removes_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "remove-ready", "task": "remove"}
+    await backend.enqueue("test_q", payload)
+
+    assert await backend.remove_job("test_q", "remove-ready") is True
+
+    assert await redis_store.load("test_q", "remove-ready") is None
+    assert await backend.dequeue("test_q") is None
+
+
+async def test_remove_job_removes_ready_dlq_delivery(backend, redis_store):
+    payload = {"id": "remove-dlq", "task": "remove", "status": State.FAILED}
+    await backend.move_to_dlq("test_q", payload)
+
+    assert await backend.remove_job("test_q", "remove-dlq") is True
+
+    assert await redis_store.load("test_q", "remove-dlq") is None
+    assert await backend.dequeue("test_q.dlq") is None
+
+
+async def test_remove_job_acks_local_in_flight_delivery(backend, redis_store):
+    payload = {"id": "remove-active", "task": "remove"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+    assert message is not None
+    assert ("test_q", "remove-active") in backend._in_flight
+
+    assert await backend.remove_job("test_q", "remove-active") is True
+
+    assert ("test_q", "remove-active") not in backend._in_flight
+    assert await redis_store.load("test_q", "remove-active") is None
+    assert await backend.dequeue("test_q") is None
+
+
 async def test_retry_job_publishes_clean_waiting_payload(backend, redis_store):
     payload = {
         "id": "rabbit-retry-clean",
