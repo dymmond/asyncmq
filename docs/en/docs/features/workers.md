@@ -104,8 +104,9 @@ What that means in practice:
 - one worker process with `concurrency=8` can run up to eight jobs at once
 - four worker processes with `concurrency=8` can run up to thirty-two jobs at once
 - concurrency is local to that worker process, not a global cluster-wide number
-- workers acquire local execution capacity before dequeueing, so one process
-  does not hold more active jobs than it can run
+- workers acquire local execution capacity and any configured rate-limit token
+  before dequeueing, so one process does not hold more active jobs than it can
+  run or hide rate-limited backlog from other workers
 
 Choose concurrency based on the handler's bottleneck:
 

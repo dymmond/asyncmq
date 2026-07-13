@@ -136,6 +136,9 @@ async def test_rate_limit_with_multiple_jobs_in_one_period():
         result = await backend.get_job_result("runner", job.id)
         assert result == "high priority task completed"
     # Last 2 should still be waiting for tokens
+    waiting_ids = {job["id"] for job in backend.queues.get("runner", [])}
     for job in jobs[3:]:
         state = await backend.get_job_state("runner", job.id)
         assert state == State.WAITING
+        assert job.id in waiting_ids
+        assert ("runner", job.id) not in backend.active_jobs

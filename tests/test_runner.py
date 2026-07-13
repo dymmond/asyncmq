@@ -248,6 +248,46 @@ async def test_run_worker_reservations_never_exceed_concurrency():
             await worker
 
 
+async def test_rate_limited_worker_reserves_only_when_token_is_available():
+    backend = InMemoryBackend()
+    started = anyio.Event()
+    release = anyio.Event()
+    started_count = 0
+
+    @task(queue="runner")
+    async def rate_limited_blocking_task(value):
+        nonlocal started_count
+        started_count += 1
+        started.set()
+        await release.wait()
+        return value
+
+    task_id = get_task_id(rate_limited_blocking_task)
+    for index in range(3):
+        job = Job(task_id=task_id, args=[index], kwargs={}, job_id=f"rate-reserve-{index}")
+        await backend.enqueue("runner", job.to_dict())
+
+    worker = asyncio.create_task(
+        run_worker("runner", backend=backend, concurrency=3, rate_limit=1, rate_interval=5.0, repeatables=None)
+    )
+    try:
+        with anyio.fail_after(2.0):
+            await started.wait()
+        await anyio.sleep(0.2)
+
+        active_ids = [job_id for queue_name, job_id in backend.active_jobs if queue_name == "runner"]
+        waiting_ids = {job["id"] for job in backend.queues.get("runner", [])}
+        assert active_ids == ["rate-reserve-0"]
+        assert waiting_ids == {"rate-reserve-1", "rate-reserve-2"}
+        assert started_count == 1
+    finally:
+        release.set()
+        await anyio.sleep(0.05)
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+
 async def test_waiting_jobs_remain_available_to_other_workers_when_one_worker_is_full():
     backend = InMemoryBackend()
     release = anyio.Event()

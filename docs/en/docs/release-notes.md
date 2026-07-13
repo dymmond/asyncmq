@@ -110,6 +110,9 @@
 - Active job claims now record claim timestamps across built-in backends, so
   stalled recovery can release jobs that were reserved by a worker that exited
   before writing its first heartbeat.
+- Worker dequeue now waits for both local execution capacity and configured
+  rate-limit tokens before claiming a job, keeping rate-limited backlog visible
+  to other workers.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

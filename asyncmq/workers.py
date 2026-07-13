@@ -163,6 +163,7 @@ async def process_job(
 
             borrower = object()
             acquired = False
+            rate_acquired = False
             handed_off = False
             await limiter.acquire_on_behalf_of(borrower)
             acquired = True
@@ -170,10 +171,21 @@ async def process_job(
                 if drain_event is not None and drain_event.is_set():
                     return
 
-                # Attempt to dequeue only after capacity is available. This
-                # prevents workers from hiding more jobs than they can execute.
+                if rate_limiter:
+                    await rate_limiter.acquire()
+                    rate_acquired = True
+
+                if drain_event is not None and drain_event.is_set():
+                    return
+
+                # Attempt to dequeue only after capacity and any rate-limit
+                # token are available. This prevents workers from hiding more
+                # jobs than they can execute.
                 raw_job = await backend.dequeue(queue_name)
                 if raw_job is None:
+                    if rate_acquired and rate_limiter:
+                        rate_limiter.refund_latest()
+                        rate_acquired = False
                     # If no job is available, wait briefly to avoid busy-looping.
                     await anyio.sleep(0.1)
                     continue  # Skip to the next iteration
@@ -187,10 +199,11 @@ async def process_job(
                     backend,
                     limiter,
                     borrower,
-                    rate_limiter,
                 )
                 handed_off = True
             finally:
+                if rate_acquired and not handed_off and rate_limiter:
+                    rate_limiter.refund_latest()
                 if acquired and not handed_off:
                     limiter.release_on_behalf_of(borrower)
 
@@ -201,15 +214,13 @@ async def _run_with_limits(
     backend: BaseBackend,
     limiter: CapacityLimiter,
     limiter_borrower: object,
-    rate_limiter: RateLimiter | None,
 ) -> None:
     """
-    Applies optional rate limits before calling handle_job.
+    Calls ``handle_job`` and releases the capacity token when it finishes.
 
     This function is intended to be run within a task group. Capacity is
     acquired before dequeue by ``process_job`` and released here after the job
-    attempt finishes. If provided, a rate-limit token is acquired before the
-    handler runs.
+    attempt finishes.
 
     Args:
         raw_job: The raw job data as a dictionary.
@@ -217,14 +228,8 @@ async def _run_with_limits(
         backend: The backend instance used for queue operations.
         limiter: The CapacityLimiter instance whose borrowed token must be released.
         limiter_borrower: The borrower object used to acquire the capacity token.
-        rate_limiter: An optional RateLimiter instance for rate control.
     """
     try:
-        # If a rate limiter is provided, acquire a token; this waits if the
-        # rate limit has been exceeded.
-        if rate_limiter:
-            await rate_limiter.acquire()
-        # Once limits are satisfied, proceed to handle the job logic
         await handle_job(queue_name, raw_job, backend)
     finally:
         limiter.release_on_behalf_of(limiter_borrower)
