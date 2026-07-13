@@ -142,7 +142,7 @@ Queue pause is checked before dequeueing new work.
 
 When a queue is paused:
 
-- workers stop claiming new jobs
+- workers that observe the paused backend state stop claiming new jobs
 - active jobs may continue to finish
 - delayed and repeatable schedulers may still maintain queue metadata, but no
   new dequeues occur until resume
@@ -155,8 +155,10 @@ await queue.resume()
 Backend note:
 
 - pause guarantees depend on the backend implementation
-- Redis provides durable shared pause state
-- some backends intentionally keep pause metadata process-local
+- Redis, PostgreSQL, MongoDB, and RabbitMQ with shared metadata provide shared
+  pause state across backend instances
+- InMemory pause state is process-local and is not a distributed operations
+  control
 
 Check [Backend Capabilities](../reference/backend-capabilities.md) when
 multi-process operational control matters.

@@ -47,6 +47,9 @@
   AsyncMQ's explicit job error marker the single exception-recording path.
 - Dashboard readiness now uses backend lightweight health checks instead of
   enumerating queues and workers.
+- Production documentation now clarifies backend-specific same-priority
+  ordering, RabbitMQ broker ordering, process-local pause limitations, and
+  dashboard route prefixes.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

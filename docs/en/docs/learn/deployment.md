@@ -119,8 +119,9 @@ For worker rollouts:
    the grace window
 5. verify worker heartbeat freshness and queue depth after rollout
 
-Queue-level `pause` is stronger than worker draining. Use pause only when you
-need every worker for a queue to stop claiming work.
+Queue-level `pause` is stronger than worker draining on backends with shared
+pause state. Use pause only when you need all workers that observe that backend
+state to stop claiming work.
 
 ## Backend Readiness
 

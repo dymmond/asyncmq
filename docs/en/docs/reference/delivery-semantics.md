@@ -68,14 +68,17 @@ Important limits:
 
 Ordering is an eligibility guarantee, not a completion guarantee.
 
-AsyncMQ dequeues eligible waiting jobs by priority first and FIFO order within
-the same priority for the built-in backends. Once jobs are running, completion
-order can differ because of concurrency, retries, delays, cancellation, worker
-crashes, and stalled recovery.
+AsyncMQ dequeues eligible waiting jobs by priority first for the built-in
+backends. Within the same priority, Redis and in-memory use insertion sequence,
+MongoDB uses `created_at` plus `job_id`, PostgreSQL uses `created_at` with
+unspecified ordering for exact timestamp ties, and RabbitMQ follows broker
+ordering for ready deliveries. Once jobs are running, completion order can
+differ because of concurrency, retries, delays, cancellation, worker crashes,
+and stalled recovery.
 
 Delayed jobs and retry backoff become eligible only after their scheduled time.
 When they return to the waiting queue, they compete with other eligible waiting
-jobs by the backend's priority/FIFO rules.
+jobs by the backend's priority and same-priority ordering rules.
 
 RabbitMQ queues must be declared with priority support for priority ordering.
 Existing RabbitMQ queues with incompatible declaration arguments must be

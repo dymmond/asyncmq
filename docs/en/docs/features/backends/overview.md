@@ -42,7 +42,8 @@ Postgres:
 
 - durable SQL-backed queue state
 - suitable when you prefer SQL operational tooling and transactions
-- waiting jobs are dequeued by priority, then FIFO within the same priority
+- waiting jobs are dequeued by priority, then `created_at` within the same
+  priority; exact timestamp ties are not ordered further by PostgreSQL
 - due delayed jobs are promoted to waiting in one SQL update
 - worker lifecycle transitions are written through database transactions so
   retry/defer rows are preserved and terminal states remain inspectable
@@ -73,9 +74,11 @@ RabbitMQ:
 
 - AMQP broker for delivery + separate job metadata store
 - by default, metadata store is Redis-backed (`RabbitMQJobStore`)
-- waiting jobs are dequeued by RabbitMQ broker priority, then FIFO within the
-  same priority; AsyncMQ maps lower numeric priorities to RabbitMQ's higher
-  AMQP priority values
+- waiting jobs are delivered by RabbitMQ broker priority when queues are
+  declared with priority support; same-priority delivery follows RabbitMQ's
+  broker ordering rather than an AsyncMQ-owned SQL-style tie-breaker
+- AsyncMQ maps lower numeric priorities to RabbitMQ's higher AMQP priority
+  values
 - worker lifecycle transitions are backend-owned and persist metadata before
   acknowledging broker deliveries; RabbitMQ broker state and metadata storage
   are not a single distributed transaction

@@ -41,15 +41,16 @@ RabbitMQBackend(
 - If omitted, `RabbitMQJobStore(redis_url=...)` is used.
 - `max_priority` declares queues with RabbitMQ `x-max-priority` and maps
   AsyncMQ's lower numeric priorities to RabbitMQ's higher AMQP priority values.
-  Set it to `None` only when you intentionally want ordinary FIFO RabbitMQ
-  queues.
+  Set it to `None` only when you intentionally want ordinary non-priority
+  RabbitMQ queues.
 
 ## Runtime Behavior
 
 - `dequeue()` fetches one AMQP message and tracks it in-flight.
 - `ack(queue, job_id)` performs the actual RabbitMQ message acknowledgement.
-- RabbitMQ waiting delivery respects job priority first, then FIFO order within
-  the same priority, when queues are declared with `max_priority`.
+- RabbitMQ waiting delivery respects broker priority when queues are declared
+  with `max_priority`; same-priority delivery follows RabbitMQ's broker
+  ordering rather than an AsyncMQ-owned tie-breaker.
 - Published deliveries include backend-managed delivery tokens. Removed jobs
   leave durable markers so stale broker redeliveries are acknowledged and
   ignored, while an explicit new enqueue with the same id receives a new token.

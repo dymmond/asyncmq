@@ -4,11 +4,15 @@ This page documents the dashboard routes and request parameters implemented in `
 
 ## Route Map
 
+Routes are shown relative to the configured dashboard mount or URL prefix. For
+example, with the default `/asyncmq` prefix, `/health` is served at
+`/asyncmq/health`.
+
 | Route | Methods | Purpose |
 | --- | --- | --- |
 | `/` | `GET` | Overview page (totals + live charts/tables) |
 | `/health` | `GET` | Liveness probe for the dashboard process |
-| `/ready` | `GET` | Readiness probe that verifies backend inspection works |
+| `/ready` | `GET` | Readiness probe that runs a lightweight backend reachability check |
 | `/queues` | `GET` | Queue list with state counts |
 | `/queues/{name}` | `GET`, `POST` | Queue detail + pause/resume actions |
 | `/queues/{name}/jobs` | `GET`, `POST` | Job list with filtering/search and bulk actions |
