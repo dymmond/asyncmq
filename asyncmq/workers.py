@@ -43,6 +43,68 @@ def autodiscover_tasks() -> None:
                 logger.warning(f"autodiscover failed importing {full_name!r}: {e}")
 
 
+async def _call_lifecycle_transition(backend: Any, name: str, *args: Any) -> bool:
+    transition = getattr(backend, name, None)
+    if callable(transition):
+        await transition(*args)
+        return True
+    return False
+
+
+async def _complete_active_job(backend: Any, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+    if await _call_lifecycle_transition(backend, "complete_active_job", queue_name, payload, result):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.COMPLETED)
+    await backend.save_job_result(queue_name, job_id, result)
+    await backend.ack(queue_name, job_id)
+
+
+async def _retry_active_job(backend: Any, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+    if await _call_lifecycle_transition(backend, "retry_active_job", queue_name, payload, run_at):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.DELAYED)
+    await backend.enqueue_delayed(queue_name, payload, run_at)
+    await backend.ack(queue_name, job_id)
+
+
+async def _defer_active_job(backend: Any, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+    if await _call_lifecycle_transition(backend, "defer_active_job", queue_name, payload, run_at):
+        return
+
+    await _retry_active_job(backend, queue_name, payload, run_at)
+
+
+async def _fail_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "fail_active_job", queue_name, payload):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.FAILED)
+    await backend.ack(queue_name, job_id)
+    await backend.move_to_dlq(queue_name, payload)
+
+
+async def _expire_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "expire_active_job", queue_name, payload):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.EXPIRED)
+    await backend.ack(queue_name, job_id)
+    await backend.move_to_dlq(queue_name, payload)
+
+
+async def _cancel_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "cancel_active_job", queue_name, payload):
+        return
+
+    await backend.ack(queue_name, str(payload["id"]))
+
+
 async def process_job(
     queue_name: str,
     limiter: CapacityLimiter,
@@ -189,12 +251,11 @@ async def handle_job(
             if parent_state != State.COMPLETED:
                 # Parent not done yet, requeue this job slightly in the future to avoid hot loops.
                 job.status = State.DELAYED
-                await backend.enqueue_delayed(queue_name, job.to_dict(), time.time() + 0.05)
-                await backend.ack(queue_name, job.id)
+                await _defer_active_job(backend, queue_name, job.to_dict(), time.time() + 0.05)
                 return
 
     if await backend.is_job_cancelled(queue_name, job.id):
-        await backend.ack(queue_name, job.id)
+        await _cancel_active_job(backend, queue_name, job.to_dict())
         await event_emitter.emit("job:cancelled", job.to_dict())
         return
 
@@ -202,14 +263,9 @@ async def handle_job(
     if job.is_expired():
         # Update job status to EXPIRED
         job.status = State.EXPIRED
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
-        # Clear active/heartbeat bookkeeping before terminal routing.
-        await backend.ack(queue_name, job.id)
+        await _expire_active_job(backend, queue_name, job.to_dict())
         # Emit a job:expired event
         await event_emitter.emit("job:expired", job.to_dict())
-        # Move the expired job to the Dead Letter Queue (DLQ)
-        await backend.move_to_dlq(queue_name, job.to_dict())
         return  # Stop processing this job
 
     # 2) Delay handling: If the job is scheduled to run later
@@ -217,8 +273,7 @@ async def handle_job(
     if job.delay_until and time.time() < job.delay_until:
         # If delayed, re-enqueue the job into the delayed queue
         job.status = State.DELAYED
-        await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
-        await backend.ack(queue_name, job.id)
+        await _defer_active_job(backend, queue_name, job.to_dict(), job.delay_until)
         return  # Stop processing this job for now
 
     try:
@@ -287,12 +342,7 @@ async def handle_job(
         job.status = State.COMPLETED
         # Store the result of the task execution
         job.result = result
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
-        # Save the job result in the backend
-        await backend.save_job_result(queue_name, job.id, result)
-        # Acknowledge successful processing in the backend
-        await backend.ack(queue_name, job.id)
+        await _complete_active_job(backend, queue_name, job.to_dict(), result)
         # Unblock dependent jobs waiting on this parent.
         resolve_dependency = getattr(backend, "resolve_dependency", None)
         if callable(resolve_dependency):
@@ -302,7 +352,7 @@ async def handle_job(
 
     except JobCancelled:
         # Cancellation path
-        await backend.ack(queue_name, job.id)
+        await _cancel_active_job(backend, queue_name, job.to_dict())
         await event_emitter.emit("job:cancelled", job.to_dict())
 
     except Exception:
@@ -321,13 +371,9 @@ async def handle_job(
         if job.retries > job.max_retries:
             # If retries exhausted, set status to FAILED
             job.status = State.FAILED
-            # Update the state in the backend
-            await backend.update_job_state(queue_name, job.id, job.status)
-            await backend.ack(queue_name, job.id)
+            await _fail_active_job(backend, queue_name, job.to_dict())
             # Emit a job:failed event
             await event_emitter.emit("job:failed", job.to_dict())
-            # Move the failed job to the Dead Letter Queue (DLQ)
-            await backend.move_to_dlq(queue_name, job.to_dict())
         else:
             # If retries are still available, calculate the next retry delay
             delay = job.next_retry_delay()
@@ -335,11 +381,7 @@ async def handle_job(
             job.delay_until = time.time() + delay
             # Mark retriable failure as delayed before requeueing.
             job.status = State.DELAYED
-            # Update the state in the backend
-            await backend.update_job_state(queue_name, job.id, job.status)
-            # Enqueue the job into the delayed queue for a future retry
-            await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
-            await backend.ack(queue_name, job.id)
+            await _retry_active_job(backend, queue_name, job.to_dict(), job.delay_until)
 
 
 class Worker:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import asyncmq
+from asyncmq.core.enums import State
 from asyncmq.core.inspection import paginate_jobs, sanitize_job_types
 
 if TYPE_CHECKING:
@@ -217,6 +218,67 @@ class BaseBackend(ABC):
             result: The result data of the job (can be any serializable type).
         """
         ...
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        """
+        Complete an active job as one backend-owned lifecycle transition.
+
+        Storage backends should override this method when they can combine the
+        state update, result persistence, and active-job acknowledgement in one
+        atomic operation. The default implementation preserves the historical
+        multi-call behavior for backends that have not yet been hardened.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.COMPLETED)
+        await self.save_job_result(queue_name, job_id, result)
+        await self.ack(queue_name, job_id)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        """
+        Move an active job back to delayed retry storage.
+
+        Backends should override this to atomically remove active ownership,
+        persist the retried payload, and make the job visible at ``run_at``.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.DELAYED)
+        await self.enqueue_delayed(queue_name, payload, run_at)
+        await self.ack(queue_name, job_id)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        """
+        Move an active job to delayed storage without changing retry counters.
+
+        This is used for dependency gating and future ``delay_until`` jobs.
+        """
+        await self.retry_active_job(queue_name, payload, run_at)
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Move an active job to terminal failure and the dead-letter queue.
+
+        Backends should override this when failure state, active ownership, and
+        DLQ insertion can be committed atomically.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.FAILED)
+        await self.ack(queue_name, job_id)
+        await self.move_to_dlq(queue_name, payload)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Move an active job to expired terminal state and the dead-letter queue.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.EXPIRED)
+        await self.ack(queue_name, job_id)
+        await self.move_to_dlq(queue_name, payload)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Release active ownership for a job cancelled before or during execution.
+        """
+        await self.ack(queue_name, str(payload["id"]))
 
     @abstractmethod
     async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:

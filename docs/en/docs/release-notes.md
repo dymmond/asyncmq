@@ -7,6 +7,10 @@
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute.
+- Worker completion, retry, expiration, cancellation, and terminal-failure paths
+  now route through backend-owned lifecycle transitions so backends can make
+  state, result, acknowledgement, delay, and DLQ updates atomic for their
+  storage technology.
 
 ## 0.8.1
 

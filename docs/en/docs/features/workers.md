@@ -42,8 +42,8 @@ The core loop lives in `process_job(...)` and `handle_job(...)`.
 For each queue, the runtime repeatedly:
 
 1. checks whether the queue is paused
-2. dequeues the next eligible job
-3. applies concurrency limits
+2. acquires local execution capacity
+3. dequeues the next eligible job
 4. applies optional per-process rate limiting
 5. normalizes backend payload shape
 6. evaluates dependency gating, cancellation, TTL, and delay rules
@@ -67,19 +67,24 @@ The job execution path is:
 7. optionally record a job heartbeat for stalled detection
 8. execute the handler
 9. on success:
-   - mark `completed`
-   - persist the result
-   - acknowledge the job
+   - complete the job through the backend lifecycle transition
+   - persist the result and release active ownership
    - resolve dependencies for children
    - emit `job:completed`
 10. on failure:
    - capture traceback metadata
    - increment retries
-   - either requeue with backoff as `delayed`
-   - or mark `failed`, acknowledge, move to the DLQ, and emit `job:failed`
+   - either retry through the backend lifecycle transition as `delayed`
+   - or fail through the backend lifecycle transition into the DLQ and emit
+     `job:failed`
 
 This is broadly the same mental model as BullMQ workers, expressed through
 backend-neutral Python runtime code instead of Redis scripts.
+
+Lifecycle transitions such as completion, retry, expiration, and terminal
+failure are owned by the backend interface. Backends with transactional storage
+can implement those transitions atomically for their storage technology, while
+workers use the same lifecycle API across backends.
 
 ## Concurrency
 

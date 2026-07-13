@@ -1,3 +1,5 @@
+from typing import Any
+
 import anyio
 import pytest
 
@@ -6,7 +8,7 @@ from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
-from asyncmq.workers import Worker, process_job
+from asyncmq.workers import Worker, handle_job, process_job
 
 pytestmark = pytest.mark.anyio
 
@@ -195,6 +197,143 @@ async def test_worker_does_not_prefetch_beyond_concurrency():
     assert started == 1
     assert active <= 1
     assert waiting >= 4
+
+
+async def test_worker_success_uses_backend_lifecycle_transition():
+    class LifecycleBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.completed_calls = 0
+
+        async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+            self.completed_calls += 1
+            await super().complete_active_job(queue_name, payload, result)
+
+        async def save_job_result(self, queue_name: str, job_id: str, result: Any) -> None:
+            raise AssertionError("worker must complete through complete_active_job")
+
+        async def ack(self, queue_name: str, job_id: str) -> None:
+            raise AssertionError("worker must complete through complete_active_job")
+
+    backend = LifecycleBackend()
+    settings.backend = backend
+
+    async def _task() -> str:
+        return "done"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._lifecycle_success"] = {"func": _task}
+
+    queue = "test_queue_lifecycle_success"
+    job = Job(task_id="tests._lifecycle_success", args=[], kwargs={}, job_id="j-success")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await handle_job(queue, payload, backend)
+
+    assert backend.completed_calls == 1
+    assert await backend.get_job_state(queue, "j-success") == State.COMPLETED
+    assert await backend.get_job_result(queue, "j-success") == "done"
+    assert (queue, "j-success") not in backend.active_jobs
+
+
+async def test_worker_retry_uses_backend_lifecycle_transition():
+    class LifecycleBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.retry_calls = 0
+
+        async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+            self.retry_calls += 1
+            await super().retry_active_job(queue_name, payload, run_at)
+
+        async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+            if state != State.ACTIVE:
+                raise AssertionError("worker must retry through retry_active_job")
+            await super().update_job_state(queue_name, job_id, state)
+
+        async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+            raise AssertionError("worker must retry through retry_active_job")
+
+        async def ack(self, queue_name: str, job_id: str) -> None:
+            raise AssertionError("worker must retry through retry_active_job")
+
+    backend = LifecycleBackend()
+    settings.backend = backend
+
+    async def _task() -> None:
+        raise RuntimeError("retry me")
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._lifecycle_retry"] = {"func": _task}
+
+    queue = "test_queue_lifecycle_retry"
+    job = Job(
+        task_id="tests._lifecycle_retry",
+        args=[],
+        kwargs={},
+        job_id="j-retry",
+        max_retries=2,
+        backoff=0.0,
+    )
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await handle_job(queue, payload, backend)
+
+    assert backend.retry_calls == 1
+    assert await backend.get_job_state(queue, "j-retry") == State.DELAYED
+    assert len(backend.delayed[queue]) == 1
+    assert (queue, "j-retry") not in backend.active_jobs
+
+
+async def test_worker_failure_uses_backend_lifecycle_transition():
+    class LifecycleBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.failure_calls = 0
+
+        async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+            self.failure_calls += 1
+            await super().fail_active_job(queue_name, payload)
+
+        async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+            if state != State.ACTIVE:
+                raise AssertionError("worker must fail through fail_active_job")
+            await super().update_job_state(queue_name, job_id, state)
+
+        async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
+            raise AssertionError("worker must fail through fail_active_job")
+
+        async def ack(self, queue_name: str, job_id: str) -> None:
+            raise AssertionError("worker must fail through fail_active_job")
+
+    backend = LifecycleBackend()
+    settings.backend = backend
+
+    async def _task() -> None:
+        raise RuntimeError("fail me")
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._lifecycle_failure"] = {"func": _task}
+
+    queue = "test_queue_lifecycle_failure"
+    job = Job(task_id="tests._lifecycle_failure", args=[], kwargs={}, job_id="j-failed", max_retries=0)
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await handle_job(queue, payload, backend)
+
+    assert backend.failure_calls == 1
+    assert await backend.get_job_state(queue, "j-failed") == State.FAILED
+    assert len(backend.dlqs[queue]) == 1
+    assert (queue, "j-failed") not in backend.active_jobs
 
 
 async def test_worker_lifecycle_hooks_invoked_in_order(monkeypatch):

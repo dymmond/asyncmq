@@ -177,6 +177,89 @@ class InMemoryBackend(BaseBackend):
         self.heartbeats.pop((queue_name, job_id), None)
         self.active_jobs.pop((queue_name, job_id), None)
 
+    def _remove_job_memberships_locked(self, queue_name: str, job_id: str) -> None:
+        self.queues[queue_name] = [
+            job for job in self.queues.get(queue_name, []) if str(job.get("id")) != job_id
+        ]
+        self.delayed[queue_name] = [
+            (run_at, job)
+            for run_at, job in self.delayed.get(queue_name, [])
+            if str(job.get("id")) != job_id
+        ]
+        self.active_jobs.pop((queue_name, job_id), None)
+        self.heartbeats.pop((queue_name, job_id), None)
+
+    def _store_lifecycle_payload_locked(
+        self,
+        queue_name: str,
+        payload: dict[str, Any],
+        status: str,
+        now: float,
+    ) -> dict[str, Any]:
+        job_id = str(payload["id"])
+        stored = {**payload, "status": status, "updated_at": now}
+        if status == State.COMPLETED:
+            stored["completed_at"] = now
+        elif status in {State.FAILED, State.EXPIRED}:
+            stored["failed_at"] = now
+
+        self.job_states[(queue_name, job_id)] = status
+        self.job_payloads[(queue_name, job_id)] = stored
+        return stored
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(
+                queue_name,
+                {**payload, "result": result},
+                State.COMPLETED,
+                now,
+            )
+            self.job_results[(queue_name, job_id)] = result
+            self.job_payloads[(queue_name, job_id)] = stored
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(
+                queue_name,
+                {**payload, "delay_until": run_at},
+                State.DELAYED,
+                now,
+            )
+            self.delayed.setdefault(queue_name, []).append((run_at, stored))
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self._terminal_dlq_transition(queue_name, payload, State.FAILED)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self._terminal_dlq_transition(queue_name, payload, State.EXPIRED)
+
+    async def _terminal_dlq_transition(self, queue_name: str, payload: dict[str, Any], status: str) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(queue_name, payload, status, now)
+            self.dlqs.setdefault(queue_name, []).append(stored)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        async with self.lock:
+            self.active_jobs.pop((queue_name, job_id), None)
+            self.heartbeats.pop((queue_name, job_id), None)
+
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Asynchronously schedules a job to be available for processing at a
