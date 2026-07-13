@@ -2,9 +2,12 @@ import json
 import sys
 
 import pytest
+import redis.asyncio as async_redis
 
 from benchmarks.competitive import (
     TARGETS,
+    _asyncmq_counter_client,
+    _close_asyncmq_counter,
     _parse_target_python,
     _select_targets,
     benchmark_inventory,
@@ -78,3 +81,12 @@ async def test_competitive_asyncmq_runner_processes_all_jobs():
     assert result.total_concurrency == 2
     assert len(result.samples) == 2
     assert result.throughput_jobs_per_second > 0
+
+
+async def test_asyncmq_benchmark_counter_uses_blocking_pool():
+    redis_url = "redis://localhost:6379/15"
+    client = _asyncmq_counter_client(redis_url)
+    try:
+        assert isinstance(client.connection_pool, async_redis.BlockingConnectionPool)
+    finally:
+        await _close_asyncmq_counter(redis_url)

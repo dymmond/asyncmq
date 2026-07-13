@@ -28,6 +28,8 @@ from benchmarks.plan import WORKLOADS
 REDIS_URL = "redis://localhost:6379/15"
 ASYNCMQ_TASK_ID = "benchmarks.competitive.asyncmq_payload_task"
 _ASYNCMQ_COUNTERS: dict[str, Any] = {}
+ASYNCMQ_COUNTER_MAX_CONNECTIONS = 2048
+ASYNCMQ_COUNTER_POOL_TIMEOUT = 30.0
 
 
 @dataclass(frozen=True)
@@ -190,14 +192,27 @@ def _run_dimensions(args: argparse.Namespace) -> RunDimensions:
 
 async def _asyncmq_payload_task(payload: str, run_id: str) -> int:
     redis_url = os.environ.get("ASYNCMQ_BENCH_REDIS_URL", REDIS_URL)
-    client = _ASYNCMQ_COUNTERS.get(redis_url)
-    if client is None:
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(redis_url)
-        _ASYNCMQ_COUNTERS[redis_url] = client
+    client = _asyncmq_counter_client(redis_url)
     await client.incr(_completion_key(run_id))
     return len(payload)
+
+
+def _asyncmq_counter_client(redis_url: str) -> Any:
+    client = _ASYNCMQ_COUNTERS.get(redis_url)
+    if client is None:
+        import redis.asyncio as redis
+
+        client = redis.Redis(
+            connection_pool=redis.BlockingConnectionPool.from_url(
+                redis_url,
+                max_connections=int(
+                    os.environ.get("ASYNCMQ_BENCH_COUNTER_MAX_CONNECTIONS", ASYNCMQ_COUNTER_MAX_CONNECTIONS)
+                ),
+                timeout=float(os.environ.get("ASYNCMQ_BENCH_COUNTER_POOL_TIMEOUT", ASYNCMQ_COUNTER_POOL_TIMEOUT)),
+            )
+        )
+        _ASYNCMQ_COUNTERS[redis_url] = client
+    return client
 
 
 async def _close_asyncmq_counter(redis_url: str) -> None:

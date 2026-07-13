@@ -10,7 +10,7 @@
 - Added observability and diagnostics options: structured JSON logging,
   optional OpenTelemetry job spans, richer worker visibility, and benchmark
   tooling with warmups, repeated samples, summary statistics, and isolated
-  competitor runners for canonical workloads.
+  competitor runners for canonical workloads and 1,000-worker fanout runs.
 - Added safety and deployment guidance: payload-size limits, dashboard admin
   authorization, explicit CORS/same-origin controls, delivery-semantics docs,
   Docker/Kubernetes deployment notes, and benchmark planning against Celery,
