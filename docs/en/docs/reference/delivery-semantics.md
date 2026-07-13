@@ -56,7 +56,8 @@ Important limits:
 - `MongoDBBackend` conditionally updates still-active persisted documents
   during stalled recovery and updates local mirrors only after that transition.
 - `RabbitMQBackend` publishes tokenized replacement deliveries during stalled
-  recovery and acknowledges stale broker redeliveries whose token no longer
+  recovery only after current metadata still matches the stalled active
+  snapshot, and acknowledges stale broker redeliveries whose token no longer
   matches metadata state.
 - Very long handlers should either finish within the visibility window or keep
   heartbeat renewal enabled.

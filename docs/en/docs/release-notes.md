@@ -69,6 +69,9 @@
 - MongoDB stalled recovery now conditionally moves only still-active persisted
   job documents back to waiting before updating local mirrors, preserving
   terminal documents when recovery uses an older stalled snapshot.
+- RabbitMQ stalled recovery now re-checks current metadata status, active-claim
+  timestamp, cancellation, removal, and delivery token before publishing a
+  replacement delivery from an older stalled snapshot.
 - PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
   first and FIFO order within the same priority.
 - Delayed-job scanning now delegates due-job promotion to backend-owned

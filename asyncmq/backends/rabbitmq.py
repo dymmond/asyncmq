@@ -1402,12 +1402,28 @@ class RabbitMQBackend(BaseBackend):
                 its 'payload' key.
         """
         payload = dict(job_data.get("payload", job_data))
-        payload["status"] = State.WAITING
         payload["id"] = job_data.get("id", payload.get("id"))
         job_id = str(payload["id"])
         if await self._is_removed_job(queue_name, job_id):
             return
+        if await self.is_job_cancelled(queue_name, job_id):
+            return
+        current_entry = await self._state.load(queue_name, job_id)
+        if not current_entry or current_entry.get("status") != State.ACTIVE:
+            return
+        current_payload = self._normalize_stored_job(current_entry)
+        expected_active_since = job_data.get("active_since", payload.get("active_since"))
+        current_active_since = current_entry.get("active_since", current_payload.get("active_since"))
+        if isinstance(expected_active_since, (int, float)):
+            if not isinstance(current_active_since, (int, float)):
+                return
+            if abs(float(current_active_since) - float(expected_active_since)) > 0.000001:
+                return
+        if self._has_stale_delivery_token(payload, current_payload):
+            return
+        payload["status"] = State.WAITING
         payload.pop("heartbeat", None)
+        payload.pop("active_since", None)
         payload = self._with_delivery_token(payload)
         async with self._in_flight_lock:
             has_local_delivery = (queue_name, job_id) in self._in_flight

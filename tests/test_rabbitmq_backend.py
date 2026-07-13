@@ -19,6 +19,7 @@ RABBIT_TEST_QUEUES = (
     "test_q_promote_delayed",
     "test_q_stalled_restart",
     "test_q_stalled_without_first_heartbeat",
+    "test_q_stalled_completed",
     "test_q_remote_remove",
     "test_q_remote_remove.dlq",
     "test_list_state",
@@ -635,6 +636,38 @@ async def test_reenqueue_stalled_after_restart_publishes_recovery_delivery(redis
             duplicate = await recovery.dequeue(queue)
             assert duplicate is None
             await asyncio.sleep(0.1)
+    finally:
+        await producer.close()
+        await recovery.drain_queue(queue)
+        await recovery.close()
+
+
+async def test_reenqueue_stalled_does_not_requeue_completed_snapshot(redis_store):
+    queue = "test_q_stalled_completed"
+    job_id = "stalled-completed"
+    payload = {"id": job_id, "task": "recover-completed-race"}
+    producer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    recovery = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    await producer.drain_queue(queue)
+    try:
+        await producer.enqueue(queue, payload)
+        message = await producer.dequeue(queue)
+        assert message is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+        await producer.complete_active_job(queue, message["payload"], {"ok": True})
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        stored = await redis_store.load(queue, job_id)
+        assert stored["status"] == State.COMPLETED
+        assert stored["result"] == {"ok": True}
+        duplicate = await recovery.dequeue(queue)
+        assert duplicate is None
     finally:
         await producer.close()
         await recovery.drain_queue(queue)

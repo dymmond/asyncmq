@@ -78,8 +78,9 @@ RabbitMQ:
   locally owned active deliveries, and prevents late lifecycle writes from
   overwriting cancellation
 - stalled recovery publishes a tokenized replacement delivery when the original
-  broker delivery is still owned by another connection, and stale broker
-  redeliveries are acknowledged and ignored after recovery
+  broker delivery is still owned by another connection after current metadata
+  still matches the stalled active snapshot, and stale broker redeliveries are
+  acknowledged and ignored after recovery
 - queue draining follows the shared backend contract by removing queued
   metadata, purging ready broker messages, honoring `include_delayed`, and
   returning removed job ids
