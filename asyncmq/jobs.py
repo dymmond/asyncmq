@@ -41,6 +41,7 @@ class Job:
         repeat_every: float | int | None = None,
         depends_on: list[str] | None = None,
         deduplication: dict[str, Any] | None = None,
+        active_since: float | None = None,
     ) -> None:
         """
         Initializes a new Job instance.
@@ -113,6 +114,7 @@ class Job:
         # Ensure depends_on is always a list, defaulting to empty if None.
         self.depends_on: list[str] = depends_on or []
         self.deduplication: dict[str, Any] | None = dict(deduplication) if deduplication is not None else None
+        self.active_since: float | None = active_since
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "Job":
@@ -145,6 +147,7 @@ class Job:
             repeat_every=data.get("repeat_every"),
             depends_on=data.get("depends_on", []),
             deduplication=data.get("deduplication"),
+            active_since=_coerce_optional_float(data.get("active_since")),
         )
         # Set remaining attributes from the dictionary data.
         job.status = data.get("status", State.WAITING)
@@ -228,7 +231,7 @@ class Job:
             A dictionary containing all relevant attributes of the Job instance.
         """
         # Return a dictionary containing key attributes of the Job instance.
-        return {
+        payload = {
             "id": self.id,
             "task": self.task_id,
             "args": self.args,
@@ -249,3 +252,15 @@ class Job:
             "repeat_every": self.repeat_every,
             "deduplication": self.deduplication,
         }
+        if self.active_since is not None:
+            payload["active_since"] = self.active_since
+        return payload
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

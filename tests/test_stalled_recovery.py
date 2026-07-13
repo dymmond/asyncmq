@@ -18,6 +18,7 @@ from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.core.stalled import stalled_recovery_scheduler
 from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
+from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
 
@@ -662,6 +663,45 @@ async def test_redis_stale_completion_does_not_clear_recovered_active_claim():
         assert await recovery.get_job_state(queue, job_id) == State.COMPLETED
         assert await recovery.get_job_result(queue, job_id) == {"fresh": True}
         assert not await recovery.redis.hexists(recovery._active_key(queue), job_id)
+    finally:
+        await producer.redis.flushdb()
+        await producer.redis.aclose()
+        await producer.job_store.redis.aclose()
+        await recovery.redis.aclose()
+        await recovery.job_store.redis.aclose()
+
+
+async def test_redis_worker_payload_preserves_active_claim_token_for_stale_completion():
+    queue = "redis-stalled-worker-token"
+    job_id = "redis-worker-token"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    producer = RedisBackend()
+    recovery = RedisBackend()
+    await producer.redis.flushdb()
+    try:
+        await producer.enqueue(queue, payload)
+        stale_active = await producer.dequeue(queue)
+        assert stale_active is not None
+        stale_worker_payload = Job.from_dict(stale_active).to_dict()
+        assert stale_worker_payload["active_since"] == stale_active["active_since"]
+
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        recovered = await recovery.dequeue(queue)
+        assert recovered is not None
+        assert recovered["active_since"] != stale_worker_payload["active_since"]
+
+        await producer.complete_active_job(queue, stale_worker_payload, {"stale": True})
+
+        assert await recovery.get_job_state(queue, job_id) == State.ACTIVE
+        assert await recovery.get_job_result(queue, job_id) is None
+        assert await recovery.redis.hexists(recovery._active_key(queue), job_id)
     finally:
         await producer.redis.flushdb()
         await producer.redis.aclose()

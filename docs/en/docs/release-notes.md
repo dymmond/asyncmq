@@ -17,6 +17,7 @@
 - Worker reservation is bounded by execution capacity and rate-limit tokens.
 - Lifecycle transitions are backend-owned for completion, retry, expiration,
   cancellation, DLQ, delayed, and cleanup paths.
+- Worker payloads preserve active-claim tokens for stale lifecycle rejection.
 - Stalled recovery releases abandoned active jobs while preserving terminal
   states across persistent backend restarts.
 - Backend behavior is aligned for priority/FIFO ordering, delayed promotion,

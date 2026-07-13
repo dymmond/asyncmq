@@ -44,6 +44,10 @@ still be recovered once the claim is older than `stalled_threshold`. A recovery
 loop scans stale active claims and stale heartbeats, then releases matching jobs
 back to runnable work.
 
+Worker job payloads preserve the active-claim timestamp through handler
+execution, so late completion/retry/failure writes can be rejected after a
+different worker has recovered and reclaimed the job.
+
 For persistent backends, a killed worker process does not acknowledge or
 complete its active job. The job remains active until its heartbeat or active
 claim crosses the stalled threshold, then another recovery loop can release the
