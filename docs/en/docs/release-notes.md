@@ -104,6 +104,9 @@
 - MongoDB waiting dequeue and delayed-job promotion now use MongoDB document
   state transitions, allowing separate producer and worker backend instances to
   share immediate and delayed jobs instead of relying on process-local mirrors.
+- RabbitMQ stalled recovery now publishes tokenized replacement deliveries when
+  the original broker delivery is still held by another connection, while stale
+  broker redeliveries are acknowledged and ignored after recovery.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

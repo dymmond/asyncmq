@@ -55,8 +55,9 @@ All built-in backends implement `BaseBackend` methods used by:
 - metadata/state persistence delegated to a job store (Redis-backed by default)
 - queue pause/resume state is stored in the metadata store and shared by backend instances
 - durable repeatable schedules stored in the metadata job store
-- restart stalled recovery discovers queues through the metadata store and uses
-  RabbitMQ redelivery for unacknowledged broker messages
+- stalled recovery discovers queues through the metadata store, publishes
+  tokenized replacement deliveries, and ignores stale broker redeliveries after
+  recovery
 - coordination quality depends on the metadata store lock implementation
 
 ## Choosing by Requirement

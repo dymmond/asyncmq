@@ -110,6 +110,16 @@ class RabbitMQBackend(BaseBackend):
         logical_priority = int(payload.get("priority", 5))
         return max(0, min(self.max_priority, self.max_priority - logical_priority))
 
+    def _new_delivery_token(self, job_id: str) -> str:
+        return f"{job_id}:{time.time_ns()}"
+
+    def _has_stale_delivery_token(self, payload: dict[str, Any], stored_payload: dict[str, Any]) -> bool:
+        for token_name in ("_delivery_token", "_dependency_release_token"):
+            stored_token = stored_payload.get(token_name)
+            if stored_token and payload.get(token_name) != stored_token:
+                return True
+        return False
+
     async def _store_entry(self, queue_name: str, job_id: str) -> dict[str, Any]:
         return await self._state.load(queue_name, job_id) or {"id": job_id}
 
@@ -265,8 +275,7 @@ class RabbitMQBackend(BaseBackend):
             payload.setdefault("id", job_id)
             stored = await self._state.load(queue_name, job_id)
             candidate = self._normalize_stored_job(stored) if stored else payload
-            stored_token = candidate.get("_dependency_release_token")
-            if stored_token and payload.get("_dependency_release_token") != stored_token:
+            if self._has_stale_delivery_token(payload, candidate):
                 await msg.ack()
                 continue
             if has_pending_dependencies(candidate) or candidate.get("_dependency_blocked"):
@@ -1277,19 +1286,30 @@ class RabbitMQBackend(BaseBackend):
         payload["status"] = State.WAITING
         payload["id"] = job_data.get("id", payload.get("id"))
         job_id = str(payload["id"])
+        payload.pop("heartbeat", None)
+        payload["_delivery_token"] = self._new_delivery_token(job_id)
         async with self._in_flight_lock:
             has_local_delivery = (queue_name, job_id) in self._in_flight
 
         if not has_local_delivery:
+            replacement = {
+                "id": job_id,
+                "payload": payload,
+                "status": State.WAITING,
+            }
             await self._state.save(
                 queue_name,
                 job_id,
-                {
-                    "id": job_id,
-                    "payload": payload,
-                    "status": State.WAITING,
-                },
+                replacement,
             )
+            await self._ensure_queue(queue_name)
+            msg = Message(
+                self._json_serializer.to_json(payload).encode(),
+                message_id=job_id,
+                delivery_mode=DeliveryMode.PERSISTENT,
+                priority=self._message_priority(payload),
+            )
+            await self._chan.default_exchange.publish(msg, routing_key=queue_name)
             self._known_queues.add(queue_name)
             return
 

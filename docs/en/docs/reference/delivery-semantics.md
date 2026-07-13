@@ -45,8 +45,9 @@ Important limits:
 
 - `InMemoryBackend` stalled recovery is process-local and does not survive
   process restart.
-- RabbitMQ recovery relies on broker redelivery for unacknowledged messages
-  after restart and uses the metadata store to reset job state.
+- `RabbitMQBackend` publishes tokenized replacement deliveries during stalled
+  recovery and acknowledges stale broker redeliveries whose token no longer
+  matches metadata state.
 - Very long handlers should either finish within the visibility window or keep
   heartbeat renewal enabled.
 
