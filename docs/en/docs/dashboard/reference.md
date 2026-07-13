@@ -7,6 +7,8 @@ This page documents the dashboard routes and request parameters implemented in `
 | Route | Methods | Purpose |
 | --- | --- | --- |
 | `/` | `GET` | Overview page (totals + live charts/tables) |
+| `/health` | `GET` | Liveness probe for the dashboard process |
+| `/ready` | `GET` | Readiness probe that verifies backend inspection works |
 | `/queues` | `GET` | Queue list with state counts |
 | `/queues/{name}` | `GET`, `POST` | Queue detail + pause/resume actions |
 | `/queues/{name}/jobs` | `GET`, `POST` | Job list with filtering/search and bulk actions |
@@ -96,6 +98,18 @@ Response shape:
   ]
 }
 ```
+
+## Health and Readiness
+
+`GET /health` returns process liveness without touching the queue backend:
+
+```json
+{"status": "ok", "service": "asyncmq-dashboard"}
+```
+
+`GET /ready` checks backend queue and worker inspection. It returns `200` with
+`status: "ok"` when the backend is reachable and `503` with `status: "error"`
+when backend inspection raises.
 
 ## SSE Events
 

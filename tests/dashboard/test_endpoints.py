@@ -12,6 +12,11 @@ from asyncmq.core.utils.dashboard import DashboardConfig
 config = DashboardConfig()
 
 
+class BrokenBackend:
+    async def list_queues(self):
+        raise RuntimeError("backend unavailable")
+
+
 @pytest.fixture(scope="package")
 def client():
     with TestClient(Lilya(routes=[Include(path="/", app=create_dashboard_app())])) as client:
@@ -53,3 +58,31 @@ def test_metrics_history_json(client):
     response = client.get(reverse("metrics-history", app=app))
     assert response.status_code == 200
     assert response.headers.get("content-type", "").startswith("application/json")
+
+
+def test_health_endpoint(client):
+    response = client.get(reverse("health", app=app))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "asyncmq-dashboard"}
+
+
+def test_ready_endpoint_reports_backend_reachability(client):
+    settings.backend = RedisBackend()
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["backend"] == "RedisBackend"
+
+
+def test_ready_endpoint_reports_backend_failure(client):
+    settings.backend = BrokenBackend()
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "error"
+    assert response.json()["backend"] == "BrokenBackend"
+    assert "RuntimeError" in response.json()["error"]

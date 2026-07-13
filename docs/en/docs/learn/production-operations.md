@@ -25,6 +25,11 @@ Avoid embedding high-volume workers into the same process that handles your
 user-facing HTTP traffic unless you are deliberately optimizing for a small
 deployment footprint.
 
+For dashboard deployments, wire platform probes to:
+
+- `/health` for process liveness
+- `/ready` for backend reachability and inspection readiness
+
 ## Queue Design
 
 Split queues by operational profile, not by arbitrary code ownership.

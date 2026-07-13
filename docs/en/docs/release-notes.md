@@ -57,6 +57,8 @@
   checks by default to reduce CSRF exposure on queue and job operations.
 - `JWTAuthBackend` now rejects missing or shorter-than-32-byte HMAC secrets at
   startup instead of accepting weak HS* signing keys.
+- Dashboard deployments now expose `/health` for liveness and `/ready` for
+  backend reachability/readiness checks.
 
 ## 0.8.1
 
