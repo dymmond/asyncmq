@@ -20,6 +20,8 @@
 - Delivery semantics are now documented in one reference page covering
   at-least-once behavior, duplicate delivery, visibility recovery, ordering,
   cancellation, expiration, and backend caveats.
+- Deployment guidance now covers process separation, Docker images, Kubernetes
+  probes, rolling worker restarts, backend readiness, and recovery expectations.
 
 ### Fixed
 

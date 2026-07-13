@@ -25,6 +25,8 @@ Avoid embedding high-volume workers into the same process that handles your
 user-facing HTTP traffic unless you are deliberately optimizing for a small
 deployment footprint.
 
+For Docker and Kubernetes examples, see [Deployment](deployment.md).
+
 For dashboard deployments, wire platform probes to:
 
 - `/health` for process liveness
