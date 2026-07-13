@@ -21,6 +21,8 @@ AsyncMQ provides runtime primitives; secure operation is your responsibility.
 - never combine wildcard CORS origins with credentialed dashboard sessions
 - leave same-origin mutation checks enabled unless an upstream gateway enforces
   equivalent CSRF protections
+- authenticated dashboard mutations require an explicit same-origin `Origin`
+  header by default
 
 ## Logging and Data Handling
 

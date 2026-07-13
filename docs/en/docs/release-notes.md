@@ -38,6 +38,8 @@
 - Dashboard authorization now fails closed for unsupported admin and role claim
   shapes, so object or list admin claims and object role claims do not grant
   dashboard access.
+- Dashboard same-origin enforcement now rejects authenticated unsafe requests
+  when the `Origin` header is missing as well as when it is cross-origin.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

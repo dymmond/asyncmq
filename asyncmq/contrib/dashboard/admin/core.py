@@ -51,7 +51,7 @@ class AsyncMQAdmin:
             url_prefix: The base URL path where the dashboard should be mounted (e.g., "/asyncmq").
                         Defaults to the value from `monkay.settings.dashboard_config`.
             enforce_same_origin: If True, reject authenticated unsafe requests
-                        whose Origin does not match the dashboard host.
+                        whose Origin is missing or does not match the dashboard host.
             require_admin: If True, authenticated users must expose admin
                         privileges before dashboard access is allowed.
             required_roles: Optional role names; when provided, authenticated

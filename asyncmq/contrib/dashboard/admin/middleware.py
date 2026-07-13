@@ -114,7 +114,7 @@ class AuthGateMiddleware:
     def _is_same_origin(self, request: Request) -> bool:
         origin = request.headers.get("origin")
         if not origin:
-            return True
+            return False
 
         host = request.headers.get("x-forwarded-host") or request.headers.get("host")
         if not host:

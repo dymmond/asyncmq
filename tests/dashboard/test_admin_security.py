@@ -107,6 +107,25 @@ def test_auth_gate_rejects_cross_origin_mutating_dashboard_request():
     assert response.text == "Cross-origin dashboard request rejected"
 
 
+def test_auth_gate_rejects_missing_origin_mutating_dashboard_request():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.post(
+        "/asyncmq/queues/critical",
+        data={"action": "pause"},
+        headers={"X-Authenticated-User": "alice"},
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Cross-origin dashboard request rejected"
+
+
 def test_auth_gate_allows_same_origin_mutating_dashboard_request():
     client = TestClient(
         AsyncMQAdmin(
