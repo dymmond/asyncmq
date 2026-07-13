@@ -263,6 +263,30 @@ async def test_fail_active_job_publishes_dlq_and_acks_in_flight_message(backend,
     assert dlq_job["payload"]["id"] == "life-fail"
 
 
+async def test_reenqueue_stalled_acks_in_flight_delivery(backend, redis_store):
+    payload = {"id": "stalled-release", "task": "recover"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "stalled-release") in backend._in_flight
+
+    await backend.update_job_state("test_q", "stalled-release", "active")
+    await backend.save_heartbeat("test_q", "stalled-release", time.time() - 10)
+
+    stalled = await backend.fetch_stalled_jobs(time.time() - 1)
+    entry = next(item for item in stalled if item["job_data"]["id"] == "stalled-release")
+    await backend.reenqueue_stalled("test_q", entry["job_data"])
+
+    assert ("test_q", "stalled-release") not in backend._in_flight
+    state = await backend.get_job_state("test_q", "stalled-release")
+    assert state == "waiting"
+
+    recovered = await backend.dequeue("test_q")
+    assert recovered is not None
+    assert recovered["payload"]["id"] == "stalled-release"
+
+
 async def test_bulk_enqueue(backend):
     jobs = [
         {"id": "j9", "task": "bulk1"},

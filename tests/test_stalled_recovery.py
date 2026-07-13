@@ -127,3 +127,38 @@ async def test_scheduler_recovery(backend, monkeypatch):
         assert state == State.WAITING
     elif isinstance(backend, MongoDBBackend):
         assert payload in backend.queues.get(queue, [])
+
+
+async def test_reenqueue_stalled_releases_dequeued_active_job(backend):
+    queue = "qa-active-release"
+    job_id = "active-release"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    await backend.enqueue(queue, payload)
+    raw = await backend.dequeue(queue)
+    assert raw is not None
+
+    await backend.update_job_state(queue, job_id, State.ACTIVE)
+    old = time.time() - 10
+    await backend.save_heartbeat(queue, job_id, old)
+
+    stalled = await backend.fetch_stalled_jobs(old + 1)
+    entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+    await backend.reenqueue_stalled(queue, entry["job_data"])
+
+    if isinstance(backend, InMemoryBackend):
+        assert (queue, job_id) not in backend.active_jobs
+        assert (queue, job_id) not in backend.heartbeats
+        assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
+    elif isinstance(backend, RedisBackend):
+        assert not await backend.redis.hexists(backend._active_key(queue), job_id)
+        assert not await backend.redis.hexists(backend._job_heartbeat_key(queue), job_id)
+        items = await backend.redis.zrange(f"queue:{queue}:waiting", 0, -1)
+        assert any(json.loads(item)["id"] == job_id for item in items)
+    elif isinstance(backend, PostgresBackend):
+        assert await backend.get_job_state(queue, job_id) == State.WAITING
+    elif isinstance(backend, MongoDBBackend):
+        assert (queue, job_id) not in backend.heartbeats
+        assert await backend.get_job_state(queue, job_id) == State.WAITING
+        assert any(job["id"] == job_id for job in backend.queues.get(queue, []))

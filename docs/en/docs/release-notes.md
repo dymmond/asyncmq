@@ -26,6 +26,8 @@
 - Stalled-job visibility now renews job heartbeats while handlers run, and the
   normal worker entrypoints start stalled recovery automatically when
   `enable_stalled_check=True`.
+- Stalled recovery now validates active-job release from real dequeued jobs,
+  including local RabbitMQ in-flight delivery acknowledgement during recovery.
 
 ## 0.8.1
 

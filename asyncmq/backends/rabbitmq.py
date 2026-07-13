@@ -1163,6 +1163,7 @@ class RabbitMQBackend(BaseBackend):
         payload["status"] = State.WAITING
         payload["id"] = job_data.get("id", payload.get("id"))
         await self.enqueue(queue_name, payload)
+        await self._ack_in_flight(queue_name, str(payload["id"]))
 
     async def list_jobs(self, queue_name: str, state: str) -> list[dict[str, Any]]:
         """
