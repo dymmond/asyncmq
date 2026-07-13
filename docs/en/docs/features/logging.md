@@ -33,7 +33,8 @@ class AppSettings(Settings):
 
 JSON log records include `timestamp`, `level`, `logger`, `module`, and
 `message`. Extra fields passed through the standard logging `extra={...}`
-mechanism are preserved.
+mechanism are preserved. Exception information and `stack_info=True` output are
+included when they are attached to the log record.
 
 ## Custom Logging Backend
 

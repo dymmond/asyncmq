@@ -42,6 +42,8 @@ class JSONLogFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack_info"] = self.formatStack(record.stack_info)
 
         for key, value in record.__dict__.items():
             if key in RESERVED_LOG_RECORD_KEYS or key.startswith("_"):

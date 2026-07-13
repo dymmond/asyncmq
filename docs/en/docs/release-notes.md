@@ -42,6 +42,7 @@
   when the `Origin` header is missing as well as when it is cross-origin.
 - CLI output now escapes queue, job, and worker identifiers before rendering
   them with Rich, so untrusted names display literally instead of as markup.
+- Structured JSON logging now preserves `stack_info=True` output on log records.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

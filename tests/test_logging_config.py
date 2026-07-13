@@ -32,6 +32,25 @@ def test_json_log_formatter_emits_machine_readable_payload() -> None:
     assert "timestamp" in payload
 
 
+def test_json_log_formatter_preserves_stack_info() -> None:
+    formatter = JSONLogFormatter()
+    record = logging.LogRecord(
+        name="asyncmq.worker",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=10,
+        msg="worker stalled",
+        args=(),
+        exc_info=None,
+        func=None,
+        sinfo="Stack (most recent call last):\n  asyncmq frame",
+    )
+
+    payload = json.loads(formatter.format(record))
+
+    assert payload["stack_info"] == "Stack (most recent call last):\n  asyncmq frame"
+
+
 def test_standard_logging_config_can_emit_json_formatter() -> None:
     config = StandardLoggingConfig(level="INFO", structured=True)
 
