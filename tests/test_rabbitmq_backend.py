@@ -204,6 +204,65 @@ async def test_save_and_get_job_result(backend):
     assert result["answer"] == 42
 
 
+async def test_complete_active_job_saves_result_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-complete", "task": "complete"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-complete") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-complete", time.time())
+    await backend.complete_active_job("test_q", message["payload"], {"ok": True})
+
+    entry = await redis_store.load("test_q", "life-complete")
+    assert entry["status"] == "completed"
+    assert entry["result"] == {"ok": True}
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-complete") not in backend._in_flight
+
+
+async def test_retry_active_job_saves_delayed_entry_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-retry", "task": "retry"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-retry") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-retry", time.time())
+    run_at = time.time() + 60
+    await backend.retry_active_job("test_q", {**message["payload"], "retries": 1}, run_at)
+
+    entry = await redis_store.load("test_q", "life-retry")
+    assert entry["status"] == "delayed"
+    assert entry["run_at"] == pytest.approx(run_at)
+    assert entry["payload"]["delay_until"] == pytest.approx(run_at)
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-retry") not in backend._in_flight
+
+
+async def test_fail_active_job_publishes_dlq_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-fail", "task": "fail"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-fail") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-fail", time.time())
+    await backend.fail_active_job("test_q", {**message["payload"], "status": "failed"})
+
+    entry = await redis_store.load("test_q", "life-fail")
+    assert entry["status"] == "failed"
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-fail") not in backend._in_flight
+
+    dlq_job = await backend.dequeue("test_q.dlq")
+    assert dlq_job is not None
+    assert dlq_job["payload"]["id"] == "life-fail"
+
+
 async def test_bulk_enqueue(backend):
     jobs = [
         {"id": "j9", "task": "bulk1"},

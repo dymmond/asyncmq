@@ -20,6 +20,9 @@
 - MongoDB now applies worker lifecycle transitions through backend-owned
   document updates that keep completion, retry/defer, expiration, failure, and
   local runtime mirrors aligned.
+- RabbitMQ now applies worker lifecycle transitions through backend-owned paths
+  that save metadata before broker acknowledgement and route failures through
+  DLQ publishing before acknowledgement.
 
 ## 0.8.1
 

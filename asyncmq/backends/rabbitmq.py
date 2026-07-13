@@ -203,10 +203,65 @@ class RabbitMQBackend(BaseBackend):
             queue_name: The name of the queue the job belonged to.
             job_id: The unique identifier of the job to acknowledge.
         """
+        await self._ack_in_flight(queue_name, job_id)
+
+    async def _ack_in_flight(self, queue_name: str, job_id: str) -> None:
         async with self._in_flight_lock:
             msg = self._in_flight.pop((queue_name, str(job_id)), None)
         if msg is not None and not getattr(msg, "processed", False):
             await msg.ack()
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        job_id = str(payload["id"])
+        completed_payload = {**payload, "status": State.COMPLETED, "result": result}
+        await self._state.save(
+            queue_name,
+            job_id,
+            {
+                "id": job_id,
+                "payload": completed_payload,
+                "status": State.COMPLETED,
+                "result": result,
+            },
+        )
+        await self._ack_in_flight(queue_name, job_id)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        job_id = str(payload["id"])
+        delayed_payload = {**payload, "status": State.DELAYED, "delay_until": run_at}
+        await self._state.save(
+            queue_name,
+            job_id,
+            {
+                "id": job_id,
+                "payload": delayed_payload,
+                "status": State.DELAYED,
+                "run_at": run_at,
+            },
+        )
+        await self._ack_in_flight(queue_name, job_id)
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        job_id = str(payload["id"])
+        await self.move_to_dlq(queue_name, {**payload, "status": target_status})
+        await self._ack_in_flight(queue_name, job_id)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        await self.move_to_dlq(queue_name, {**payload, "status": State.EXPIRED})
+        await self._ack_in_flight(queue_name, job_id)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self._ack_in_flight(queue_name, str(payload["id"]))
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """

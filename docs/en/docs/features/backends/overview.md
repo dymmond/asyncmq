@@ -42,6 +42,9 @@ RabbitMQ:
 
 - AMQP broker for delivery + separate job metadata store
 - by default, metadata store is Redis-backed (`RabbitMQJobStore`)
+- worker lifecycle transitions are backend-owned and persist metadata before
+  acknowledging broker deliveries; RabbitMQ broker state and metadata storage
+  are not a single distributed transaction
 
 ## Selection Guidance
 
