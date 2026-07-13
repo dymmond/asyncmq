@@ -288,6 +288,9 @@ async def test_worker_retry_uses_backend_lifecycle_transition():
     assert backend.retry_calls == 1
     assert await backend.get_job_state(queue, "j-retry") == State.DELAYED
     assert len(backend.delayed[queue]) == 1
+    retry_payload = backend.delayed[queue][0][1]
+    assert "RuntimeError: retry me" in retry_payload["last_error"]
+    assert "RuntimeError: retry me" in retry_payload["error_traceback"]
     assert (queue, "j-retry") not in backend.active_jobs
 
 
@@ -333,6 +336,9 @@ async def test_worker_failure_uses_backend_lifecycle_transition():
     assert backend.failure_calls == 1
     assert await backend.get_job_state(queue, "j-failed") == State.FAILED
     assert len(backend.dlqs[queue]) == 1
+    failed_payload = backend.dlqs[queue][0]
+    assert "RuntimeError: fail me" in failed_payload["last_error"]
+    assert "RuntimeError: fail me" in failed_payload["error_traceback"]
     assert (queue, "j-failed") not in backend.active_jobs
 
 

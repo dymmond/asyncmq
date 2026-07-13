@@ -67,7 +67,7 @@ RabbitMQ metadata stores, and in-memory backends.
 
 When a handler raises an exception:
 
-1. the traceback is stored on the job payload
+1. `last_error` and `error_traceback` are stored on the job payload
 2. `retries` is incremented
 3. the worker computes `next_retry_delay()`
 4. the job is re-enqueued into the delayed queue if attempts remain

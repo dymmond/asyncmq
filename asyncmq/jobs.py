@@ -105,6 +105,8 @@ class Job:
         self.last_attempt: float | None = None
         self.status: str = State.WAITING
         self.result: Any = None
+        self.last_error: str | None = None
+        self.error_traceback: str | None = None
         self.delay_until: float | None = None
         self.priority: int = priority
         self.repeat_every: float | int | None = repeat_every
@@ -147,6 +149,8 @@ class Job:
         # Set remaining attributes from the dictionary data.
         job.status = data.get("status", State.WAITING)
         job.result = data.get("result")
+        job.last_error = data.get("last_error")
+        job.error_traceback = data.get("error_traceback")
         job.delay_until = data.get("delay_until")
         job.last_attempt = data.get("last_attempt")
         # Return the fully populated Job instance.
@@ -237,6 +241,8 @@ class Job:
             "last_attempt": self.last_attempt,
             "status": self.status,
             "result": self.result,
+            "last_error": self.last_error,
+            "error_traceback": self.error_traceback,
             "delay_until": self.delay_until,
             "priority": self.priority,
             "depends_on": self.depends_on,
