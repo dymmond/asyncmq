@@ -61,17 +61,15 @@ incompatible Redis client versions:
 hatch run benchmark_prepare
 hatch run python -m benchmarks.competitive \
   --targets asyncmq,celery,dramatiq,arq,rq,huey \
-  --jobs 10000 \
-  --workers 1 \
-  --concurrency 10 \
-  --payload-bytes 128 \
-  --warmup-jobs 1000 \
+  --workload small-payload \
   --repetitions 5 \
   --json
 ```
 
 Use an isolated Redis database or disposable Redis instance for competitive
 runs. The harness flushes the selected Redis database before each sample.
+Pass `--dry-run --workload <name>` before a large run to inspect the resolved
+jobs, workers, concurrency, payload size, warmup, and target interpreters.
 
 ## Benchmark Methodology
 

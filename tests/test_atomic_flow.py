@@ -91,6 +91,7 @@ async def test_redis_atomic_add_flow(redis_backend):
     deq1 = await redis_backend.dequeue("rq")
     deq2 = await redis_backend.dequeue("rq")
     assert deq1["id"] == "id1"
+    assert deq1["has_dependents"] is True
     assert deq2 is None
 
     # Check Redis dependency indexes used by resolve_dependency.
@@ -104,6 +105,7 @@ async def test_redis_atomic_add_flow(redis_backend):
 
     deq2 = await redis_backend.dequeue("rq")
     assert deq2 and deq2["id"] == "id2"
+    assert deq2["has_dependents"] is False
     assert "depends_on" not in deq2
 
 

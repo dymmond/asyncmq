@@ -405,6 +405,90 @@ async def test_worker_success_uses_backend_lifecycle_transition():
     assert (queue, "j-success") not in backend.active_jobs
 
 
+async def test_handle_job_does_not_repeat_active_transition_for_reserved_payload():
+    class ActiveReservationBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active_updates = 0
+
+        async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
+            payload = await super().dequeue(queue_name)
+            return {**payload, "status": State.ACTIVE} if payload is not None else None
+
+        async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
+            if state == State.ACTIVE:
+                self.active_updates += 1
+            await super().update_job_state(queue_name, job_id, state)
+
+    backend = ActiveReservationBackend()
+    settings.backend = backend
+
+    async def _task() -> str:
+        return "done"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._reserved_payload_success"] = {"func": _task}
+
+    queue = "test_queue_reserved_payload_success"
+    job = Job(task_id="tests._reserved_payload_success", args=[], kwargs={}, job_id="j-reserved")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert payload["status"] == State.ACTIVE
+
+    await handle_job(queue, payload, backend)
+
+    assert backend.active_updates == 0
+    assert await backend.get_job_state(queue, "j-reserved") == State.COMPLETED
+
+
+async def test_handle_job_skips_dependency_resolution_only_when_payload_has_no_dependents():
+    class DependencyCountingBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.resolve_calls = 0
+
+        async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
+            self.resolve_calls += 1
+            await super().resolve_dependency(queue_name, parent_id)
+
+    backend = DependencyCountingBackend()
+    settings.backend = backend
+
+    async def _task() -> str:
+        return "done"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._dependency_marker_success"] = {"func": _task}
+
+    queue = "test_queue_dependency_marker_success"
+    without_children = Job(
+        task_id="tests._dependency_marker_success",
+        args=[],
+        kwargs={},
+        job_id="j-no-children",
+    )
+    with_children = Job(
+        task_id="tests._dependency_marker_success",
+        args=[],
+        kwargs={},
+        job_id="j-with-children",
+    )
+
+    await backend.enqueue(queue, {**without_children.to_dict(), "has_dependents": False})
+    payload = await backend.dequeue(queue)
+    assert payload is not None
+    await handle_job(queue, payload, backend)
+    assert backend.resolve_calls == 0
+
+    await backend.enqueue(queue, {**with_children.to_dict(), "has_dependents": True})
+    payload = await backend.dequeue(queue)
+    assert payload is not None
+    await handle_job(queue, payload, backend)
+    assert backend.resolve_calls == 1
+
+
 async def test_worker_retry_uses_backend_lifecycle_transition():
     class LifecycleBackend(InMemoryBackend):
         def __init__(self) -> None:

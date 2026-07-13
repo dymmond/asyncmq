@@ -28,6 +28,23 @@ redis.call('ZREM', KEYS[1], items[1])
 return items[1]
 """
 
+ENQUEUE_SCRIPT: str = """
+-- KEYS[1]: waiting zset
+-- KEYS[2]: waiting sequence counter
+-- KEYS[3]: canonical job key
+-- KEYS[4]: queue job-id set
+-- ARGV[1]: priority
+-- ARGV[2]: canonical waiting job JSON
+-- ARGV[3]: job id
+local priority = tonumber(ARGV[1])
+local sequence = redis.call('INCR', KEYS[2])
+local score = priority * 1000000000000 + sequence
+redis.call('ZADD', KEYS[1], score, ARGV[2])
+redis.call('SET', KEYS[3], ARGV[2])
+redis.call('SADD', KEYS[4], ARGV[3])
+return score
+"""
+
 # Lua script used to atomically add multiple jobs to the waiting queue and
 # register their parent-child dependencies. This is used for flow creation.
 # KEYS[1]: The Redis key for the waiting queue Sorted Set (e.g., 'queue:{queue_name}:waiting').
@@ -119,11 +136,13 @@ LIFECYCLE_SCRIPT: str = """
 -- ARGV[3]: canonical job JSON
 -- ARGV[4]: delayed run_at score, when applicable
 -- ARGV[5]: now score, when applicable
+-- ARGV[6]: expected active_since timestamp, when known
 local action = ARGV[1]
 local job_id = ARGV[2]
 local job_json = ARGV[3]
 local run_at = tonumber(ARGV[4])
 local now = tonumber(ARGV[5])
+local expected_active_since = tonumber(ARGV[6])
 
 local function remove_job_member(zset_key, target_id)
   local members = redis.call('ZRANGE', zset_key, 0, -1)
@@ -161,29 +180,17 @@ if action == 'cancel' then
   return 1
 end
 
-local incoming_job = cjson.decode(job_json)
-local current_json = redis.call('GET', KEYS[6])
-if not current_json then
+local current_active_since = tonumber(redis.call('HGET', KEYS[1], job_id))
+if not current_active_since then
   return 0
 end
 
-local current_job = cjson.decode(current_json)
-if current_job.status ~= 'active' then
+if expected_active_since and expected_active_since > 0 and math.abs(current_active_since - expected_active_since) > 0.000001 then
   return 0
-end
-
-local expected_active_since = tonumber(incoming_job.active_since)
-if expected_active_since then
-  local current_active_since = tonumber(current_job.active_since)
-  if not current_active_since or math.abs(current_active_since - expected_active_since) > 0.000001 then
-    return 0
-  end
 end
 
 redis.call('HDEL', KEYS[1], job_id)
 redis.call('HDEL', KEYS[2], job_id)
-remove_job_member(KEYS[3], job_id)
-remove_job_member(KEYS[4], job_id)
 
 redis.call('SET', KEYS[6], job_json)
 redis.call('SADD', KEYS[7], job_id)
@@ -293,6 +300,7 @@ class RedisBackend(BaseBackend):
 
         # Register the Lua POP_SCRIPT for atomic dequeue operations.
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
+        self._enqueue_script: AsyncScript = self.redis.register_script(ENQUEUE_SCRIPT)
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
         self._pop_delayed_script: AsyncScript = self.redis.register_script(POP_DELAYED)
@@ -503,7 +511,11 @@ class RedisBackend(BaseBackend):
                      an "id" and optionally a "priority" key.
         """
         job_id = str(payload["id"])
-        waiting_payload = {**payload, "status": State.WAITING}
+        waiting_payload = {
+            **payload,
+            "status": State.WAITING,
+            "has_dependents": bool(payload.get("has_dependents", False)),
+        }
         if has_pending_dependencies(waiting_payload):
             await self._remove_waiting_member(queue_name, job_id)
             await self.job_store.save(queue_name, job_id, waiting_payload)
@@ -512,14 +524,15 @@ class RedisBackend(BaseBackend):
 
         # Get job priority from the payload, defaulting to 5 if not provided.
         priority: int = int(waiting_payload.get("priority", 5))
-        score = await self._next_waiting_score(queue_name, priority)
-        # Get the Redis key for the waiting queue's Sorted Set.
-        key: str = self._waiting_key(queue_name)
-        # Add the JSON-serialized payload to the Sorted Set with the calculated score.
-        # ZADD updates the score if the member (the JSON string) already exists.
-        await self.redis.zadd(key, {self._json_serializer.to_json(waiting_payload): score})
-        # Update the job's status to WAITING and save the full payload in the job store.
-        await self.job_store.save(queue_name, job_id, waiting_payload)
+        await self._enqueue_script(
+            keys=[
+                self._waiting_key(queue_name),
+                self._waiting_sequence_key(queue_name),
+                self._job_store_key(queue_name, job_id),
+                self._job_store_ids_key(queue_name),
+            ],
+            args=[priority, self._json_serializer.to_json(waiting_payload), job_id],
+        )
         return job_id
 
     async def get_job(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
@@ -567,31 +580,45 @@ class RedisBackend(BaseBackend):
             # Deserialize the job payload from the JSON string into a dictionary.
             payload: dict[str, Any] = self._json_serializer.to_dict(raw)
             job_id = str(payload["id"])
-            stored = await self.job_store.load(queue_name, job_id)
+            read_pipe = self.redis.pipeline(transaction=False)
+            read_pipe.get(self._job_store_key(queue_name, job_id))
+            read_pipe.sismember(self._cancelled_key(queue_name), job_id)
+            stored_raw, is_cancelled = await read_pipe.execute()
+            if isinstance(stored_raw, bytes):
+                stored_raw = stored_raw.decode("utf-8")
+            stored = self._json_serializer.to_dict(stored_raw) if stored_raw else None
             candidate = stored or payload
-            if await self.is_job_cancelled(queue_name, job_id):
+            if is_cancelled:
                 cancelled_payload = {**candidate, "status": "cancelled", "delay_until": None}
                 cancelled_payload.pop("result", None)
-                await self.job_store.save(queue_name, job_id, cancelled_payload)
-                await self.redis.hdel(self._active_key(queue_name), job_id)
-                await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
+                write_pipe = self.redis.pipeline(transaction=False)
+                write_pipe.set(
+                    self._job_store_key(queue_name, job_id), self._json_serializer.to_json(cancelled_payload)
+                )
+                write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
+                write_pipe.hdel(self._active_key(queue_name), job_id)
+                write_pipe.hdel(self._job_heartbeat_key(queue_name), job_id)
+                await write_pipe.execute()
                 continue
             if has_pending_dependencies(candidate):
-                await self.job_store.save(queue_name, job_id, {**candidate, "status": State.WAITING})
+                waiting_payload = {**candidate, "status": State.WAITING}
+                write_pipe = self.redis.pipeline(transaction=False)
+                write_pipe.set(self._job_store_key(queue_name, job_id), self._json_serializer.to_json(waiting_payload))
+                write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
+                await write_pipe.execute()
                 continue
             # Update the job's status to ACTIVE and save the full payload in the job store.
             # Create a new dictionary to avoid modifying the original payload in place.
             active_since = time.time()
-            await self.job_store.save(
-                queue_name,
-                job_id,
-                {**candidate, "status": State.ACTIVE, "active_since": active_since},
-            )
-            # Add the job ID and the current time to the active jobs Hash.
-            # This hash tracks jobs currently being processed.
-            await self.redis.hset(self._active_key(queue_name), job_id, str(active_since))
+            active_payload = {**candidate, "status": State.ACTIVE, "active_since": active_since}
+            write_pipe = self.redis.pipeline(transaction=False)
+            write_pipe.set(self._job_store_key(queue_name, job_id), self._json_serializer.to_json(active_payload))
+            write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
+            # The active hash tracks jobs currently being processed.
+            write_pipe.hset(self._active_key(queue_name), job_id, str(active_since))
+            await write_pipe.execute()
             # Return the dequeued job payload as a dictionary.
-            return {**candidate, "status": State.ACTIVE, "active_since": active_since}
+            return active_payload
         # If the script returned nil (no jobs in the waiting queue).
         return None
 
@@ -702,6 +729,7 @@ class RedisBackend(BaseBackend):
                 payload_json,
                 run_at if run_at is not None else 0,
                 now if now is not None else time.time(),
+                payload.get("active_since") or 0,
             ],
         )
 
@@ -1076,6 +1104,8 @@ class RedisBackend(BaseBackend):
         child_set_key: str = f"deps:{queue_name}:parent:{parent_id}"
         # Get all child IDs from this Set. smembers returns a set of members.
         children: set[str] = await self.redis.smembers(child_set_key)
+        if not children:
+            return
 
         # Iterate through each child job ID that was waiting on the parent.
         for child_id in children:
@@ -1542,14 +1572,20 @@ class RedisBackend(BaseBackend):
             created.
         """
         deps_by_child: dict[str, set[str]] = {}
+        parents_with_children: set[str] = set()
         for parent_id, child_id in dependency_links:
             deps_by_child.setdefault(child_id, set()).add(parent_id)
+            parents_with_children.add(parent_id)
 
         created_ids: list[str] = []
         for payload in job_dicts:
             job_id = str(payload["id"])
             deps = set(payload.get("depends_on", [])) | deps_by_child.get(job_id, set())
-            stored = {**payload, "status": State.WAITING}
+            stored = {
+                **payload,
+                "status": State.WAITING,
+                "has_dependents": job_id in parents_with_children,
+            }
             if deps:
                 stored["depends_on"] = sorted(deps)
             else:

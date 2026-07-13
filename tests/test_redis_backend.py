@@ -102,6 +102,29 @@ async def test_complete_active_job_updates_result_and_releases_redis_ownership(r
     assert await redis.zcard(backend._delayed_key(queue)) == 0
 
 
+async def test_complete_active_job_preserves_unrelated_redis_waiting_backlog(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-complete-backlog"
+    active_job = Job(task_id="redis.lifecycle.complete.backlog", args=[], kwargs={}, job_id="j-complete-backlog")
+
+    await backend.enqueue(queue, active_job.to_dict())
+    payload = await backend.dequeue(queue)
+    assert payload is not None
+
+    backlog = {
+        backend._json_serializer.to_json(
+            Job(task_id="redis.lifecycle.backlog", args=[index], kwargs={}, job_id=f"backlog-{index}").to_dict()
+        ): index
+        for index in range(500)
+    }
+    await redis.zadd(backend._waiting_key(queue), backlog)
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job_state(queue, active_job.id) == State.COMPLETED
+    assert await redis.zcard(backend._waiting_key(queue)) == len(backlog)
+
+
 async def test_cancelled_active_job_completion_does_not_overwrite_redis_marker(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-lifecycle-cancel-active"

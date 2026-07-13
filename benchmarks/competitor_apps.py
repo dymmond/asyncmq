@@ -5,7 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+from typing import Any
 from urllib.parse import urlparse
+
+_REDIS_CLIENT: Any | None = None
+_REDIS_CLIENT_URL: str | None = None
 
 
 def _redis_url() -> str:
@@ -24,15 +28,25 @@ def _bytes_key(run_id: str) -> str:
     return f"asyncmq:benchmark:{run_id}:bytes"
 
 
-def _mark_completed(payload: str, run_id: str) -> int:
-    from redis import Redis
+def _redis_client():
+    global _REDIS_CLIENT, _REDIS_CLIENT_URL
 
-    client = Redis.from_url(_redis_url())
-    pipe = client.pipeline()
+    url = _redis_url()
+    if _REDIS_CLIENT is None or _REDIS_CLIENT_URL != url:
+        if _REDIS_CLIENT is not None:
+            _REDIS_CLIENT.close()
+        from redis import Redis
+
+        _REDIS_CLIENT = Redis.from_url(url)
+        _REDIS_CLIENT_URL = url
+    return _REDIS_CLIENT
+
+
+def _mark_completed(payload: str, run_id: str) -> int:
+    pipe = _redis_client().pipeline()
     pipe.incr(_completion_key(run_id))
     pipe.incrby(_bytes_key(run_id), len(payload))
     pipe.execute()
-    client.close()
     return len(payload)
 
 

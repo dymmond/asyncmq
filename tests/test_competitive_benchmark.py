@@ -42,12 +42,16 @@ def test_competitive_inventory_documents_reuse_and_gaps():
 
 
 def test_competitive_cli_dry_run_outputs_json(capsys):
-    exit_code = main(["--targets", "asyncmq,rq", "--dry-run", "--inventory", "--json"])
+    exit_code = main(["--targets", "asyncmq,rq", "--workload", "small-payload", "--dry-run", "--inventory", "--json"])
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["dry_run"][0]["target"] == "asyncmq"
     assert payload["dry_run"][0]["python"] == sys.executable
+    assert payload["dry_run"][0]["workload"] == "small-payload"
+    assert payload["dry_run"][0]["jobs"] == 10_000
+    assert payload["dry_run"][0]["warmup_jobs"] == 1_000
+    assert payload["dry_run"][0]["concurrency"] == 10
     assert payload["dry_run"][1]["target"] == "rq"
     assert payload["inventory"]["added"]
 
@@ -56,6 +60,7 @@ async def test_competitive_asyncmq_runner_processes_all_jobs():
     result = await run_target(
         target="asyncmq",
         target_python=sys.executable,
+        workload="unit-smoke",
         jobs=5,
         workers=2,
         concurrency=1,
@@ -68,6 +73,7 @@ async def test_competitive_asyncmq_runner_processes_all_jobs():
     )
 
     assert result.completed == 5
+    assert result.workload == "unit-smoke"
     assert result.failed == 0
     assert result.total_concurrency == 2
     assert len(result.samples) == 2

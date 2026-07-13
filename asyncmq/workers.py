@@ -293,6 +293,7 @@ async def handle_job(
         if "id" not in normalized_job and raw_job.get("job_id") is not None:
             normalized_job["id"] = raw_job["job_id"]
 
+    initial_status = normalized_job.get("status")
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(normalized_job)
 
@@ -334,8 +335,8 @@ async def handle_job(
         # Set job status to ACTIVE
         job.status = State.ACTIVE
         job.last_attempt = time.time()
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
+        if initial_status != State.ACTIVE:
+            await backend.update_job_state(queue_name, job.id, job.status)
         # Emit a job:started event
         await event_emitter.emit("job:started", job.to_dict())
 
@@ -432,7 +433,7 @@ async def handle_job(
         await _complete_active_job(backend, queue_name, job.to_dict(), result)
         # Unblock dependent jobs waiting on this parent.
         resolve_dependency = getattr(backend, "resolve_dependency", None)
-        if callable(resolve_dependency):
+        if normalized_job.get("has_dependents") is not False and callable(resolve_dependency):
             await cast(Any, resolve_dependency)(queue_name, job.id)
         # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
