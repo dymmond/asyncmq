@@ -1685,9 +1685,11 @@ class RedisBackend(BaseBackend):
         retry_payload["status"] = State.WAITING
         # Serialize the job data payload to a JSON string.
         payload: str = self._json_serializer.to_json(retry_payload)
-        # Get the job's priority for the Sorted Set score, defaulting to 0.
-        # Note: The original code uses priority 0 here for re-enqueued stalled jobs.
-        score: float = retry_payload.get("priority", 5) * 1e16 + time.time()
+        priority_value = retry_payload.get("priority", 5)
+        score = await self._next_waiting_score(
+            queue_name,
+            int(priority_value if priority_value is not None else 5),
+        )
         await self._reenqueue_stalled_script(
             keys=[
                 waiting_key,

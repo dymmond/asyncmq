@@ -456,6 +456,38 @@ async def test_redis_worker_process_kill_releases_active_job_after_stalled_recov
         await recovery.job_store.redis.aclose()
 
 
+async def test_redis_stalled_recovery_preserves_waiting_priority_order():
+    queue = "redis-stalled-priority-order"
+    high_id = "redis-stalled-high-priority"
+    low_id = "redis-waiting-low-priority"
+    high_priority = {"id": high_id, "task": "tx", "args": [], "kwargs": {}, "priority": 1}
+    low_priority = {"id": low_id, "task": "tx", "args": [], "kwargs": {}, "priority": 10}
+
+    backend = RedisBackend()
+    await backend.redis.flushdb()
+    try:
+        await backend.enqueue(queue, high_priority)
+        active = await backend.dequeue(queue)
+        assert active is not None
+        assert active["id"] == high_id
+
+        await backend.enqueue(queue, low_priority)
+        old = time.time() - 10
+        await backend.save_heartbeat(queue, high_id, old)
+
+        stalled = await backend.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == high_id)
+        await backend.reenqueue_stalled(queue, entry["job_data"])
+
+        first = await backend.dequeue(queue)
+        assert first is not None
+        assert first["id"] == high_id
+    finally:
+        await backend.redis.flushdb()
+        await backend.redis.aclose()
+        await backend.job_store.redis.aclose()
+
+
 async def test_redis_stalled_recovery_does_not_requeue_completed_snapshot():
     queue = "redis-stalled-completed-race"
     job_id = "redis-stalled-completed"

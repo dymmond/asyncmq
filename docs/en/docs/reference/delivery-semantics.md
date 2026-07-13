@@ -58,6 +58,8 @@ Important limits:
   a stalled snapshot, so recovery does not overwrite jobs that already reached
   a terminal state. Redis active lifecycle transitions also require the current
   active claim before writing completion, retry, defer, failure, or expiration.
+  Recovered jobs re-enter the waiting queue through the same priority and FIFO
+  score allocator used by ordinary enqueue.
 - `PostgresBackend` conditionally updates still-active rows during stalled
   recovery, preserving terminal rows if the stalled snapshot is stale.
 - `MongoDBBackend` conditionally updates still-active persisted documents

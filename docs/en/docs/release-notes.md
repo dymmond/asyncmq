@@ -84,6 +84,8 @@
 - Redis stalled recovery now atomically re-checks canonical active state before
   requeueing, so stale recovery snapshots cannot overwrite jobs that already
   reached a terminal state.
+- Redis stalled recovery now re-enters recovered jobs through the same
+  priority/FIFO waiting-score allocator as ordinary enqueue.
 - Redis active lifecycle transitions now require the current active claim before
   completing, retrying, deferring, failing, or expiring a job, preventing stale
   worker completions from clearing recovered active claims.
