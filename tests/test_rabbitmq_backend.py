@@ -416,6 +416,19 @@ async def test_pause_resume(backend):
     assert await backend.is_queue_paused("test_pause") is False
 
 
+async def test_pause_state_is_shared_between_backend_instances(backend, redis_store):
+    queue = "test_pause_cross_instance"
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    try:
+        await backend.pause_queue(queue)
+        assert await observer.is_queue_paused(queue) is True
+
+        await observer.resume_queue(queue)
+        assert await backend.is_queue_paused(queue) is False
+    finally:
+        await observer.close()
+
+
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
 async def test_list_jobs_by_state(backend, state):
     queue = "test_list_state"

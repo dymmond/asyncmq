@@ -70,6 +70,7 @@ class MongoDBBackend(BaseBackend):
         # In-memory heartbeats: maps (queue_name, job_id) tuples to their last heartbeat timestamp.
         self.heartbeats: dict[tuple[str, str], float] = {}
         self._workers = self.store.db["worker_heartbeats"]
+        self._queue_controls = self.store.db["queue_controls"]
         self._locks: dict[str, anyio.Lock] = {}
 
     async def connect(self) -> None:
@@ -83,6 +84,7 @@ class MongoDBBackend(BaseBackend):
         """
         # Call the connect method of the underlying MongoDBStore to establish the connection.
         await self.store.connect()
+        await self._queue_controls.create_index("queue_name", unique=True, background=False)
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -581,15 +583,20 @@ class MongoDBBackend(BaseBackend):
 
     async def pause_queue(self, queue_name: str) -> None:
         """
-        Asynchronously pauses processing for a specific queue by marking it in memory.
+        Asynchronously pauses processing for a specific queue.
 
-        Adds the queue name to the in-memory set of paused queues. Workers checking
-        this set should stop dequeueing new jobs from this queue. Access to the
-        in-memory paused set is synchronized using the internal lock.
+        The pause flag is stored in MongoDB so all backend instances observe the
+        same operator control state.
 
         Args:
             queue_name: The name of the queue to pause.
         """
+        await self.connect()
+        await self._queue_controls.update_one(
+            {"queue_name": queue_name},
+            {"$set": {"queue_name": queue_name, "paused": True, "paused_at": time.time()}},
+            upsert=True,
+        )
         # Acquire the lock to ensure exclusive access to the in-memory paused set.
         async with self.lock:
             # Add the queue name to the in-memory set of paused queues.
@@ -597,15 +604,16 @@ class MongoDBBackend(BaseBackend):
 
     async def resume_queue(self, queue_name: str) -> None:
         """
-        Asynchronously resumes processing for a specific queue by unmarking it in memory.
+        Asynchronously resumes processing for a specific queue.
 
-        Removes the queue name from the in-memory set of paused queues, allowing
-        workers to resume dequeueing jobs from it. Access to the in-memory paused
-        set is synchronized using the internal lock.
+        The persisted pause flag is removed so all backend instances can resume
+        dequeueing work from the queue.
 
         Args:
             queue_name: The name of the queue to resume.
         """
+        await self.connect()
+        await self._queue_controls.delete_one({"queue_name": queue_name})
         # Acquire the lock to ensure exclusive access to the in-memory paused set.
         async with self.lock:
             # Remove the queue name from the in-memory set of paused queues.
@@ -615,20 +623,22 @@ class MongoDBBackend(BaseBackend):
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
-        Asynchronously checks if a specific queue is currently marked as paused in memory.
+        Asynchronously checks if a specific queue is currently paused.
 
         Args:
             queue_name: The name of the queue to check.
 
         Returns:
-            True if the queue name is present in the in-memory set of paused queues,
-            False otherwise. Access to the in-memory paused set is synchronized
-            using the internal lock.
+            True if the queue has a persisted pause flag, otherwise False.
         """
-        # Acquire the lock to ensure exclusive access to the in-memory paused set.
+        await self.connect()
+        doc = await self._queue_controls.find_one({"queue_name": queue_name})
         async with self.lock:
-            # Check if the queue name is present in the in-memory set of paused queues.
-            return queue_name in self.paused
+            if doc:
+                self.paused.add(queue_name)
+                return True
+            self.paused.discard(queue_name)
+            return False
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """

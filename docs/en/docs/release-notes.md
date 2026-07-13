@@ -97,6 +97,9 @@
 - Sandbox timeouts now fail closed by default instead of re-running timed-out
   handlers in the parent worker process; fallback remains available only when
   callers explicitly opt in.
+- PostgreSQL, MongoDB, and RabbitMQ queue pause/resume state is now persisted in
+  backend storage so separate worker and admin processes observe the same queue
+  control state during restarts and rolling operations.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

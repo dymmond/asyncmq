@@ -68,7 +68,7 @@ class RabbitMQBackend(BaseBackend):
         self._queues: dict[str, aio_pika.abc.AbstractQueue] = {}
         # Queue names observed by this process (used for list_queues()).
         self._known_queues: set[str] = set()
-        # Queue pause state is process-local, consistent with other in-memory controls.
+        # Local cache of durable queue pause state.
         self._paused_queues: set[str] = set()
         # Track unacked consumed messages so ack() can acknowledge after processing.
         self._in_flight: dict[tuple[str, str], aio_pika.abc.AbstractIncomingMessage] = {}
@@ -850,25 +850,26 @@ class RabbitMQBackend(BaseBackend):
         """
         Pauses a specific queue, preventing new jobs from being dequeued.
 
-        This is implemented by saving a special '_pause' entry in the job store
-        for the given queue.
+        The pause marker is persisted in the metadata store so all RabbitMQ
+        backend instances observe the same operator control state.
 
         Args:
             queue_name: The name of the queue to pause.
         """
         self._known_queues.add(queue_name)
+        await self._state.save("__asyncmq_queue_controls__", queue_name, {"queue_name": queue_name, "paused": True})
         self._paused_queues.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
         """
         Resumes a paused queue, allowing jobs to be dequeued again.
 
-        This is implemented by removing the special '_pause' entry from the job
-        store for the given queue.
+        This removes the persisted pause marker from the metadata store.
 
         Args:
             queue_name: The name of the queue to resume.
         """
+        await self._state.delete("__asyncmq_queue_controls__", queue_name)
         self._paused_queues.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
@@ -881,7 +882,12 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             True if the queue is paused, False otherwise.
         """
-        return queue_name in self._paused_queues
+        marker = await self._state.load("__asyncmq_queue_controls__", queue_name)
+        if marker and marker.get("paused"):
+            self._paused_queues.add(queue_name)
+            return True
+        self._paused_queues.discard(queue_name)
+        return False
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """

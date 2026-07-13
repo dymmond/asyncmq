@@ -140,6 +140,15 @@ class PostgresBackend(BaseBackend):
             self.pool = await asyncpg.create_pool(dsn=self.dsn, **self.pool_options)
             # Also ensure the associated job store is connected.
             await self.store.connect()
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS asyncmq_paused_queues (
+                        queue_name TEXT PRIMARY KEY,
+                        paused_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                    )
+                    """
+                )
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
@@ -899,45 +908,63 @@ class PostgresBackend(BaseBackend):
 
     async def pause_queue(self, queue_name: str) -> None:
         """
-        Marks the specified queue as paused.
-
-        Note: This operation is not currently implemented for the Postgres
-        backend and does nothing. Queue pausing logic must be handled externally
-        or implemented here using a database flag.
+        Marks the specified queue as paused in PostgreSQL.
 
         Args:
             queue_name: The name of the queue to pause.
         """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO asyncmq_paused_queues (queue_name)
+                VALUES ($1)
+                ON CONFLICT (queue_name) DO UPDATE SET paused_at = now()
+                """,
+                queue_name,
+            )
         self._paused_queues.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
         """
-        Resumes the specified queue.
-
-        Note: This operation is not currently implemented for the Postgres
-        backend and does nothing. Queue resuming logic must be handled externally
-        or implemented here using a database flag.
+        Resumes the specified queue by clearing persisted pause state.
 
         Args:
             queue_name: The name of the queue to resume.
         """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM asyncmq_paused_queues WHERE queue_name = $1
+                """,
+                queue_name,
+            )
         self._paused_queues.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
         Checks if the specified queue is currently marked as paused.
 
-        Note: This operation is not currently implemented for the Postgres
-        backend and always returns False. Queue pausing logic must be handled
-        externally or implemented here using a database flag.
-
         Args:
             queue_name: The name of the queue to check.
 
         Returns:
-            Always False as pausing is not implemented.
+            True if the queue is paused, otherwise False.
         """
-        return queue_name in self._paused_queues
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            exists = await conn.fetchval(
+                """
+                SELECT EXISTS(SELECT 1 FROM asyncmq_paused_queues WHERE queue_name = $1)
+                """,
+                queue_name,
+            )
+        if exists:
+            self._paused_queues.add(queue_name)
+        else:
+            self._paused_queues.discard(queue_name)
+        return bool(exists)
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """

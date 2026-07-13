@@ -46,6 +46,7 @@ async def install_or_drop_postgres_backend(
             DROP TABLE IF EXISTS {settings.postgres_repeatables_table_name};
             DROP TABLE IF EXISTS {settings.postgres_cancelled_jobs_table_name};
             DROP TABLE IF EXISTS {settings.postgres_workers_heartbeat_table_name};
+            DROP TABLE IF EXISTS asyncmq_paused_queues;
 
             -- jobs table with delay_until column
             CREATE TABLE {settings.postgres_jobs_table_name} (
@@ -76,6 +77,12 @@ async def install_or_drop_postgres_backend(
                 PRIMARY KEY(queue_name, job_id)
             );
 
+            -- queue pause state
+            CREATE TABLE asyncmq_paused_queues (
+                queue_name TEXT PRIMARY KEY,
+                paused_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+            );
+
             -- worker heartbeats
             CREATE TABLE {settings.postgres_workers_heartbeat_table_name} (
                 worker_id   TEXT PRIMARY KEY,
@@ -96,6 +103,7 @@ async def install_or_drop_postgres_backend(
             DROP TABLE IF EXISTS {settings.postgres_repeatables_table_name};
             DROP TABLE IF EXISTS {settings.postgres_cancelled_jobs_table_name};
             DROP TABLE IF EXISTS {settings.postgres_workers_heartbeat_table_name};
+            DROP TABLE IF EXISTS asyncmq_paused_queues;
             DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_queue_name;
             DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_status;
             DROP INDEX IF EXISTS idx_{settings.postgres_jobs_table_name}_delay_until;

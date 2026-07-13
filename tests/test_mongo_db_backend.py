@@ -180,6 +180,18 @@ async def test_pause_resume(backend):
     assert await backend.is_queue_paused("test-queue") is False
 
 
+async def test_pause_state_is_shared_between_backend_instances(backend):
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.pause_queue("test-queue-cross-instance")
+        assert await observer.is_queue_paused("test-queue-cross-instance") is True
+
+        await observer.resume_queue("test-queue-cross-instance")
+        assert await backend.is_queue_paused("test-queue-cross-instance") is False
+    finally:
+        observer.store.client.close()
+
+
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])
 async def test_list_jobs_by_state(backend, state):
     queue = "test-queue"

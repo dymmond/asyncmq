@@ -79,13 +79,15 @@ Bootstrap the schema before first use.
 Good fit when your platform is already document-centric, but remember:
 
 - coordination locks are process-local
-- some queue-control guarantees are intentionally weaker across multiple processes
+- queue pause/resume state is persisted and shared by backend instances
+- deduplication and scheduler ownership coordination remain process-local
 
 ### RabbitMQ
 
 Best when AMQP broker delivery is the requirement, but remember:
 
 - AsyncMQ still needs a metadata store for job state, results, schedules, and locks
+- queue pause/resume state is shared through that metadata store
 - operational quality depends partly on that metadata store
 
 ### In-memory
