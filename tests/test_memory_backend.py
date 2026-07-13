@@ -18,6 +18,23 @@ async def test_enqueue_and_dequeue():
     assert result["id"] == job.id
 
 
+async def test_enqueue_preserves_priority_and_fifo_order():
+    backend = InMemoryBackend()
+    queue = "priority-order"
+    jobs = [
+        Job(task_id="test.task", args=[], kwargs={}, job_id="low", priority=10),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="high-1", priority=1),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="medium", priority=5),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="high-2", priority=1),
+    ]
+    for job in jobs:
+        await backend.enqueue(queue, job.to_dict())
+
+    dequeued = [await backend.dequeue(queue) for _ in jobs]
+
+    assert [job["id"] for job in dequeued if job is not None] == ["high-1", "high-2", "medium", "low"]
+
+
 async def test_job_state_tracking():
     backend = InMemoryBackend()
     job = Job(task_id="state.test", args=[], kwargs={})

@@ -6,12 +6,10 @@ import argparse
 import json
 import time
 from dataclasses import asdict, dataclass
-from typing import Any
 
 import anyio
 
 from asyncmq.backends.memory import InMemoryBackend
-from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
 from asyncmq.workers import process_job
@@ -57,28 +55,11 @@ async def run_load(
     queue = "benchmark-load"
     payload = "x" * payload_bytes
     TASK_REGISTRY[TASK_ID] = {"func": _payload_task}
-    completed = 0
-    failed = 0
-    finished = anyio.Event()
-    counter_lock = anyio.Lock()
 
-    async def _count_finished(status: str, data: dict[str, Any]) -> None:
-        nonlocal completed, failed
-        if data.get("task_id", data.get("task")) != TASK_ID:
-            return
-        async with counter_lock:
-            if status == "completed":
-                completed += 1
-            else:
-                failed += 1
-            if completed + failed >= jobs:
-                finished.set()
-
-    async def on_completed(data: dict[str, Any]) -> None:
-        await _count_finished("completed", data)
-
-    async def on_failed(data: dict[str, Any]) -> None:
-        await _count_finished("failed", data)
+    async def terminal_counts() -> tuple[int, int]:
+        completed_count = len(backend.job_results)
+        failed_count = len(backend.dlqs.get(queue, []))
+        return completed_count, failed_count
 
     enqueue_start = time.perf_counter_ns()
     for index in range(jobs):
@@ -86,22 +67,21 @@ async def run_load(
         await backend.enqueue(queue, job.to_dict())
     enqueue_latency_ns = time.perf_counter_ns() - enqueue_start
 
-    event_emitter.on("job:completed", on_completed)
-    event_emitter.on("job:failed", on_failed)
     total_start = time.perf_counter_ns()
-    try:
-        async with anyio.create_task_group() as tg:
-            for _ in range(workers):
-                tg.start_soon(process_job, queue, anyio.CapacityLimiter(concurrency), None, backend)
+    async with anyio.create_task_group() as tg:
+        for _ in range(workers):
+            tg.start_soon(process_job, queue, anyio.CapacityLimiter(concurrency), None, backend)
 
-            with anyio.fail_after(timeout):
-                await finished.wait()
-            tg.cancel_scope.cancel()
-    finally:
-        event_emitter.off("job:completed", on_completed)
-        event_emitter.off("job:failed", on_failed)
+        with anyio.fail_after(timeout):
+            while True:
+                completed, failed = await terminal_counts()
+                if completed + failed >= jobs:
+                    break
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
 
     total_latency_ns = time.perf_counter_ns() - total_start
+    completed, failed = await terminal_counts()
     throughput = completed / (total_latency_ns / 1_000_000_000) if total_latency_ns else 0.0
 
     return LoadResult(

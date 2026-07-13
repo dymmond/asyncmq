@@ -93,6 +93,9 @@
   instead of deprecated `protected_args` access.
 - Sandbox subprocess execution now defaults to the `spawn` multiprocessing
   context to avoid unsafe `fork` behavior in multi-threaded runtimes.
+- In-memory waiting queues now avoid full-list sorting on every unique enqueue
+  and use constant-time dequeue from the hot path while preserving priority and
+  FIFO ordering.
 
 ## 0.8.1
 

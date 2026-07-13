@@ -81,7 +81,6 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             now = time.time()
             remaining: list[tuple[float, dict[str, Any]]] = []
-            queue = self.queues.setdefault(queue_name, [])
             for run_at, payload in self.delayed.get(queue_name, []):
                 if run_at > now:
                     remaining.append((run_at, payload))
@@ -89,13 +88,12 @@ class InMemoryBackend(BaseBackend):
 
                 job_id = str(payload["id"])
                 waiting_payload = {**payload, "status": State.WAITING, "delay_until": None, "updated_at": now}
-                queue.append(waiting_payload)
+                self._insert_waiting_payload_locked(queue_name, waiting_payload)
                 promoted.append(waiting_payload)
                 self.job_states[(queue_name, job_id)] = State.WAITING
                 self.job_payloads[(queue_name, job_id)] = waiting_payload
 
             self.delayed[queue_name] = remaining
-            queue.sort(key=lambda job: job.get("priority", 5))
         return promoted
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
@@ -115,9 +113,11 @@ class InMemoryBackend(BaseBackend):
 
     def _store_waiting_payload_locked(self, queue_name: str, payload: dict[str, Any]) -> str:
         job_id = str(payload["id"])
+        job_key = (queue_name, job_id)
         waiting_payload = {**payload, "status": State.WAITING}
         queue = self.queues.setdefault(queue_name, [])
-        self.queues[queue_name] = [job for job in queue if str(job.get("id")) != job_id]
+        if job_key in self.job_payloads or job_key in self.job_states:
+            self.queues[queue_name] = [job for job in queue if str(job.get("id")) != job_id]
         pending = set(waiting_payload.get("depends_on", []))
         if pending:
             child_key: _JobKey = (queue_name, job_id)
@@ -125,11 +125,23 @@ class InMemoryBackend(BaseBackend):
             for parent_id in pending:
                 self.deps_children.setdefault((queue_name, parent_id), set()).add(job_id)
         else:
-            self.queues[queue_name].append(waiting_payload)
-            self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
+            self._insert_waiting_payload_locked(queue_name, waiting_payload)
         self.job_states[(queue_name, job_id)] = State.WAITING
         self.job_payloads[(queue_name, job_id)] = waiting_payload
         return job_id
+
+    def _insert_waiting_payload_locked(self, queue_name: str, payload: dict[str, Any]) -> None:
+        queue = self.queues.setdefault(queue_name, [])
+        priority = payload.get("priority", 5)
+        if not queue:
+            queue.append(payload)
+            return
+
+        for index, queued in enumerate(queue):
+            if priority >= queued.get("priority", 5):
+                queue.insert(index, payload)
+                return
+        queue.append(payload)
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -150,7 +162,7 @@ class InMemoryBackend(BaseBackend):
             queue = self.queues.get(queue_name, [])
             # If the queue is not empty, pop and return the first runnable job.
             while queue:
-                job = queue.pop(0)
+                job = queue.pop()
                 job_id = str(job["id"])
                 stored = self.job_payloads.get((queue_name, job_id), job)
                 if has_pending_dependencies(stored):
@@ -767,15 +779,8 @@ class InMemoryBackend(BaseBackend):
                   optionally a "priority" key.
         """
         async with self.lock:
-            # Get or create the list for the queue.
-            q = self.queues.setdefault(queue_name, [])
-            # Extend the queue list with the new jobs.
-            q.extend(jobs)
-            # Update the state for each new job to WAITING.
             for job in jobs:
-                self.job_states[(queue_name, job["id"])] = State.WAITING
-            # Sort the queue based on job priority after adding all jobs.
-            q.sort(key=lambda job: job.get("priority", 5))
+                self._store_waiting_payload_locked(queue_name, job)
 
     async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
@@ -939,7 +944,7 @@ class InMemoryBackend(BaseBackend):
             if normalized == "waiting":
                 return [
                     dict(self.job_payloads.get((queue_name, job["id"]), job))
-                    for job in self.queues.get(queue_name, [])
+                    for job in reversed(self.queues.get(queue_name, []))
                     if matches_job_type(self.job_payloads.get((queue_name, job["id"]), job), normalized)
                 ]
 
@@ -988,9 +993,7 @@ class InMemoryBackend(BaseBackend):
                     dlq.remove(job)
                     retry_payload = self._prepare_retry_payload(job, job_id)
                     # Add the job back to the main queue.
-                    queue = self.queues.setdefault(queue_name, [])
-                    queue.append(retry_payload)
-                    queue.sort(key=lambda item: item.get("priority", 5))
+                    self._insert_waiting_payload_locked(queue_name, retry_payload)
                     # Update the job's state to WAITING.
                     self.job_states[(queue_name, job_id)] = State.WAITING
                     self.job_payloads[(queue_name, job_id)] = {
@@ -1143,8 +1146,7 @@ class InMemoryBackend(BaseBackend):
             self.queues[queue_name] = [
                 queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
             ]
-            self.queues.setdefault(queue_name, []).append(retry_payload)
-            self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
+            self._insert_waiting_payload_locked(queue_name, retry_payload)
             self.job_states[(queue_name, job_id)] = State.WAITING
             self.job_payloads[(queue_name, job_id)] = {
                 **retry_payload,
