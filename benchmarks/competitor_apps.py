@@ -10,6 +10,11 @@ from urllib.parse import urlparse
 
 _REDIS_CLIENT: Any | None = None
 _REDIS_CLIENT_URL: str | None = None
+_COUNTER_SCRIPT = """
+redis.call('INCR', KEYS[1])
+redis.call('INCRBY', KEYS[2], ARGV[1])
+return ARGV[1]
+"""
 
 
 def _redis_url() -> str:
@@ -43,10 +48,7 @@ def _redis_client():
 
 
 def _mark_completed(payload: str, run_id: str) -> int:
-    pipe = _redis_client().pipeline()
-    pipe.incr(_completion_key(run_id))
-    pipe.incrby(_bytes_key(run_id), len(payload))
-    pipe.execute()
+    _redis_client().eval(_COUNTER_SCRIPT, 2, _completion_key(run_id), _bytes_key(run_id), len(payload))
     return len(payload)
 
 

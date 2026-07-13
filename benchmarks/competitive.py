@@ -30,6 +30,11 @@ ASYNCMQ_TASK_ID = "benchmarks.competitive.asyncmq_payload_task"
 _ASYNCMQ_COUNTERS: dict[str, Any] = {}
 ASYNCMQ_COUNTER_MAX_CONNECTIONS = 2048
 ASYNCMQ_COUNTER_POOL_TIMEOUT = 30.0
+COUNTER_SCRIPT = """
+redis.call('INCR', KEYS[1])
+redis.call('INCRBY', KEYS[2], ARGV[1])
+return ARGV[1]
+"""
 
 
 @dataclass(frozen=True)
@@ -203,10 +208,7 @@ def _run_dimensions(args: argparse.Namespace) -> RunDimensions:
 async def _asyncmq_payload_task(payload: str, run_id: str) -> int:
     redis_url = os.environ.get("ASYNCMQ_BENCH_REDIS_URL", REDIS_URL)
     client = _asyncmq_counter_client(redis_url)
-    pipe = client.pipeline()
-    pipe.incr(_completion_key(run_id))
-    pipe.incrby(_bytes_key(run_id), len(payload))
-    await pipe.execute()
+    await client.eval(COUNTER_SCRIPT, 2, _completion_key(run_id), _bytes_key(run_id), len(payload))
     return len(payload)
 
 

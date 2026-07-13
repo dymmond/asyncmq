@@ -27,7 +27,7 @@
   compact, reducing hot-path scans, memory pressure, and large-payload rewrites.
 - Redis dequeue now claims runnable jobs through one backend-owned transition.
 - Competitive benchmarks now bound stalled competitor workers and producers.
-- Competitive benchmark tasks record matching payload-byte counters.
+- Competitive benchmark tasks use matching payload-byte counter updates.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
 
