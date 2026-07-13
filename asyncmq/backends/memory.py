@@ -178,13 +178,9 @@ class InMemoryBackend(BaseBackend):
         self.active_jobs.pop((queue_name, job_id), None)
 
     def _remove_job_memberships_locked(self, queue_name: str, job_id: str) -> None:
-        self.queues[queue_name] = [
-            job for job in self.queues.get(queue_name, []) if str(job.get("id")) != job_id
-        ]
+        self.queues[queue_name] = [job for job in self.queues.get(queue_name, []) if str(job.get("id")) != job_id]
         self.delayed[queue_name] = [
-            (run_at, job)
-            for run_at, job in self.delayed.get(queue_name, [])
-            if str(job.get("id")) != job_id
+            (run_at, job) for run_at, job in self.delayed.get(queue_name, []) if str(job.get("id")) != job_id
         ]
         self.active_jobs.pop((queue_name, job_id), None)
         self.heartbeats.pop((queue_name, job_id), None)
