@@ -112,7 +112,8 @@ For worker rollouts:
 
 1. deploy replacement workers gradually
 2. drain old workers when your process wrapper can signal `Worker.drain()` or
-   `run_worker(..., drain_event=...)`
+   `run_worker(..., drain_event=...)`; `asyncmq worker start ...` requests this
+   drain path on SIGINT and SIGTERM
 3. let in-flight jobs finish within `terminationGracePeriodSeconds`
 4. rely on stalled recovery and idempotent handlers for workers terminated after
    the grace window

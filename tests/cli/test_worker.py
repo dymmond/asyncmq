@@ -1,7 +1,12 @@
+import signal
+
+import anyio
+import pytest
 from click.testing import CliRunner
 
 from asyncmq.backends.base import WorkerInfo
 from asyncmq.cli.__main__ import app
+from asyncmq.cli.worker import _signal_drain_loop
 
 runner = CliRunner()
 
@@ -11,6 +16,30 @@ class FakeWorkerBackend:
         return [
             WorkerInfo(id="worker-1", queue="emails", concurrency=3, heartbeat=1_700_000_000.0),
         ]
+
+
+class FakeSignalStream:
+    def __init__(self, signum: signal.Signals) -> None:
+        self.signum = signum
+        self.sent = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.sent:
+            raise StopAsyncIteration
+        self.sent = True
+        return self.signum
+
+
+@pytest.mark.anyio
+async def test_worker_signal_loop_requests_drain_on_sigterm():
+    drain_event = anyio.Event()
+
+    await _signal_drain_loop(drain_event, FakeSignalStream(signal.SIGTERM))
+
+    assert drain_event.is_set()
 
 
 def test_worker_inspect():

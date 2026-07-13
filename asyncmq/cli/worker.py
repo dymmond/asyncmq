@@ -1,5 +1,6 @@
 import signal
 import time
+from typing import Any
 
 import anyio
 import click
@@ -91,8 +92,6 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         concurrency: The number of worker instances to run concurrently.
                      Defaults to 1.
     """
-    from asyncmq.runners import start_worker
-
     # Ensure the queue name is not empty.
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
@@ -109,7 +108,7 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         # Start the worker using anyio's run function.
         # The lambda function wraps the start_worker call to be compatible with anyio.run.
         log(f"Starting worker for queue '{queue}' with concurrency {concurrency}")
-        run_cmd(lambda: start_worker(queue_name=queue, concurrency=concurrency))
+        run_cmd(lambda: _run_worker_with_signals(queue_name=queue, concurrency=concurrency))
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Worker shutting down gracefully...[/bold yellow]")
     except anyio.get_cancelled_exc_class():
@@ -122,16 +121,30 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         raise click.Abort() from e
 
 
-async def signal_handler(scope: anyio.CancelScope) -> None:
-    """Listens for signals and cancels the task group."""
-    with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
-        async for signum in signals:
-            if signum == signal.SIGINT:
-                console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C).[/yellow]")
-            else:
-                console.print(f"\n[yellow]Received signal {signum}.[/yellow]")
-            scope.cancel()  # Cancel the task group to initiate shutdown
-            return  # Exit the signal handler task
+async def _signal_drain_loop(drain_event: anyio.Event, signals: Any) -> None:
+    """Listens for process signals and requests cooperative worker drain."""
+    async for signum in signals:
+        if signum == signal.SIGINT:
+            console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C). Draining worker...[/yellow]")
+        else:
+            console.print(f"\n[yellow]Received signal {signum}. Draining worker...[/yellow]")
+        drain_event.set()
+        return
+
+
+async def _run_worker_with_signals(queue_name: str, concurrency: int) -> None:
+    from asyncmq.runners import run_worker
+
+    drain_event = anyio.Event()
+    async with anyio.create_task_group() as tg:
+
+        async def worker_task() -> None:
+            await run_worker(queue_name=queue_name, concurrency=concurrency, drain_event=drain_event)
+            tg.cancel_scope.cancel()
+
+        tg.start_soon(worker_task)
+        with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
+            tg.start_soon(_signal_drain_loop, drain_event, signals)
 
 
 @click.command("list")

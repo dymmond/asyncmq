@@ -285,6 +285,8 @@ AsyncMQ uses cooperative cancellation:
   then deregisters the worker and runs shutdown hooks
 - `run_worker(..., drain_event=event)` exposes the same cooperative drain path
   for application-owned orchestration
+- `asyncmq worker start ...` requests that drain path when it receives SIGINT
+  or SIGTERM
 
 On shutdown, AsyncMQ attempts to:
 
