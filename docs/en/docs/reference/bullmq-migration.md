@@ -140,7 +140,8 @@ into explicit loops:
 For most users, `Queue.run()` is enough because it starts delayed and
 repeatable scheduling automatically.
 
-If you enable stalled recovery, also run:
+If you enable stalled recovery, `Queue.run()` starts recovery too. If you build
+a custom lower-level worker loop, also run:
 
 ```python
 from asyncmq.core.stalled import stalled_recovery_scheduler

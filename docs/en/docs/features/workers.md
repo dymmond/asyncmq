@@ -214,6 +214,11 @@ This is equivalent in purpose to BullMQ's stalled job handling, but AsyncMQ
 also keeps `asyncmq.core.stalled.stalled_recovery_scheduler(...)` available when
 you deliberately want a separate recovery process.
 
+Redis, PostgreSQL, and MongoDB persist enough active-job state for a separate
+backend instance to release stale jobs after the original worker process exits.
+`InMemoryBackend` recovery is process-local and does not survive process
+restart.
+
 ## Sandbox Execution
 
 If `settings.sandbox_enabled=True`, handlers are executed through
@@ -291,7 +296,8 @@ A common production topology is:
 
 1. dedicated producer application processes
 2. one or more worker deployments per queue class
-3. one stalled-recovery process if stalled recovery is enabled
+3. built-in stalled recovery on workers when `enable_stalled_check=True`, or one
+   standalone stalled-recovery process when you deliberately centralize recovery
 4. dashboard or metrics readers as separate operational services
 
 Example bootstrap:
@@ -299,7 +305,6 @@ Example bootstrap:
 ```python
 import anyio
 
-from asyncmq.core.stalled import stalled_recovery_scheduler
 from asyncmq.queues import Queue
 from myapp import tasks  # noqa: F401
 
@@ -311,7 +316,6 @@ async def main() -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(emails.run)
         tg.start_soon(webhooks.run)
-        tg.start_soon(stalled_recovery_scheduler)
 
 
 anyio.run(main)
@@ -328,7 +332,7 @@ containers rather than one big combined process.
 | worker concurrency | `Queue(..., concurrency=...)` |
 | worker rate limiter | `Queue(..., rate_limit=..., rate_interval=...)` |
 | queue pause/resume | `await queue.pause()` / `await queue.resume()` |
-| stalled detection | `enable_stalled_check=True` plus `stalled_recovery_scheduler(...)` |
+| stalled detection | `enable_stalled_check=True`; `stalled_recovery_scheduler(...)` is available for standalone recovery |
 
 BullMQ's old `QueueScheduler` role is split in AsyncMQ between the delayed
 scanner, repeatable scheduler, and optional stalled recovery loop.
@@ -336,7 +340,8 @@ scanner, repeatable scheduler, and optional stalled recovery loop.
 ## Common Mistakes
 
 - Running `Worker.run()` and expecting delayed or repeatable jobs to be driven automatically.
-- Enabling stalled checks without running `stalled_recovery_scheduler(...)`.
+- Running both built-in stalled recovery and a standalone recovery process
+  without planning for the extra scan load.
 - Treating `rate_limit` as a cluster-wide quota instead of a per-process limiter.
 - Setting concurrency high for CPU-bound handlers and then blaming the backend.
 - Forgetting to import task modules before bootstrapping a worker runtime.

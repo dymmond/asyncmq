@@ -30,8 +30,11 @@ Delayed jobs are moved by `delayed_job_scanner`, so a worker loop must be runnin
 
 ## Stalled Jobs Not Recovered
 
-`enable_stalled_check=True` only enables heartbeat recording.
-You also need a recovery scheduler loop:
+`enable_stalled_check=True` makes `run_worker(...)`, `Queue.run()`, and
+`Worker.run()` record active-job heartbeats and start stalled recovery.
+
+If you build a custom worker loop from lower-level primitives, also run a
+recovery scheduler:
 
 ```python
 from asyncmq.core.stalled import stalled_recovery_scheduler

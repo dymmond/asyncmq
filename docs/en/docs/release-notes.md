@@ -45,6 +45,9 @@
   dependency resolution promotes children only after the last parent completes.
 - Worker execution now stamps `last_attempt` when a handler attempt starts, so
   completed, retried, and failed payloads expose the most recent execution time.
+- MongoDB now persists active-job heartbeat timestamps in job documents and
+  indexes active heartbeat scans, allowing a separate recovery process to
+  release stale active jobs after the original worker process exits.
 
 ## 0.8.1
 

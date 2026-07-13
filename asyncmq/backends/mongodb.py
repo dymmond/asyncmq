@@ -816,12 +816,11 @@ class MongoDBBackend(BaseBackend):
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
         Asynchronously records or updates the last heartbeat timestamp for a
-        specific job in the in-memory heartbeats dictionary.
+        specific active job.
 
-        This method acquires a lock to ensure safe concurrent access to the
-        heartbeats dictionary and stores the provided timestamp associated with
-        the job's queue name and ID. This is used by the stalled job detection
-        mechanism.
+        The timestamp is stored both in the process-local mirror and the
+        MongoDB job document so a separate recovery process can detect stale
+        active jobs after the original worker process exits.
 
         Args:
             queue_name: The name of the queue the job belongs to.
@@ -832,16 +831,19 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Store the heartbeat timestamp using a tuple of queue name and job ID as the key.
             self.heartbeats[(queue_name, job_id)] = timestamp
+            job = await self.store.load(queue_name, job_id)
+            if job:
+                job["heartbeat"] = timestamp
+                await self.store.save(queue_name, job_id, job)
 
     async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
         """
-        Asynchronously retrieves jobs whose last recorded heartbeat in memory is
-        older than a specified timestamp, indicating they might be stalled.
+        Asynchronously retrieves jobs whose last recorded heartbeat is older
+        than a specified timestamp, indicating they might be stalled.
 
-        This method iterates through the in-memory heartbeats, identifies jobs whose
-        heartbeat timestamp is less than `older_than`, and then attempts to find
-        the corresponding job data in the in-memory queues. Access to both heartbeats
-        and queues is synchronized using the internal lock.
+        The method checks both the process-local heartbeat mirror and persisted
+        MongoDB job documents, so a separate recovery process can detect active
+        jobs abandoned by a stopped worker process.
 
         Args:
             older_than: A Unix timestamp (float). Jobs with a heartbeat timestamp
@@ -853,6 +855,7 @@ class MongoDBBackend(BaseBackend):
             payload of the job.
         """
         stalled: list[dict[str, Any]] = []  # Initialize a list to store stalled job details
+        seen: set[tuple[str, str]] = set()
 
         # Acquire the lock to protect shared state (heartbeats and queues accessed here).
         async with self.lock:
@@ -864,6 +867,23 @@ class MongoDBBackend(BaseBackend):
                     payload = await self.store.load(q, jid)
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
+                        seen.add((q, jid))
+
+            for job in await self.store.collection.find(
+                {
+                    "status": State.ACTIVE,
+                    "heartbeat": {"$lt": older_than},
+                }
+            ).to_list(length=None):
+                queue = job.get("queue_name")
+                job_id = job.get("job_id") or job.get("id")
+                if not isinstance(queue, str) or not isinstance(job_id, str):
+                    continue
+                if (queue, job_id) in seen:
+                    continue
+                job.pop("_id", None)
+                stalled.append({"queue_name": queue, "job_data": job})
+                seen.add((queue, job_id))
 
         return stalled
 

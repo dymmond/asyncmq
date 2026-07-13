@@ -54,6 +54,7 @@ class MongoDBStore(BaseJobStore):
         # Ensure an index on the 'status' field for efficient status-based queries.
         # background=False means index creation will block until complete.
         await self.collection.create_index("status", background=False)
+        await self.collection.create_index([("status", 1), ("heartbeat", 1)], background=False)
 
     async def save(self, queue_name: str, job_id: str, data: dict[str, Any]) -> None:
         """

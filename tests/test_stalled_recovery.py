@@ -162,3 +162,97 @@ async def test_reenqueue_stalled_releases_dequeued_active_job(backend):
         assert (queue, job_id) not in backend.heartbeats
         assert await backend.get_job_state(queue, job_id) == State.WAITING
         assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
+
+
+async def test_redis_stalled_recovery_survives_backend_restart():
+    queue = "restart-redis"
+    job_id = "redis-restart"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    producer = RedisBackend()
+    recovery = RedisBackend()
+    await producer.redis.flushdb()
+    try:
+        await producer.enqueue(queue, payload)
+        raw = await producer.dequeue(queue)
+        assert raw is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert not await recovery.redis.hexists(recovery._active_key(queue), job_id)
+        assert not await recovery.redis.hexists(recovery._job_heartbeat_key(queue), job_id)
+        recovered = await recovery.dequeue(queue)
+        assert recovered and recovered["id"] == job_id
+    finally:
+        await producer.redis.flushdb()
+        await producer.redis.aclose()
+        await producer.job_store.redis.aclose()
+        await recovery.redis.aclose()
+        await recovery.job_store.redis.aclose()
+
+
+async def test_postgres_stalled_recovery_survives_backend_restart():
+    queue = "restart-postgres"
+    job_id = "postgres-restart"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    await install_or_drop_postgres_backend(drop=True)
+    await install_or_drop_postgres_backend()
+    producer = PostgresBackend()
+    recovery = PostgresBackend()
+    try:
+        await producer.connect()
+        await producer.enqueue(queue, payload)
+        raw = await producer.dequeue(queue)
+        assert raw is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+        await producer.close()
+
+        await recovery.connect()
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.WAITING
+        recovered = await recovery.dequeue(queue)
+        assert recovered and recovered["id"] == job_id
+    finally:
+        await producer.close()
+        await recovery.close()
+        await install_or_drop_postgres_backend(drop=True)
+
+
+async def test_mongodb_stalled_recovery_survives_backend_restart():
+    queue = "restart-mongo"
+    job_id = "mongo-restart"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+    database = "test_asyncmq_restart"
+
+    producer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
+    recovery = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
+    try:
+        producer.store.client.drop_database(database)
+        await producer.connect()
+        await recovery.connect()
+        await producer.enqueue(queue, payload)
+        raw = await producer.dequeue(queue)
+        assert raw is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.WAITING
+        recovered = await recovery.dequeue(queue)
+        assert recovered and recovered["id"] == job_id
+    finally:
+        producer.store.client.drop_database(database)
+        producer.store.client.close()
+        recovery.store.client.close()

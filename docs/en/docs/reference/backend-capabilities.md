@@ -41,6 +41,7 @@ All built-in backends implement `BaseBackend` methods used by:
 - document persistence
 - lock helper is in-process (`anyio.Lock`), not distributed
 - durable repeatable schedules stored as `status="repeatable"` documents
+- active-job heartbeats are persisted in job documents for stalled recovery
 - deduplication and scheduler ownership coordinate only inside one process
 
 `RabbitMQBackend`:
