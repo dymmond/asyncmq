@@ -11,6 +11,9 @@
   now route through backend-owned lifecycle transitions so backends can make
   state, result, acknowledgement, delay, and DLQ updates atomic for their
   storage technology.
+- Redis now applies worker lifecycle transitions through server-side scripts,
+  keeping active ownership, heartbeat cleanup, canonical job payloads, delayed
+  placement, and DLQ placement in one Redis execution.
 
 ## 0.8.1
 

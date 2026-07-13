@@ -21,6 +21,8 @@ Redis:
 
 - default backend in settings
 - strong feature coverage and good operational fit for queue workloads
+- worker lifecycle transitions use Redis-side scripts for active-job
+  completion, retry/defer, expiration, cancellation, and DLQ routing
 
 Postgres:
 

@@ -79,6 +79,80 @@ async def test_job_result_handling(redis):
     assert result == 9876
 
 
+async def test_complete_active_job_updates_result_and_releases_redis_ownership(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-complete"
+    job = Job(task_id="redis.lifecycle.complete", args=[], kwargs={}, job_id="j-complete")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+    await backend.save_heartbeat(queue, job.id, time.time())
+
+    assert payload is not None
+    assert await redis.hexists(backend._active_key(queue), job.id)
+    assert await redis.hexists(backend._job_heartbeat_key(queue), job.id)
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job_state(queue, job.id) == State.COMPLETED
+    assert await backend.get_job_result(queue, job.id) == {"ok": True}
+    assert not await redis.hexists(backend._active_key(queue), job.id)
+    assert not await redis.hexists(backend._job_heartbeat_key(queue), job.id)
+    assert await redis.zcard(backend._waiting_key(queue)) == 0
+    assert await redis.zcard(backend._delayed_key(queue)) == 0
+
+
+async def test_retry_active_job_moves_redis_job_to_delayed_atomically(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-retry"
+    job = Job(task_id="redis.lifecycle.retry", args=[], kwargs={}, job_id="j-retry")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+    await backend.save_heartbeat(queue, job.id, time.time())
+
+    assert payload is not None
+
+    run_at = time.time() + 60
+    payload = {**payload, "retries": 1}
+    await backend.retry_active_job(queue, payload, run_at)
+
+    assert await backend.get_job_state(queue, job.id) == State.DELAYED
+    assert not await redis.hexists(backend._active_key(queue), job.id)
+    assert not await redis.hexists(backend._job_heartbeat_key(queue), job.id)
+
+    delayed = await redis.zrange(backend._delayed_key(queue), 0, -1, withscores=True)
+    assert len(delayed) == 1
+    delayed_payload = json.loads(delayed[0][0])
+    assert delayed_payload["id"] == job.id
+    assert delayed_payload["status"] == State.DELAYED
+    assert delayed[0][1] == pytest.approx(run_at)
+
+
+async def test_fail_active_job_moves_redis_job_to_dlq_atomically(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-lifecycle-fail"
+    job = Job(task_id="redis.lifecycle.fail", args=[], kwargs={}, job_id="j-fail")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+    await backend.save_heartbeat(queue, job.id, time.time())
+
+    assert payload is not None
+
+    await backend.fail_active_job(queue, {**payload, "status": State.FAILED})
+
+    assert await backend.get_job_state(queue, job.id) == State.FAILED
+    assert not await redis.hexists(backend._active_key(queue), job.id)
+    assert not await redis.hexists(backend._job_heartbeat_key(queue), job.id)
+
+    dlq = await redis.zrange(backend._dlq_key(queue), 0, -1)
+    assert len(dlq) == 1
+    dlq_payload = json.loads(dlq[0])
+    assert dlq_payload["id"] == job.id
+    assert dlq_payload["status"] == State.FAILED
+
+
 async def test_enqueue_delayed_and_due(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.delayed", args=[], kwargs={})

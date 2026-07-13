@@ -71,6 +71,57 @@ end
 return items
 """
 
+LIFECYCLE_SCRIPT: str = """
+-- KEYS[1]: active hash
+-- KEYS[2]: job heartbeat hash
+-- KEYS[3]: waiting zset
+-- KEYS[4]: delayed zset
+-- KEYS[5]: dlq zset
+-- KEYS[6]: canonical job key
+-- KEYS[7]: queue job-id set
+-- ARGV[1]: action: complete, retry, defer, fail, expire, cancel
+-- ARGV[2]: job id
+-- ARGV[3]: canonical job JSON
+-- ARGV[4]: delayed run_at score, when applicable
+-- ARGV[5]: now score, when applicable
+local action = ARGV[1]
+local job_id = ARGV[2]
+local job_json = ARGV[3]
+local run_at = tonumber(ARGV[4])
+local now = tonumber(ARGV[5])
+
+local function remove_job_member(zset_key, target_id)
+  local members = redis.call('ZRANGE', zset_key, 0, -1)
+  for _, member in ipairs(members) do
+    local ok, job = pcall(cjson.decode, member)
+    if ok and job and tostring(job.id) == target_id then
+      redis.call('ZREM', zset_key, member)
+    end
+  end
+end
+
+redis.call('HDEL', KEYS[1], job_id)
+redis.call('HDEL', KEYS[2], job_id)
+
+if action == 'cancel' then
+  return 1
+end
+
+remove_job_member(KEYS[3], job_id)
+remove_job_member(KEYS[4], job_id)
+
+redis.call('SET', KEYS[6], job_json)
+redis.call('SADD', KEYS[7], job_id)
+
+if action == 'retry' or action == 'defer' then
+  redis.call('ZADD', KEYS[4], run_at, job_json)
+elseif action == 'fail' or action == 'expire' then
+  redis.call('ZADD', KEYS[5], now, job_json)
+end
+
+return 1
+"""
+
 
 class RedisBackend(BaseBackend):
     """
@@ -119,6 +170,7 @@ class RedisBackend(BaseBackend):
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
         self._pop_delayed_script: AsyncScript = self.redis.register_script(POP_DELAYED)
+        self._lifecycle_script: AsyncScript = self.redis.register_script(LIFECYCLE_SCRIPT)
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         key = self._delayed_key(queue_name)
@@ -395,6 +447,97 @@ class RedisBackend(BaseBackend):
         """
         # Remove the job ID from the active jobs Hash.
         await self.redis.hdel(self._active_key(queue_name), job_id)
+
+    def _job_store_key(self, queue_name: str, job_id: str) -> str:
+        return self.job_store._key(queue_name, job_id)
+
+    def _job_store_ids_key(self, queue_name: str) -> str:
+        return self.job_store._set_key(queue_name)
+
+    def _lifecycle_keys(self, queue_name: str, job_id: str) -> list[str]:
+        return [
+            self._active_key(queue_name),
+            self._job_heartbeat_key(queue_name),
+            self._waiting_key(queue_name),
+            self._delayed_key(queue_name),
+            self._dlq_key(queue_name),
+            self._job_store_key(queue_name, job_id),
+            self._job_store_ids_key(queue_name),
+        ]
+
+    async def _run_lifecycle_transition(
+        self,
+        queue_name: str,
+        job_id: str,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        run_at: float | None = None,
+        now: float | None = None,
+    ) -> None:
+        # Serialize before running the script so serialization failures do not
+        # partially acknowledge or move a job.
+        payload_json = self._json_serializer.to_json(payload)
+        await self._lifecycle_script(
+            keys=self._lifecycle_keys(queue_name, job_id),
+            args=[
+                action,
+                job_id,
+                payload_json,
+                run_at if run_at is not None else 0,
+                now if now is not None else time.time(),
+            ],
+        )
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        job_id = str(payload["id"])
+        await self._run_lifecycle_transition(
+            queue_name,
+            job_id,
+            "complete",
+            {**payload, "status": State.COMPLETED, "result": result},
+        )
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at, action="retry")
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at, action="defer")
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float, *, action: str) -> None:
+        job_id = str(payload["id"])
+        await self._run_lifecycle_transition(
+            queue_name,
+            job_id,
+            action,
+            {**payload, "status": State.DELAYED, "delay_until": run_at},
+            run_at=run_at,
+        )
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        job_id = str(payload["id"])
+        await self._run_lifecycle_transition(
+            queue_name,
+            job_id,
+            "fail",
+            {**payload, "status": target_status},
+        )
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        await self._run_lifecycle_transition(
+            queue_name,
+            job_id,
+            "expire",
+            {**payload, "status": State.EXPIRED},
+        )
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        await self._run_lifecycle_transition(queue_name, job_id, "cancel", payload)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
