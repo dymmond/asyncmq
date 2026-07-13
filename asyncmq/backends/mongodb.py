@@ -1008,30 +1008,47 @@ class MongoDBBackend(BaseBackend):
             job_data: The dictionary containing the job's data, which is appended
                       to the queue. Must contain an 'id' key for heartbeat removal.
         """
-        # Acquire the lock to protect shared state (queues and heartbeats accessed here).
+        await self.connect()
+        retry_payload = dict(job_data)
+        retry_payload.pop("_id", None)
+        retry_payload.pop("job_id", None)
+        retry_payload.pop("queue_name", None)
+        retry_payload.pop("status", None)
+        retry_payload.pop("heartbeat", None)
+        retry_payload.pop("updated_at", None)
+        expected_active_since = retry_payload.pop("active_since", None)
+        job_id = retry_payload.get("id")
+        if not isinstance(job_id, str):
+            return
+        if await self.is_job_cancelled(queue_name, job_id):
+            return
+
+        query: dict[str, Any] = {"queue_name": queue_name, "job_id": job_id, "status": State.ACTIVE}
+        if isinstance(expected_active_since, (int, float)):
+            query["active_since"] = {
+                "$gte": float(expected_active_since) - 0.000001,
+                "$lte": float(expected_active_since) + 0.000001,
+            }
+
+        now = time.time()
+        waiting_payload = {**retry_payload, "status": State.WAITING, "updated_at": now}
+        result = await self.store.collection.update_one(
+            query,
+            {
+                "$set": {**waiting_payload, "queue_name": queue_name, "job_id": job_id},
+                "$unset": {"heartbeat": "", "active_since": ""},
+            },
+        )
+        if result.modified_count == 0:
+            return
+
         async with self.lock:
-            retry_payload = dict(job_data)
-            retry_payload.pop("_id", None)
-            retry_payload.pop("job_id", None)
-            retry_payload.pop("queue_name", None)
-            retry_payload.pop("status", None)
-            retry_payload.pop("heartbeat", None)
-            retry_payload.pop("updated_at", None)
-            # Append the job data to the specified in-memory queue list.
-            # setdefault ensures the queue list exists even if this is the first job
-            # for this queue.
-            job_id = retry_payload.get("id")
-            if isinstance(job_id, str):
-                self.queues[queue_name] = [
-                    queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
-                ]
-                self.queues.setdefault(queue_name, []).append(retry_payload)
-                self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
-                # Remove the heartbeat entry for this job as it's no longer running.
-                # Use .pop with a default of None to avoid errors if the heartbeat was
-                # already removed or if 'id' is missing.
-                self.heartbeats.pop((queue_name, job_id), None)
-                await self.store.save(queue_name, job_id, {**retry_payload, "status": State.WAITING})
+            self.queues[queue_name] = [
+                queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
+            ]
+            self.queues.setdefault(queue_name, []).append(waiting_payload)
+            self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
+            self.heartbeats.pop((queue_name, job_id), None)
 
     async def queue_stats(self, queue_name: str) -> dict[str, int]:
         """

@@ -397,3 +397,37 @@ async def test_mongodb_stalled_recovery_survives_backend_restart():
         producer.store.client.drop_database(database)
         producer.store.client.close()
         recovery.store.client.close()
+
+
+async def test_mongodb_stalled_recovery_does_not_requeue_completed_snapshot():
+    queue = "mongo-stalled-completed-race"
+    job_id = "mongo-stalled-completed"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+    database = "test_asyncmq_mongo_stalled_completed"
+
+    producer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
+    recovery = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
+    try:
+        producer.store.client.drop_database(database)
+        await producer.connect()
+        await recovery.connect()
+        await producer.enqueue(queue, payload)
+        active = await producer.dequeue(queue)
+        assert active is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+        await producer.complete_active_job(queue, active, {"ok": True})
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.COMPLETED
+        assert await recovery.get_job_result(queue, job_id) == {"ok": True}
+        recovered = await recovery.dequeue(queue)
+        assert recovered is None
+    finally:
+        producer.store.client.drop_database(database)
+        producer.store.client.close()
+        recovery.store.client.close()

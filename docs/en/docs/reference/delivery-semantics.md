@@ -53,6 +53,8 @@ Important limits:
   a terminal state.
 - `PostgresBackend` conditionally updates still-active rows during stalled
   recovery, preserving terminal rows if the stalled snapshot is stale.
+- `MongoDBBackend` conditionally updates still-active persisted documents
+  during stalled recovery and updates local mirrors only after that transition.
 - `RabbitMQBackend` publishes tokenized replacement deliveries during stalled
   recovery and acknowledges stale broker redeliveries whose token no longer
   matches metadata state.
