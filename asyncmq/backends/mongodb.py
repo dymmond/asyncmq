@@ -193,6 +193,69 @@ class MongoDBBackend(BaseBackend):
         # by calls to update_job_state.
         pass
 
+    def _remove_job_memberships_locked(self, queue_name: str, job_id: str) -> None:
+        self.queues[queue_name] = [job for job in self.queues.get(queue_name, []) if str(job.get("id")) != job_id]
+        self.delayed[queue_name] = [
+            (run_at, job) for run_at, job in self.delayed.get(queue_name, []) if str(job.get("id")) != job_id
+        ]
+        self.heartbeats.pop((queue_name, job_id), None)
+
+    async def _replace_lifecycle_payload_locked(self, queue_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        job_id = str(payload["id"])
+        stored = dict(payload)
+        stored.pop("_id", None)
+        stored["queue_name"] = queue_name
+        stored["job_id"] = job_id
+        await self.store.collection.replace_one(
+            {"queue_name": queue_name, "job_id": job_id},
+            stored,
+            upsert=True,
+        )
+        return stored
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        job_id = str(payload["id"])
+        stored = {**payload, "status": State.COMPLETED, "result": result, "delay_until": None}
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            await self._replace_lifecycle_payload_locked(queue_name, stored)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        job_id = str(payload["id"])
+        stored = {**payload, "status": State.DELAYED, "delay_until": run_at}
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            persisted = await self._replace_lifecycle_payload_locked(queue_name, stored)
+            self.delayed.setdefault(queue_name, []).append((run_at, persisted))
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        job_id = str(payload["id"])
+        stored = {**payload, "status": target_status, "delay_until": None}
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            await self._replace_lifecycle_payload_locked(queue_name, stored)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        stored = {**payload, "status": State.EXPIRED, "delay_until": None}
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+            await self._replace_lifecycle_payload_locked(queue_name, stored)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        async with self.lock:
+            self._remove_job_memberships_locked(queue_name, job_id)
+
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
         Asynchronously adds a job to the in-memory delayed queue to be processed

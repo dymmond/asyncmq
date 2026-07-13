@@ -17,6 +17,9 @@
 - PostgreSQL now applies worker lifecycle transitions through database
   transactions, preventing retry/defer paths from being removed by
   acknowledgement cleanup and preserving terminal job rows for inspection.
+- MongoDB now applies worker lifecycle transitions through backend-owned
+  document updates that keep completion, retry/defer, expiration, failure, and
+  local runtime mirrors aligned.
 
 ## 0.8.1
 

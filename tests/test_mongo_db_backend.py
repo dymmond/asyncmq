@@ -4,6 +4,7 @@ import time
 import pytest
 
 from asyncmq.backends.mongodb import MongoDBBackend
+from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
@@ -71,6 +72,62 @@ async def test_save_and_get_job_result(backend):
     await backend.save_job_result("test-queue", "job5", {"result": 42})
     result = await backend.get_job_result("test-queue", "job5")
     assert result["result"] == 42
+
+
+async def test_complete_active_job_updates_mongodb_document_and_releases_local_ownership(backend):
+    queue = "mongo-lifecycle-complete"
+    job = Job(task_id="mongo.lifecycle.complete", args=[], kwargs={}, job_id="mongo-complete")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.COMPLETED
+    assert stored["result"] == {"ok": True}
+    assert (queue, job.id) not in backend.heartbeats
+    assert backend.queues.get(queue, []) == []
+    assert backend.delayed.get(queue, []) == []
+
+
+async def test_retry_active_job_updates_mongodb_document_and_delayed_mirror(backend):
+    queue = "mongo-lifecycle-retry"
+    job = Job(task_id="mongo.lifecycle.retry", args=[], kwargs={}, job_id="mongo-retry")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    run_at = time.time() + 60
+    await backend.retry_active_job(queue, {**payload, "retries": 1}, run_at)
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.DELAYED
+    assert stored["delay_until"] == pytest.approx(run_at)
+    assert (queue, job.id) not in backend.heartbeats
+    assert len(backend.delayed[queue]) == 1
+    assert backend.delayed[queue][0][1]["id"] == job.id
+
+
+async def test_fail_active_job_updates_mongodb_document_and_releases_local_ownership(backend):
+    queue = "mongo-lifecycle-fail"
+    job = Job(task_id="mongo.lifecycle.fail", args=[], kwargs={}, job_id="mongo-fail")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    await backend.fail_active_job(queue, {**payload, "status": State.FAILED})
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.FAILED
+    assert (queue, job.id) not in backend.heartbeats
+    assert backend.queues.get(queue, []) == []
 
 
 async def test_bulk_enqueue(backend):

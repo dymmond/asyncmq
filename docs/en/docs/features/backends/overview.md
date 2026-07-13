@@ -35,6 +35,8 @@ MongoDB:
 
 - durable document-backed queue state
 - good fit when your stack is already Mongo-centric
+- worker lifecycle transitions update the MongoDB job document and process-local
+  runtime mirrors through one backend-owned path
 
 RabbitMQ:
 
