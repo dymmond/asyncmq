@@ -1277,16 +1277,26 @@ class PostgresBackend(BaseBackend):
         # other methods using `self.pool.acquire()`.
         await self.connect()
         async with self.pool.acquire() as conn:
-            cmd_tag = await conn.execute(
-                f"""
-                        DELETE FROM {self._settings.postgres_jobs_table_name}
-                        WHERE job_id = $1
-                          AND queue_name = $2
-                        """,
-                job_id,
-                queue_name,
-            )
-        return cast(bool, cmd_tag.endswith("DELETE 1"))
+            async with conn.transaction():
+                job_cmd = await conn.execute(
+                    f"""
+                            DELETE FROM {self._settings.postgres_jobs_table_name}
+                            WHERE job_id = $1
+                              AND queue_name = $2
+                            """,
+                    job_id,
+                    queue_name,
+                )
+                cancel_cmd = await conn.execute(
+                    f"""
+                            DELETE FROM {self._settings.postgres_cancelled_jobs_table_name}
+                            WHERE job_id = $1
+                              AND queue_name = $2
+                            """,
+                    job_id,
+                    queue_name,
+                )
+        return cast(bool, job_cmd.endswith("DELETE 1") or cancel_cmd.endswith("DELETE 1"))
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """

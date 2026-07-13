@@ -75,6 +75,8 @@
 - PostgreSQL cancellation now records the cancellation, removes matching
   waiting or delayed rows, marks active rows as cancelled, and prevents late
   lifecycle writes from overwriting cancellation.
+- PostgreSQL job removal now clears cancellation markers even when cancellation
+  had already removed the runnable job row.
 - MongoDB cancellation markers are now persisted in MongoDB and checked during
   dequeue and lifecycle transitions, so separate backend instances no longer
   claim cancelled jobs or overwrite cancellation with late completion.

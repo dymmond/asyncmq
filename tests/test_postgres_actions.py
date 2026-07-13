@@ -50,6 +50,17 @@ async def test_cancel_job_postgres(backend):
     assert await backend.get_job(queue, delayed_id) is None
 
 
+async def test_remove_job_clears_postgres_cancellation_marker(backend):
+    queue, job_id = "q1", "p1-remove-cancelled"
+    await backend.enqueue(queue, {"id": job_id, "task": "waiting"})
+    assert await backend.cancel_job(queue, job_id) is True
+    assert await backend.is_job_cancelled(queue, job_id) is True
+
+    assert await backend.remove_job(queue, job_id) is True
+
+    assert await backend.is_job_cancelled(queue, job_id) is False
+
+
 async def test_retry_job_postgres(backend):
     jobs_table = settings.postgres_jobs_table_name
     queue, job_id = "q1", "p2"
