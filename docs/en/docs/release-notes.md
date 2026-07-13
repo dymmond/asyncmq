@@ -25,6 +25,8 @@
 - Benchmark tooling now includes a parameterized AsyncMQ in-memory load runner
   that emits JSON throughput and latency measurements for local regression
   checks.
+- Worker execution can now emit optional OpenTelemetry spans with queue, task,
+  retry, priority, status, and exception attributes when tracing is enabled.
 
 ### Fixed
 

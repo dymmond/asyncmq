@@ -171,6 +171,8 @@ Practical surfaces:
 - [Queue inspection APIs](../features/queues.md#inspection-and-admin-apis)
 - [CLI reference](../reference/cli-reference.md)
 - `/metrics/prometheus` for Prometheus-compatible scrape metrics
+- optional OpenTelemetry worker spans with queue, job id, task, priority,
+  retry count, completion status, and exception type attributes
 
 If you need durable long-term analytics, export metrics and audit information
 to your observability stack. AsyncMQ's built-in dashboard history is aimed at

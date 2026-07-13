@@ -12,6 +12,9 @@ Main settings class: `asyncmq.conf.global_settings.Settings`.
 - `max_job_payload_bytes: int | None = 1_048_576`
 - `tasks: list[str] = []`
 - `secret_key: str | None = None`
+- `tracing_enabled: bool = False`
+- `tracing_tracer_name: str = "asyncmq"`
+- `tracing_span_prefix: str = "asyncmq.job"`
 
 ## Backend Configuration
 
@@ -45,6 +48,13 @@ MongoDB fields:
 - `json_loads: Callable[[str], Any]`
 - `json_serializer` (property)
 - `logging_config` (property)
+
+## Tracing
+
+Set `tracing_enabled=True` to emit optional OpenTelemetry spans around worker
+job execution. AsyncMQ imports OpenTelemetry lazily; install `opentelemetry-api`
+and configure your exporter in the host application. Without OpenTelemetry
+installed, tracing is skipped without changing worker behavior.
 
 ## Worker Lifecycle Hooks
 

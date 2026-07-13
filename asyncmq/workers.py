@@ -15,6 +15,11 @@ from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
 from asyncmq.core.stalled import stalled_recovery_scheduler
+from asyncmq.core.tracing import (
+    job_execution_span,
+    mark_job_span_completed,
+    mark_job_span_exception,
+)
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
@@ -312,62 +317,72 @@ async def handle_job(
                 await anyio.sleep(_heartbeat_renewal_interval(settings))
                 await backend.save_heartbeat(queue_name, job.id, time.time())
 
-        # Retrieve task metadata and the handler function from the registry
-        try:
-            meta = TASK_REGISTRY[job.task_id]
-        except KeyError:
-            # Try importing as a module named exactly job.task_id
+        with job_execution_span(settings, queue_name, job.to_dict()) as span:
             try:
-                importlib.import_module(job.task_id)
-            except Exception:
-                pass
-
-            # If that populated the registry, great.
-            if job.task_id in TASK_REGISTRY:
-                meta = TASK_REGISTRY[job.task_id]
-            else:
-                # Otherwise, import & reload its parent module
-                module_name, _, _ = job.task_id.rpartition(".")
-                if module_name:
+                # Retrieve task metadata and the handler function from the registry
+                try:
+                    meta = TASK_REGISTRY[job.task_id]
+                except KeyError:
+                    # Try importing as a module named exactly job.task_id
                     try:
-                        m = importlib.import_module(module_name)
-                        importlib.reload(m)
+                        importlib.import_module(job.task_id)
                     except Exception:
                         pass
 
-                # One more lookup
-                if job.task_id in TASK_REGISTRY:
-                    meta = TASK_REGISTRY[job.task_id]
+                    # If that populated the registry, great.
+                    if job.task_id in TASK_REGISTRY:
+                        meta = TASK_REGISTRY[job.task_id]
+                    else:
+                        # Otherwise, import & reload its parent module
+                        module_name, _, _ = job.task_id.rpartition(".")
+                        if module_name:
+                            try:
+                                m = importlib.import_module(module_name)
+                                importlib.reload(m)
+                            except Exception:
+                                pass
+
+                        # One more lookup
+                        if job.task_id in TASK_REGISTRY:
+                            meta = TASK_REGISTRY[job.task_id]
+                        else:
+                            raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
+
+                handler = meta["func"]
+
+                # Mid-flight cancellation check
+                if await backend.is_job_cancelled(queue_name, job.id):
+                    raise JobCancelled()
+
+                async def execute_handler() -> Any:
+                    # Execute task (sandbox vs direct): run the task, potentially in a sandbox.
+                    if settings.sandbox_enabled:
+                        return await anyio.to_thread.run_sync(  # noqa
+                            cast(Any, sandbox.run_handler),
+                            job.task_id,
+                            tuple(job.args),  # sandbox expects tuple args
+                            job.kwargs,
+                            settings.sandbox_default_timeout,
+                        )
+                    return await handler(*job.args, **job.kwargs)
+
+                if settings.enable_stalled_check:
+                    async with anyio.create_task_group() as heartbeat_tg:
+                        heartbeat_tg.start_soon(heartbeat_renewal_loop)
+                        try:
+                            result = await execute_handler()
+                        finally:
+                            heartbeat_tg.cancel_scope.cancel()
                 else:
-                    raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
-
-        handler = meta["func"]
-
-        # Mid-flight cancellation check
-        if await backend.is_job_cancelled(queue_name, job.id):
-            raise JobCancelled()
-
-        async def execute_handler() -> Any:
-            # Execute task (sandbox vs direct): run the task, potentially in a sandbox.
-            if settings.sandbox_enabled:
-                return await anyio.to_thread.run_sync(  # noqa
-                    cast(Any, sandbox.run_handler),
-                    job.task_id,
-                    tuple(job.args),  # sandbox expects tuple args
-                    job.kwargs,
-                    settings.sandbox_default_timeout,
-                )
-            return await handler(*job.args, **job.kwargs)
-
-        if settings.enable_stalled_check:
-            async with anyio.create_task_group() as heartbeat_tg:
-                heartbeat_tg.start_soon(heartbeat_renewal_loop)
-                try:
                     result = await execute_handler()
-                finally:
-                    heartbeat_tg.cancel_scope.cancel()
-        else:
-            result = await execute_handler()
+            except JobCancelled as exc:
+                mark_job_span_exception(span, exc, final_status="cancelled")
+                raise
+            except Exception as exc:
+                mark_job_span_exception(span, exc, final_status="error")
+                raise
+            else:
+                mark_job_span_completed(span)
 
         # 5) Success path: If the task execution completed without exceptions
         # Set job status to COMPLETED

@@ -424,6 +424,25 @@ class Settings(BaseSettings):
     Set to None to disable the producer-side guard. Defaults to 1 MiB.
     """
 
+    tracing_enabled: bool = False
+    """
+    Enables optional OpenTelemetry job execution spans.
+
+    AsyncMQ imports OpenTelemetry lazily. If this is True but
+    ``opentelemetry-api`` is not installed, tracing is skipped without changing
+    worker behavior. Defaults to False.
+    """
+
+    tracing_tracer_name: str = "asyncmq"
+    """
+    Tracer name used when ``tracing_enabled`` is True. Defaults to ``asyncmq``.
+    """
+
+    tracing_span_prefix: str = "asyncmq.job"
+    """
+    Prefix used for worker execution span names. Defaults to ``asyncmq.job``.
+    """
+
     """
     A list of module paths in which to look for @task-decorated callables.
     E.g. ["myapp.runs.tasks", "myapp.jobs.tasks"].
