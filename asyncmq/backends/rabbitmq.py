@@ -141,6 +141,47 @@ class RabbitMQBackend(BaseBackend):
         infos = await self.get_due_delayed(queue_name)
         return [info.payload for info in infos]
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Publish due delayed jobs and mark their metadata as waiting.
+
+        RabbitMQ delivery and the metadata store are separate systems, so this
+        cannot be a single distributed transaction. Unlike ``pop_due_delayed``,
+        this path does not delete delayed metadata before publishing.
+        """
+        now = time.time()
+        promoted: list[dict[str, Any]] = []
+        due_entries = [
+            entry
+            for entry in await self._state.jobs_by_status(queue_name, State.DELAYED)
+            if float(entry.get("run_at", 0)) <= now
+        ]
+        if not due_entries:
+            return promoted
+
+        await self._ensure_queue(queue_name)
+        for entry in due_entries:
+            payload = {**entry["payload"], "status": State.WAITING, "delay_until": None}
+            job_id = str(payload["id"])
+            msg = Message(
+                self._json_serializer.to_json(payload).encode(),
+                message_id=job_id,
+                delivery_mode=DeliveryMode.PERSISTENT,
+                priority=self._message_priority(payload),
+            )
+            await self._chan.default_exchange.publish(msg, routing_key=queue_name)
+            await self._state.save(
+                queue_name,
+                job_id,
+                {
+                    "id": job_id,
+                    "payload": payload,
+                    "status": State.WAITING,
+                },
+            )
+            promoted.append(payload)
+        return promoted
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Enqueues a job into the specified RabbitMQ queue.

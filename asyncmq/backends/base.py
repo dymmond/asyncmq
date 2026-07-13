@@ -280,6 +280,23 @@ class BaseBackend(ABC):
         """
         await self.ack(queue_name, str(payload["id"]))
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Move due delayed jobs into the waiting queue through a backend-owned
+        lifecycle transition.
+
+        Concrete backends should override this when their storage can move jobs
+        atomically. The default preserves compatibility for minimal backends but
+        may remove delayed jobs before enqueueing them.
+        """
+        jobs = await self.pop_due_delayed(queue_name)
+        promoted: list[dict[str, Any]] = []
+        for payload in jobs:
+            waiting_payload = {**payload, "status": State.WAITING, "delay_until": None}
+            await self.enqueue(queue_name, waiting_payload)
+            promoted.append(waiting_payload)
+        return promoted
+
     @abstractmethod
     async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
         """

@@ -76,6 +76,28 @@ class InMemoryBackend(BaseBackend):
         """
         return await self.get_due_delayed(queue_name)
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        promoted: list[dict[str, Any]] = []
+        async with self.lock:
+            now = time.time()
+            remaining: list[tuple[float, dict[str, Any]]] = []
+            queue = self.queues.setdefault(queue_name, [])
+            for run_at, payload in self.delayed.get(queue_name, []):
+                if run_at > now:
+                    remaining.append((run_at, payload))
+                    continue
+
+                job_id = str(payload["id"])
+                waiting_payload = {**payload, "status": State.WAITING, "delay_until": None, "updated_at": now}
+                queue.append(waiting_payload)
+                promoted.append(waiting_payload)
+                self.job_states[(queue_name, job_id)] = State.WAITING
+                self.job_payloads[(queue_name, job_id)] = waiting_payload
+
+            self.delayed[queue_name] = remaining
+            queue.sort(key=lambda job: job.get("priority", 5))
+        return promoted
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue.

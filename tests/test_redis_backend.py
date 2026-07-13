@@ -166,6 +166,23 @@ async def test_enqueue_delayed_and_due(redis):
     assert any(j.get("id") == job.id for j in due)
 
 
+async def test_promote_due_delayed_moves_redis_job_to_waiting_atomically(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-promote-delayed"
+    job = Job(task_id="redis.promote", args=[], kwargs={}, job_id="redis-promote", priority=1)
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await redis.zcard(backend._delayed_key(queue)) == 0
+    assert await redis.zcard(backend._waiting_key(queue)) == 1
+    stored = await backend.get_job(queue, job.id)
+    assert stored["status"] == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
+
+
 async def test_move_to_dlq(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.dlq", args=[], kwargs={})

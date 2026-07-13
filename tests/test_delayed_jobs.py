@@ -46,6 +46,30 @@ async def test_delayed_enqueue_and_scan():
     assert result["id"] == job.id
 
 
+async def test_delayed_scanner_uses_backend_promotion_transition():
+    class PromotionOnlyBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.promoted = False
+
+        async def promote_due_delayed(self, queue_name: str) -> list[dict]:
+            self.promoted = True
+            return [{"id": "promoted"}]
+
+        async def pop_due_delayed(self, queue_name: str) -> list[dict]:
+            raise AssertionError("scanner must not pop delayed jobs directly")
+
+        async def enqueue(self, queue_name: str, payload: dict) -> str:
+            raise AssertionError("scanner must not enqueue promoted jobs directly")
+
+    backend = PromotionOnlyBackend()
+    scanner = asyncio.create_task(delayed_job_scanner("test", backend=backend, interval=0.1))
+    await asyncio.sleep(0.05)
+    scanner.cancel()
+
+    assert backend.promoted is True
+
+
 async def test_delayed_job_not_due():
     backend = InMemoryBackend()
     job = Job(task_id="not.due", args=[], kwargs={})

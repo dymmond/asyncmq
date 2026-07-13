@@ -46,6 +46,21 @@ async def test_enqueue_delayed_and_get_due():
     assert any(j["id"] == job.id for j in due)
 
 
+async def test_promote_due_delayed_moves_job_to_waiting_atomically():
+    backend = InMemoryBackend()
+    queue = "memory-promote-delayed"
+    job = Job(task_id="delay.promote", args=[], kwargs={}, job_id="memory-promote")
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, job.id) == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
+
+
 async def test_move_to_dlq():
     backend = InMemoryBackend()
     job = Job(task_id="dlq.test", args=[], kwargs={})

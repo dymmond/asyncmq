@@ -92,6 +92,26 @@ class MongoDBBackend(BaseBackend):
         """
         return await self.get_due_delayed(queue_name)
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        promoted: list[dict[str, Any]] = []
+        async with self.lock:
+            now = time.time()
+            remaining: list[tuple[float, dict[str, Any]]] = []
+            queue = self.queues.setdefault(queue_name, [])
+            for run_at, payload in self.delayed.get(queue_name, []):
+                if run_at > now:
+                    remaining.append((run_at, payload))
+                    continue
+
+                waiting_payload = {**payload, "status": State.WAITING, "delay_until": None}
+                queue.append(waiting_payload)
+                promoted.append(waiting_payload)
+                await self.store.save(queue_name, str(payload["id"]), waiting_payload)
+
+            self.delayed[queue_name] = remaining
+            queue.sort(key=lambda job: job.get("priority", 5))
+        return promoted
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously adds a job to the specified queue.

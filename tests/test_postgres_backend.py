@@ -76,6 +76,20 @@ async def test_delayed_job_flow(backend):
     assert not await backend.remove_delayed("test-queue", "job4")
 
 
+async def test_promote_due_delayed_moves_postgres_job_to_waiting_atomically(backend):
+    queue = "postgres-promote-delayed"
+    job = Job(task_id="postgres.promote", args=[], kwargs={}, job_id="pg-promote", priority=1)
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await backend.get_job_state(queue, job.id) == State.WAITING
+    assert await backend.get_due_delayed(queue) == []
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
+
+
 async def test_save_and_get_job_result(backend):
     job = {"id": "job5", "task_id": "task_result", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)

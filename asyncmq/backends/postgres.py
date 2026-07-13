@@ -92,6 +92,42 @@ class PostgresBackend(BaseBackend):
         # Each row.data is a JSON string
         return [self._json_serializer.to_dict(r["data"]) for r in rows]
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically move due delayed rows to waiting rows and return the promoted payloads.
+        """
+        await self.connect()
+        now = time.time()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                WITH due AS (
+                    SELECT job_id
+                    FROM {monkay.settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND status = $2
+                      AND (data ->> 'delay_until') IS NOT NULL
+                      AND (data ->> 'delay_until')::float <= $3
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE {monkay.settings.postgres_jobs_table_name} AS jobs
+                SET
+                    status = $4::text,
+                    delay_until = NULL,
+                    data = jobs.data || jsonb_build_object('status', $4::text, 'delay_until', NULL),
+                    updated_at = now()
+                FROM due
+                WHERE jobs.queue_name = $1
+                  AND jobs.job_id = due.job_id
+                RETURNING jobs.data
+                """,
+                queue_name,
+                State.DELAYED,
+                now,
+                State.WAITING,
+            )
+        return [self._json_serializer.to_dict(row["data"]) for row in rows]
+
     async def connect(self) -> None:
         """
         Asynchronously establishes a connection to the PostgreSQL database by

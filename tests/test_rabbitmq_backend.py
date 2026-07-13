@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 
 from asyncmq.backends.rabbitmq import RabbitMQBackend
+from asyncmq.core.enums import State
 from asyncmq.stores.redis_store import RedisJobStore
 
 pytestmark = pytest.mark.asyncio
@@ -87,6 +88,21 @@ async def test_delayed_jobs(backend):
 
     due = await backend.get_due_delayed("test_q")
     assert any(di.job_id == "j3" and di.payload["task"] == "delayed" for di in due)
+
+
+async def test_promote_due_delayed_publishes_rabbitmq_job_before_clearing_delayed_metadata(backend):
+    queue = "test_q_promote_delayed"
+    await backend.drain_queue(queue)
+    payload = {"id": "rabbit-promote", "task": "promote", "priority": 1}
+
+    await backend.enqueue_delayed(queue, payload, run_at=time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == ["rabbit-promote"]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, "rabbit-promote") == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["payload"]["id"] == "rabbit-promote"
 
 
 async def test_list_and_remove_delayed(backend):

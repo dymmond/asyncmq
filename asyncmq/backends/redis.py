@@ -71,6 +71,40 @@ end
 return items
 """
 
+PROMOTE_DELAYED: str = """
+-- KEYS[1]: delayed zset
+-- KEYS[2]: waiting zset
+-- KEYS[3]: queue job-id set
+-- ARGV[1]: number of candidate jobs
+-- Per candidate:
+--   delayed member JSON
+--   waiting member/canonical JSON
+--   job id
+--   waiting zset score
+--   canonical job key
+local total = tonumber(ARGV[1])
+local idx = 2
+local promoted = {}
+
+for _ = 1, total do
+  local delayed_json = ARGV[idx]
+  local waiting_json = ARGV[idx + 1]
+  local job_id = ARGV[idx + 2]
+  local waiting_score = tonumber(ARGV[idx + 3])
+  local job_key = ARGV[idx + 4]
+  idx = idx + 5
+
+  if redis.call('ZREM', KEYS[1], delayed_json) > 0 then
+    redis.call('ZADD', KEYS[2], waiting_score, waiting_json)
+    redis.call('SET', job_key, waiting_json)
+    redis.call('SADD', KEYS[3], job_id)
+    table.insert(promoted, waiting_json)
+  end
+end
+
+return promoted
+"""
+
 LIFECYCLE_SCRIPT: str = """
 -- KEYS[1]: active hash
 -- KEYS[2]: job heartbeat hash
@@ -170,6 +204,7 @@ class RedisBackend(BaseBackend):
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
         self._pop_delayed_script: AsyncScript = self.redis.register_script(POP_DELAYED)
+        self._promote_delayed_script: AsyncScript = self.redis.register_script(PROMOTE_DELAYED)
         self._lifecycle_script: AsyncScript = self.redis.register_script(LIFECYCLE_SCRIPT)
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
@@ -183,6 +218,34 @@ class RedisBackend(BaseBackend):
             text = item.decode("utf-8") if isinstance(item, bytes) else item
             out.append(self._json_serializer.to_dict(text))
         return out
+
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        delayed_key = self._delayed_key(queue_name)
+        now = time.time()
+        raw_items: list[str | bytes] = await self.redis.zrangebyscore(delayed_key, "-inf", now)
+        if not raw_items:
+            return []
+
+        args: list[Any] = [len(raw_items)]
+        for item in raw_items:
+            delayed_json = item.decode("utf-8") if isinstance(item, bytes) else item
+            payload = self._json_serializer.to_dict(delayed_json)
+            job_id = str(payload["id"])
+            waiting_payload = {**payload, "status": State.WAITING, "delay_until": None}
+            waiting_json = self._json_serializer.to_json(waiting_payload)
+            priority_value = payload.get("priority", 5)
+            score = await self._next_waiting_score(queue_name, int(priority_value if priority_value is not None else 5))
+            args.extend([delayed_json, waiting_json, job_id, score, self._job_store_key(queue_name, job_id)])
+
+        promoted_raw: list[str | bytes] = await self._promote_delayed_script(
+            keys=[delayed_key, self._waiting_key(queue_name), self._job_store_ids_key(queue_name)],
+            args=args,
+        )
+        promoted: list[dict[str, Any]] = []
+        for item in promoted_raw:
+            text = item.decode("utf-8") if isinstance(item, bytes) else item
+            promoted.append(self._json_serializer.to_dict(text))
+        return promoted
 
     def _waiting_key(self, name: str) -> str:
         """

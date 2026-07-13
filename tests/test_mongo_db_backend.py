@@ -71,6 +71,20 @@ async def test_enqueue_delayed_and_get_due(backend):
     assert any(j["id"] == "job3" for j in due_jobs)
 
 
+async def test_promote_due_delayed_moves_mongodb_job_to_waiting_atomically(backend):
+    queue = "mongo-promote-delayed"
+    job = Job(task_id="mongo.promote", args=[], kwargs={}, job_id="mongo-promote", priority=1)
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, job.id) == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
+
+
 async def test_update_and_get_job_state(backend):
     job = {"id": "job4", "task_id": "task4", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)

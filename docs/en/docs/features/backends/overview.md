@@ -21,6 +21,7 @@ Redis:
 
 - default backend in settings
 - strong feature coverage and good operational fit for queue workloads
+- due delayed jobs are promoted to waiting through a Redis-side script
 - worker lifecycle transitions use Redis-side scripts for active-job
   completion, retry/defer, expiration, cancellation, and DLQ routing
 
@@ -29,6 +30,7 @@ Postgres:
 - durable SQL-backed queue state
 - suitable when you prefer SQL operational tooling and transactions
 - waiting jobs are dequeued by priority, then FIFO within the same priority
+- due delayed jobs are promoted to waiting in one SQL update
 - worker lifecycle transitions are written through database transactions so
   retry/defer rows are preserved and terminal states remain inspectable
 
@@ -38,6 +40,8 @@ MongoDB:
 - good fit when your stack is already Mongo-centric
 - process-local waiting queues are dequeued by priority, then FIFO within the
   same priority
+- due delayed jobs are promoted to waiting under the backend's process-local
+  lock
 - worker lifecycle transitions update the MongoDB job document and process-local
   runtime mirrors through one backend-owned path
 
@@ -51,6 +55,9 @@ RabbitMQ:
 - worker lifecycle transitions are backend-owned and persist metadata before
   acknowledging broker deliveries; RabbitMQ broker state and metadata storage
   are not a single distributed transaction
+- due delayed jobs are promoted by the backend without deleting delayed
+  metadata before broker publish; broker publish and metadata update are still
+  not a single distributed transaction
 - queue declarations enable RabbitMQ priority queues by default; existing
   non-priority RabbitMQ queues must be recreated before switching a queue to
   priority mode because RabbitMQ queue arguments are immutable

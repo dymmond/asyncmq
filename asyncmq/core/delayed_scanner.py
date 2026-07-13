@@ -2,7 +2,6 @@ import anyio
 
 from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
-from asyncmq.jobs import Job
 from asyncmq.logging import logger
 
 
@@ -36,17 +35,8 @@ async def delayed_job_scanner(
     logger.info(f"Delayed job scanner started for queue: {queue_name}")
 
     while True:
-        try:
-            jobs = await backend.pop_due_delayed(queue_name)
-        except AttributeError:
-            # Fallback for backends that don't support pop
-            jobs = await backend.get_due_delayed(queue_name)
-            for job_data in jobs:
-                await backend.remove_delayed(queue_name, job_data["id"])
-
+        jobs = await backend.promote_due_delayed(queue_name)
         for job_data in jobs:
-            job = Job.from_dict(job_data)
-            await backend.enqueue(queue_name, job.to_dict())
-            logger.info(f"[{job.id}] Moved delayed job to queue")
+            logger.info(f"[{job_data['id']}] Moved delayed job to queue")
 
         await anyio.sleep(interval)

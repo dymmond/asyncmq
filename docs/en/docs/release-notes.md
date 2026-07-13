@@ -30,6 +30,9 @@
   including local RabbitMQ in-flight delivery acknowledgement during recovery.
 - PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
   first and FIFO order within the same priority.
+- Delayed-job scanning now delegates due-job promotion to backend-owned
+  transitions instead of removing delayed jobs and re-enqueueing them from the
+  scanner loop.
 
 ## 0.8.1
 
