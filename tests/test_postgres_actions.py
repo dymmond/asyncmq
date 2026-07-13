@@ -23,23 +23,31 @@ async def backend():
 
 async def test_cancel_job_postgres(backend):
     queue, job_id = "q1", "p1"
+    delayed_id = "p1-delayed"
+    await backend.enqueue(queue, {"id": job_id, "task": "waiting"})
+    await backend.enqueue_delayed(queue, {"id": delayed_id, "task": "delayed"}, 9999999999)
+
     # Act
     result = await backend.cancel_job(queue, job_id)
     assert result is True
+    delayed_result = await backend.cancel_job(queue, delayed_id)
+    assert delayed_result is True
 
     # Verify row in cancelled_jobs
     cancel_table = settings.postgres_cancelled_jobs_table_name
     async with backend.pool.acquire() as conn:
-        row = await conn.fetchrow(
+        rows = await conn.fetch(
             f"""
             SELECT job_id
               FROM {cancel_table}
-             WHERE queue_name = $1 AND job_id = $2
+             WHERE queue_name = $1 AND job_id = ANY($2::text[])
             """,
             queue,
-            job_id,
+            [job_id, delayed_id],
         )
-    assert row["job_id"] == job_id
+    assert {row["job_id"] for row in rows} == {job_id, delayed_id}
+    assert await backend.get_job(queue, job_id) is None
+    assert await backend.get_job(queue, delayed_id) is None
 
 
 async def test_retry_job_postgres(backend):

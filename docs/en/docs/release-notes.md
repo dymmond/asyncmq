@@ -37,6 +37,9 @@
   operators can inspect the failure cause after the worker lifecycle transition.
 - Manual retry operations now requeue clean `waiting` payloads across backends,
   clearing stale result and failure fields before the next execution attempt.
+- PostgreSQL cancellation now records the cancellation and removes matching
+  waiting or delayed rows in one transaction so cancelled jobs no longer remain
+  inspectable as eligible work.
 
 ## 0.8.1
 

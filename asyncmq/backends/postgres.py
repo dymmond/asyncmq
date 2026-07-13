@@ -1128,16 +1128,28 @@ class PostgresBackend(BaseBackend):
         """
         await self.connect()
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                f"""
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
                         INSERT INTO {self._settings.postgres_cancelled_jobs_table_name}
                           (queue_name, job_id)
                         VALUES ($1, $2)
                         ON CONFLICT DO NOTHING
                         """,
-                queue_name,
-                job_id,
-            )
+                    queue_name,
+                    job_id,
+                )
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND status = ANY($3::text[])
+                    """,
+                    queue_name,
+                    job_id,
+                    [State.WAITING, State.DELAYED],
+                )
         return True
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
