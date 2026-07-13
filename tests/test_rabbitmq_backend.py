@@ -23,7 +23,7 @@ async def redis_store(redis):
 @pytest_asyncio.fixture(scope="function")
 async def backend(redis_store):
     # Create RabbitMQ backend with Redis-based metadata store
-    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store)
+    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
     # Purge any pre-existing test queues
     await backend.drain_queue("test_q")
     await backend.drain_queue("test_q.dlq")
@@ -47,6 +47,29 @@ async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     await backend.ack("test_q", job["job_id"])
     state = await redis_store.load("test_q", "j1")
     assert state["status"] == "completed"
+
+
+async def test_dequeue_respects_priority_then_fifo(redis_store):
+    queue = "test_q_priority_0_9"
+    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store)
+    await backend.drain_queue(queue)
+
+    try:
+        low = {"id": "rabbit-low", "task": "low", "priority": 10}
+        first = {"id": "rabbit-first", "task": "first", "priority": 1}
+        second = {"id": "rabbit-second", "task": "second", "priority": 1}
+
+        await backend.enqueue(queue, low)
+        await backend.enqueue(queue, first)
+        await backend.enqueue(queue, second)
+
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-first"
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-second"
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-low"
+
+        await backend.drain_queue(queue)
+    finally:
+        await backend.close()
 
 
 async def test_move_to_dlq(backend):

@@ -45,11 +45,15 @@ RabbitMQ:
 
 - AMQP broker for delivery + separate job metadata store
 - by default, metadata store is Redis-backed (`RabbitMQJobStore`)
+- waiting jobs are dequeued by RabbitMQ broker priority, then FIFO within the
+  same priority; AsyncMQ maps lower numeric priorities to RabbitMQ's higher
+  AMQP priority values
 - worker lifecycle transitions are backend-owned and persist metadata before
   acknowledging broker deliveries; RabbitMQ broker state and metadata storage
   are not a single distributed transaction
-- broker-level priority requires a priority-enabled RabbitMQ queue declaration
-  and is not normalized by AsyncMQ
+- queue declarations enable RabbitMQ priority queues by default; existing
+  non-priority RabbitMQ queues must be recreated before switching a queue to
+  priority mode because RabbitMQ queue arguments are immutable
 
 ## Selection Guidance
 

@@ -35,6 +35,7 @@ class RabbitMQBackend(BaseBackend):
         job_store: BaseJobStore | None = None,
         redis_url: str | None = None,
         prefetch_count: int = 1,
+        max_priority: int | None = 255,
     ):
         """
         Initializes the RabbitMQBackend instance.
@@ -48,10 +49,17 @@ class RabbitMQBackend(BaseBackend):
                 `job_store` is not explicitly provided (for RabbitMQJobStore).
             prefetch_count: The maximum number of messages that the channel will
                 proactively dispatch to consumers. This helps with flow control.
+            max_priority: Enables RabbitMQ priority queues with this
+                ``x-max-priority`` value. Set to ``None`` to declare ordinary
+                FIFO queues.
         """
+
+        if max_priority is not None and not 1 <= max_priority <= 255:
+            raise ValueError("max_priority must be between 1 and 255, or None to disable priority queues")
 
         self.rabbit_url = rabbit_url
         self.prefetch_count = prefetch_count
+        self.max_priority = max_priority
         # Initialize the job store, using RabbitMQJobStore if none is provided.
         self._state: BaseJobStore = job_store or RabbitMQJobStore(redis_url=redis_url)
         self._conn: aio_pika.RobustConnection | None = None
@@ -88,11 +96,19 @@ class RabbitMQBackend(BaseBackend):
     async def _ensure_queue(self, queue_name: str, *, track: bool = True) -> aio_pika.abc.AbstractQueue:
         await self._connect()
         if queue_name not in self._queues:
-            queue = await self._chan.declare_queue(name=queue_name, durable=True)
+            arguments = {"x-max-priority": self.max_priority} if self.max_priority is not None else None
+            queue = await self._chan.declare_queue(name=queue_name, durable=True, arguments=arguments)
             self._queues[queue_name] = queue
         if track:
             self._known_queues.add(queue_name)
         return self._queues[queue_name]
+
+    def _message_priority(self, payload: dict[str, Any]) -> int | None:
+        if self.max_priority is None:
+            return None
+
+        logical_priority = int(payload.get("priority", 5))
+        return max(0, min(self.max_priority, self.max_priority - logical_priority))
 
     async def _store_entry(self, queue_name: str, job_id: str) -> dict[str, Any]:
         return await self._state.load(queue_name, job_id) or {"id": job_id}
@@ -152,6 +168,7 @@ class RabbitMQBackend(BaseBackend):
             self._json_serializer.to_json(payload).encode(),
             message_id=job_id,
             delivery_mode=DeliveryMode.PERSISTENT,
+            priority=self._message_priority(payload),
         )
         await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
@@ -304,6 +321,7 @@ class RabbitMQBackend(BaseBackend):
             self._json_serializer.to_json(payload).encode(),
             message_id=job_id,
             delivery_mode=DeliveryMode.PERSISTENT,
+            priority=self._message_priority(payload),
         )
         await self._chan.default_exchange.publish(msg, routing_key=dlq_name)
 
