@@ -31,6 +31,8 @@
   dependency blocking, cancellation markers, manual retry payload cleanup,
   queue pause/resume persistence, RabbitMQ delivery tokens, and MongoDB
   cross-process waiting/delayed state.
+- Redis hot paths now avoid queue scans and apply bounded client-pool
+  backpressure under high worker fanout.
 - Worker and scheduler loops now tolerate transient heartbeat, delayed-scan,
   repeatable-schedule, and lifecycle-event listener failures without stopping
   unrelated job processing.

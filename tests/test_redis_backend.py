@@ -4,6 +4,7 @@ import time
 
 import anyio
 import pytest
+import redis.asyncio as async_redis
 
 from asyncmq import Worker
 from asyncmq.backends.redis import RedisBackend
@@ -17,6 +18,28 @@ pytestmark = pytest.mark.asyncio
 async def test_create_with_url(redis):
     backend = RedisBackend()
     assert await backend.redis.client().ping()
+
+
+async def test_url_backend_uses_blocking_pool_for_connection_backpressure(redis):
+    backend = RedisBackend(max_connections=1, pool_timeout=2.0)
+    queue = "redis-blocking-pool"
+    assert isinstance(backend.redis.connection_pool, async_redis.BlockingConnectionPool)
+
+    for index in range(20):
+        job = Job(task_id="redis.pool", args=[], kwargs={}, job_id=f"pool-{index}")
+        await backend.enqueue(queue, job.to_dict())
+
+    async def claim_and_complete() -> None:
+        payload = await backend.dequeue(queue)
+        if payload is not None:
+            await backend.complete_active_job(queue, payload, {"ok": True})
+
+    async with anyio.create_task_group() as tg:
+        for _ in range(20):
+            tg.start_soon(claim_and_complete)
+
+    completed = [await backend.get_job_state(queue, f"pool-{index}") for index in range(20)]
+    assert completed == [State.COMPLETED] * 20
 
 
 async def test_create_with_client(redis):

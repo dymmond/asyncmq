@@ -14,6 +14,9 @@ from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_id
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.redis_store import RedisJobStore
 
+DEFAULT_REDIS_MAX_CONNECTIONS = 2048
+DEFAULT_REDIS_POOL_TIMEOUT = 30.0
+
 # Lua script used to atomically retrieve and remove the highest priority job
 # (first element in the sorted set, i.e., score 0) from a Redis Sorted Set.
 # This prevents race conditions when multiple workers try to dequeue jobs simultaneously.
@@ -268,7 +271,13 @@ class RedisBackend(BaseBackend):
     storage of the full job data payloads.
     """
 
-    def __init__(self, redis_url_or_client: Union[str, redis.Redis] = "redis://localhost") -> None:
+    def __init__(
+        self,
+        redis_url_or_client: Union[str, redis.Redis] = "redis://localhost",
+        *,
+        max_connections: int = DEFAULT_REDIS_MAX_CONNECTIONS,
+        pool_timeout: float = DEFAULT_REDIS_POOL_TIMEOUT,
+    ) -> None:
         """
         Initializes the RedisBackend by establishing a connection to Redis and
         preparing the necessary components.
@@ -285,13 +294,22 @@ class RedisBackend(BaseBackend):
             redis_url_or_client: Either a connection URL string for the Redis
                                 instance or an async Redis client instance.
                                 Defaults to "redis://localhost".
+            max_connections: Maximum Redis connections for URL-created clients.
+                             When exhausted, callers wait up to ``pool_timeout``
+                             instead of immediately failing with
+                             ``MaxConnectionsError``.
+            pool_timeout: Seconds to wait for an available Redis connection when
+                          ``max_connections`` is saturated.
         """
         if isinstance(redis_url_or_client, str):
-            # Connect to the Redis instance using the provided URL.
-            # decode_responses=True ensures Redis returns strings instead of bytes.
-            self.redis = redis.from_url(redis_url_or_client, decode_responses=True)  # type: ignore
-            # Initialize the RedisJobStore for persistent job data storage.
-            self.job_store = RedisJobStore(redis_url_or_client)
+            pool = redis.BlockingConnectionPool.from_url(
+                redis_url_or_client,
+                decode_responses=True,
+                max_connections=max_connections,
+                timeout=pool_timeout,
+            )
+            self.redis = redis.Redis(connection_pool=pool)
+            self.job_store = RedisJobStore(redis_client=self.redis)
         else:
             # Use the provided Redis client instance.
             self.redis = redis_url_or_client
