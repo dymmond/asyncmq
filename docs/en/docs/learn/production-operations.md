@@ -208,6 +208,8 @@ operations, not long-term warehouse analytics.
    expecting another recovery loop to release the active claim
 5. inspect recovery logs for backend scan, requeue, or event-emission failures
    if jobs remain active after the threshold
+6. after backend restarts, verify the backend persistence volume and any
+   metadata store retained active-job state before expecting automatic release
 
 ## Retention and Cleanup
 

@@ -49,6 +49,10 @@ complete its active job. The job remains active until its heartbeat or active
 claim crosses the stalled threshold, then another recovery loop can release the
 same active claim back to waiting work.
 
+Redis, PostgreSQL, MongoDB, and RabbitMQ recovery paths are validated across
+backend container restarts when the backend's own persistence and metadata store
+are retained.
+
 Transient backend errors during stalled scans, individual requeue operations, or
 stalled-event emission are logged and the recovery loop continues. Jobs remain
 eligible for later recovery attempts until a backend-owned lifecycle transition

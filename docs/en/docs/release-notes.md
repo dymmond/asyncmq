@@ -25,7 +25,7 @@
   RabbitMQ, and in-memory storage.
 - Stalled recovery now records active claim timestamps, renews long-running job
   heartbeats, retries transient recovery-loop failures, preserves terminal
-  states, and releases abandoned jobs across persistent backends.
+  states, and releases abandoned jobs across persistent backend restarts.
 - Backend behavior was aligned for priority/FIFO dequeue, delayed promotion,
   dependency blocking, cancellation markers, manual retry payload cleanup,
   queue pause/resume persistence, RabbitMQ delivery tokens, and MongoDB
