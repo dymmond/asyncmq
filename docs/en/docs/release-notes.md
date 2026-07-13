@@ -14,6 +14,9 @@
 - Redis now applies worker lifecycle transitions through server-side scripts,
   keeping active ownership, heartbeat cleanup, canonical job payloads, delayed
   placement, and DLQ placement in one Redis execution.
+- PostgreSQL now applies worker lifecycle transitions through database
+  transactions, preventing retry/defer paths from being removed by
+  acknowledgement cleanup and preserving terminal job rows for inspection.
 
 ## 0.8.1
 

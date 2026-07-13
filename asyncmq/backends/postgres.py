@@ -251,6 +251,75 @@ class PostgresBackend(BaseBackend):
         # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
 
+    async def _save_lifecycle_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self.connect()
+        job_id = str(payload["id"])
+        payload_json = self._json_serializer.to_json(payload)
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    INSERT INTO {self._settings.postgres_jobs_table_name}
+                        (queue_name, job_id, data, status, delay_until)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (queue_name, job_id)
+                    DO UPDATE SET
+                        data = EXCLUDED.data,
+                        status = EXCLUDED.status,
+                        delay_until = EXCLUDED.delay_until,
+                        updated_at = now()
+                    """,
+                    queue_name,
+                    job_id,
+                    payload_json,
+                    payload.get("status"),
+                    payload.get("delay_until"),
+                )
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        stored = {**payload, "status": State.COMPLETED, "result": result, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        stored = {**payload, "status": State.DELAYED, "delay_until": run_at}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        stored = {**payload, "status": target_status, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        stored = {**payload, "status": State.EXPIRED, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND (NOT (data ? 'result') OR data -> 'result' = 'null'::jsonb)
+                    """,
+                    queue_name,
+                    str(payload["id"]),
+                )
+
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves a list of delayed job payloads from the

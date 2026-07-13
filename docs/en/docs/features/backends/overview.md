@@ -28,6 +28,8 @@ Postgres:
 
 - durable SQL-backed queue state
 - suitable when you prefer SQL operational tooling and transactions
+- worker lifecycle transitions are written through database transactions so
+  retry/defer rows are preserved and terminal states remain inspectable
 
 MongoDB:
 
