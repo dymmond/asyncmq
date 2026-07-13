@@ -1158,11 +1158,9 @@ class PostgresBackend(BaseBackend):
         if job is None:
             return False
 
-        job["status"] = State.WAITING
-        job.pop("result", None)
-        job.pop("failed_at", None)
-        job["updated_at"] = time.time()
-        await self.store.save(queue_name, job_id, job)
+        retry_payload = self._prepare_retry_payload(job, job_id)
+        retry_payload["updated_at"] = time.time()
+        await self.store.save(queue_name, job_id, retry_payload)
         return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:

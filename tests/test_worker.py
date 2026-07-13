@@ -342,6 +342,32 @@ async def test_worker_failure_uses_backend_lifecycle_transition():
     assert (queue, "j-failed") not in backend.active_jobs
 
 
+async def test_worker_success_clears_stale_failure_metadata():
+    backend = InMemoryBackend()
+    settings.backend = backend
+
+    async def _task() -> str:
+        return "recovered"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._clears_failure_metadata"] = {"func": _task}
+
+    queue = "test_queue_success_clears_failure"
+    job = Job(task_id="tests._clears_failure_metadata", args=[], kwargs={}, job_id="j-clean")
+    payload = {**job.to_dict(), "last_error": "old failure", "error_traceback": "old traceback"}
+    await backend.enqueue(queue, payload)
+    raw = await backend.dequeue(queue)
+
+    assert raw is not None
+
+    await handle_job(queue, raw, backend)
+
+    stored = backend.job_payloads[(queue, "j-clean")]
+    assert stored["status"] == State.COMPLETED
+    assert stored["last_error"] is None
+    assert stored["error_traceback"] is None
+
+
 async def test_worker_renews_job_heartbeat_while_handler_runs():
     class HeartbeatBackend(InMemoryBackend):
         def __init__(self) -> None:

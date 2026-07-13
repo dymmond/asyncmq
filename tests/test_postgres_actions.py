@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from asyncmq.backends.postgres import PostgresBackend
@@ -56,7 +58,7 @@ async def test_retry_job_postgres(backend):
             """,
             queue,
             job_id,
-            "{}",
+            json.dumps({"id": job_id, "status": "failed", "result": "old", "last_error": "old failure"}),
             "failed",
         )
 
@@ -68,7 +70,7 @@ async def test_retry_job_postgres(backend):
     async with backend.pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""
-            SELECT status
+            SELECT status, data
               FROM {jobs_table}
              WHERE job_id = $1 AND queue_name = $2
             """,
@@ -76,6 +78,10 @@ async def test_retry_job_postgres(backend):
             queue,
         )
     assert row["status"] == "waiting"
+    data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+    assert data["status"] == "waiting"
+    assert "result" not in data
+    assert "last_error" not in data
 
 
 async def test_remove_job_postgres(backend):

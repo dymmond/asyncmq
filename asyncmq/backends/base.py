@@ -297,6 +297,12 @@ class BaseBackend(ABC):
             promoted.append(waiting_payload)
         return promoted
 
+    def _prepare_retry_payload(self, payload: dict[str, Any], job_id: str) -> dict[str, Any]:
+        retry_payload = {**payload, "id": job_id, "status": State.WAITING, "delay_until": None}
+        for key in ("result", "failed_at", "completed_at", "last_error", "error_traceback"):
+            retry_payload.pop(key, None)
+        return retry_payload
+
     @abstractmethod
     async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
         """

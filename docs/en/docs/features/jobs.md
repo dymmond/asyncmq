@@ -73,6 +73,9 @@ When a handler raises an exception:
 4. the job is re-enqueued into the delayed queue if attempts remain
 5. otherwise the job is marked `failed` and moved to the DLQ
 
+Manual retry APIs move failed jobs back to `waiting` and clear terminal result
+and error fields before the next execution attempt.
+
 Backoff supports several modes:
 
 - numeric exponential base: `1.5`, `2`, `3`

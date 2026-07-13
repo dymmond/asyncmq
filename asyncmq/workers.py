@@ -362,6 +362,8 @@ async def handle_job(
         job.status = State.COMPLETED
         # Store the result of the task execution
         job.result = result
+        job.last_error = None
+        job.error_traceback = None
         await _complete_active_job(backend, queue_name, job.to_dict(), result)
         # Unblock dependent jobs waiting on this parent.
         resolve_dependency = getattr(backend, "resolve_dependency", None)

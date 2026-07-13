@@ -35,6 +35,8 @@
   scanner loop.
 - Retry and DLQ payloads now retain `last_error` and `error_traceback` so
   operators can inspect the failure cause after the worker lifecycle transition.
+- Manual retry operations now requeue clean `waiting` payloads across backends,
+  clearing stale result and failure fields before the next execution attempt.
 
 ## 0.8.1
 

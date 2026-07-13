@@ -1278,7 +1278,7 @@ class RedisBackend(BaseBackend):
                 # If the job was successfully removed from the DLQ.
                 if removed_count > 0:
                     # Enqueue the job back into the waiting queue.
-                    await self.enqueue(queue_name, job)
+                    await self.enqueue(queue_name, self._prepare_retry_payload(job, job_id))
                     return True
         # Return False if the job with the given ID was not found in the DLQ.
         return False

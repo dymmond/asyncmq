@@ -1264,13 +1264,26 @@ class MongoDBBackend(BaseBackend):
             job_id: The unique identifier of the job.
         """
         job = await self.store.load(queue_name, job_id)
-        if job:
-            from asyncmq.core.enums import State
+        if not job:
+            return False
 
-            job["status"] = State.WAITING
-            await self.store.save(queue_name, job_id, job)
-            return True
-        return False
+        retry_payload = self._prepare_retry_payload(job, job_id)
+        retry_payload.pop("_id", None)
+        async with self.lock:
+            self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if str(j.get("id")) != job_id]
+            self.delayed[queue_name] = [
+                (run_at, j) for run_at, j in self.delayed.get(queue_name, []) if str(j.get("id")) != job_id
+            ]
+            queue = self.queues.setdefault(queue_name, [])
+            queue.append(retry_payload)
+            queue.sort(key=lambda item: item.get("priority", 5))
+            document = {**retry_payload, "queue_name": queue_name, "job_id": job_id}
+            await self.store.collection.replace_one(
+                {"queue_name": queue_name, "job_id": job_id},
+                document,
+                upsert=True,
+            )
+        return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
         """

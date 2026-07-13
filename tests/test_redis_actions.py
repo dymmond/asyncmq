@@ -25,10 +25,9 @@ async def test_cancel_job(redis):
 
 
 async def test_retry_job(redis):
-    backend = RedisBackend(redis_url_or_client="redis://localhost:6379")
-    backend.redis = redis
+    backend = RedisBackend(redis_url_or_client=redis)
 
-    job = {"id": "r2"}
+    job = {"id": "r2", "status": "failed", "result": "old", "last_error": "old failure"}
     await backend.enqueue("q1", job)
     await backend.move_to_dlq("q1", job)
 
@@ -36,7 +35,10 @@ async def test_retry_job(redis):
     assert result is True
 
     waiting = await redis.zrange("queue:q1:waiting", 0, -1)
-    assert any(json.loads(m)["id"] == "r2" for m in waiting)
+    retried = next(json.loads(m) for m in waiting if json.loads(m)["id"] == "r2")
+    assert retried["status"] == "waiting"
+    assert "result" not in retried
+    assert "last_error" not in retried
 
 
 async def test_remove_job(redis):

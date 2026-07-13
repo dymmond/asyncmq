@@ -164,6 +164,27 @@ async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     assert await backend.retry_job("test_q", "j6")
 
 
+async def test_retry_job_publishes_clean_waiting_payload(backend, redis_store):
+    payload = {
+        "id": "rabbit-retry-clean",
+        "task": "retry",
+        "status": State.FAILED,
+        "result": "old",
+        "last_error": "old failure",
+        "error_traceback": "old traceback",
+    }
+    await redis_store.save("test_q", "rabbit-retry-clean", {"id": "rabbit-retry-clean", "payload": payload})
+
+    assert await backend.retry_job("test_q", "rabbit-retry-clean")
+
+    message = await backend.dequeue("test_q")
+    assert message["payload"]["id"] == "rabbit-retry-clean"
+    assert message["payload"]["status"] == State.WAITING
+    assert "result" not in message["payload"]
+    assert "last_error" not in message["payload"]
+    assert "error_traceback" not in message["payload"]
+
+
 async def test_worker_registration_and_listing(backend):
     await backend.register_worker("w1", "test_q", 2, time.time())
     workers = await backend.list_workers()

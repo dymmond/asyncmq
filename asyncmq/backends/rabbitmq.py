@@ -988,8 +988,7 @@ class RabbitMQBackend(BaseBackend):
             return False
         # Re-enqueue the job using its original payload.
         payload = entry.get("payload", entry)
-        payload["id"] = job_id
-        await self.enqueue(queue_name, payload)
+        await self.enqueue(queue_name, self._prepare_retry_payload(payload, job_id))
         return True
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:

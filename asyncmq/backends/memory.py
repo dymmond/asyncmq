@@ -962,13 +962,15 @@ class InMemoryBackend(BaseBackend):
                 if job["id"] == job_id:
                     # Remove the job from the DLQ.
                     dlq.remove(job)
+                    retry_payload = self._prepare_retry_payload(job, job_id)
                     # Add the job back to the main queue.
-                    self.queues.setdefault(queue_name, []).append(job)
+                    queue = self.queues.setdefault(queue_name, [])
+                    queue.append(retry_payload)
+                    queue.sort(key=lambda item: item.get("priority", 5))
                     # Update the job's state to WAITING.
                     self.job_states[(queue_name, job_id)] = State.WAITING
                     self.job_payloads[(queue_name, job_id)] = {
-                        **job,
-                        "status": State.WAITING,
+                        **retry_payload,
                         "updated_at": time.time(),
                     }
                     return True  # Indicate successful retry.

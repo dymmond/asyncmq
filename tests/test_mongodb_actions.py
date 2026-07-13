@@ -30,12 +30,22 @@ async def test_retry_job_mongo():
 
     queue = "q1"
     job_id = "m2"
-    await backend.store.save(queue, job_id, {"id": job_id, "status": State.FAILED})
+    await backend.store.save(
+        queue,
+        job_id,
+        {"id": job_id, "status": State.FAILED, "result": "old", "last_error": "old failure"},
+    )
 
     await backend.retry_job(queue, job_id)
 
     job = await backend.store.load(queue, job_id)
     assert job["status"] == State.WAITING
+    assert "result" not in job
+    assert "last_error" not in job
+    assert backend.queues[queue][0]["status"] == State.WAITING
+    retried = await backend.dequeue(queue)
+    assert retried["id"] == job_id
+    assert retried["status"] == State.ACTIVE
 
 
 @pytest.mark.anyio
