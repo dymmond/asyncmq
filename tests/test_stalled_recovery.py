@@ -267,6 +267,41 @@ async def test_redis_stalled_recovery_survives_backend_restart():
         await recovery.job_store.redis.aclose()
 
 
+async def test_redis_stalled_recovery_does_not_requeue_completed_snapshot():
+    queue = "redis-stalled-completed-race"
+    job_id = "redis-stalled-completed"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    producer = RedisBackend()
+    recovery = RedisBackend()
+    await producer.redis.flushdb()
+    try:
+        await producer.enqueue(queue, payload)
+        active = await producer.dequeue(queue)
+        assert active is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+        await producer.complete_active_job(queue, active, {"ok": True})
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.COMPLETED
+        assert await recovery.get_job_result(queue, job_id) == {"ok": True}
+        assert not await recovery.redis.hexists(recovery._active_key(queue), job_id)
+        assert not await recovery.redis.hexists(recovery._job_heartbeat_key(queue), job_id)
+        recovered = await recovery.dequeue(queue)
+        assert recovered is None
+    finally:
+        await producer.redis.flushdb()
+        await producer.redis.aclose()
+        await producer.job_store.redis.aclose()
+        await recovery.redis.aclose()
+        await recovery.job_store.redis.aclose()
+
+
 async def test_postgres_stalled_recovery_survives_backend_restart():
     queue = "restart-postgres"
     job_id = "postgres-restart"

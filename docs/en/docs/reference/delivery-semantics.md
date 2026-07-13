@@ -48,6 +48,9 @@ Important limits:
 
 - `InMemoryBackend` stalled recovery is process-local and does not survive
   process restart.
+- `RedisBackend` atomically re-checks canonical active state before requeueing
+  a stalled snapshot, so recovery does not overwrite jobs that already reached
+  a terminal state.
 - `RabbitMQBackend` publishes tokenized replacement deliveries during stalled
   recovery and acknowledges stale broker redeliveries whose token no longer
   matches metadata state.

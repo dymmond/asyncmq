@@ -175,6 +175,57 @@ end
 return 1
 """
 
+REENQUEUE_STALLED_SCRIPT: str = """
+-- KEYS[1]: waiting zset
+-- KEYS[2]: active hash
+-- KEYS[3]: job heartbeat hash
+-- KEYS[4]: canonical job key
+-- KEYS[5]: queue job-id set
+-- KEYS[6]: cancelled job-id set
+-- ARGV[1]: job id
+-- ARGV[2]: waiting job JSON
+-- ARGV[3]: waiting score
+-- ARGV[4]: expected active_since, when known
+local job_id = ARGV[1]
+local job_json = ARGV[2]
+local score = tonumber(ARGV[3])
+local expected_active_since = tonumber(ARGV[4])
+
+if redis.call('SISMEMBER', KEYS[6], job_id) == 1 then
+  redis.call('HDEL', KEYS[2], job_id)
+  redis.call('HDEL', KEYS[3], job_id)
+  return 0
+end
+
+local current_json = redis.call('GET', KEYS[4])
+if not current_json then
+  redis.call('HDEL', KEYS[2], job_id)
+  redis.call('HDEL', KEYS[3], job_id)
+  return 0
+end
+
+local current = cjson.decode(current_json)
+if current.status ~= 'active' then
+  redis.call('HDEL', KEYS[2], job_id)
+  redis.call('HDEL', KEYS[3], job_id)
+  return 0
+end
+
+if expected_active_since then
+  local current_active_since = tonumber(current.active_since)
+  if not current_active_since or math.abs(current_active_since - expected_active_since) > 0.000001 then
+    return 0
+  end
+end
+
+redis.call('HDEL', KEYS[2], job_id)
+redis.call('HDEL', KEYS[3], job_id)
+redis.call('ZADD', KEYS[1], score, job_json)
+redis.call('SET', KEYS[4], job_json)
+redis.call('SADD', KEYS[5], job_id)
+return 1
+"""
+
 
 class RedisBackend(BaseBackend):
     """
@@ -225,6 +276,7 @@ class RedisBackend(BaseBackend):
         self._pop_delayed_script: AsyncScript = self.redis.register_script(POP_DELAYED)
         self._promote_delayed_script: AsyncScript = self.redis.register_script(PROMOTE_DELAYED)
         self._lifecycle_script: AsyncScript = self.redis.register_script(LIFECYCLE_SCRIPT)
+        self._reenqueue_stalled_script: AsyncScript = self.redis.register_script(REENQUEUE_STALLED_SCRIPT)
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         key = self._delayed_key(queue_name)
@@ -1578,16 +1630,17 @@ class RedisBackend(BaseBackend):
         # Get the job's priority for the Sorted Set score, defaulting to 0.
         # Note: The original code uses priority 0 here for re-enqueued stalled jobs.
         score: float = retry_payload.get("priority", 5) * 1e16 + time.time()
-        # Create a Redis pipeline for batching commands.
-        pipe: redis.client.Pipeline = self.redis.pipeline()
-        # Add the job payload to the waiting queue Sorted Set with the determined score.
-        await pipe.zadd(waiting_key, {payload: score})
-        # Clean up the heartbeat record for this job ID from the heartbeats Hash.
-        await pipe.hdel(self._job_heartbeat_key(queue_name), retry_payload["id"])
-        await pipe.hdel(self._active_key(queue_name), retry_payload["id"])
-        # Execute all commands in the pipeline atomically.
-        await pipe.execute()
-        await self.job_store.save(queue_name, retry_payload["id"], retry_payload)
+        await self._reenqueue_stalled_script(
+            keys=[
+                waiting_key,
+                self._active_key(queue_name),
+                self._job_heartbeat_key(queue_name),
+                self._job_store_key(queue_name, retry_payload["id"]),
+                self._job_store_ids_key(queue_name),
+                self._cancelled_key(queue_name),
+            ],
+            args=[retry_payload["id"], payload, score, retry_payload.get("active_since") or ""],
+        )
 
     async def list_delayed(self, queue_name: str) -> list[DelayedInfo]:
         """

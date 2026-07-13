@@ -60,6 +60,9 @@
   `enable_stalled_check=True`.
 - Stalled recovery now validates active-job release from real dequeued jobs,
   including local RabbitMQ in-flight delivery acknowledgement during recovery.
+- Redis stalled recovery now atomically re-checks canonical active state before
+  requeueing, so stale recovery snapshots cannot overwrite jobs that already
+  reached a terminal state.
 - PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
   first and FIFO order within the same priority.
 - Delayed-job scanning now delegates due-job promotion to backend-owned
