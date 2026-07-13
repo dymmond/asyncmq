@@ -62,8 +62,9 @@ RabbitMQ:
   returning removed job ids
 - retrying failed jobs removes the matching ready DLQ broker delivery before
   publishing the retry to the main queue
-- removing a job deletes metadata, acknowledges a locally owned delivery, and
-  removes matching ready deliveries from the main queue and DLQ
+- removing a job records a removed-job marker, deletes metadata, acknowledges a
+  locally owned delivery, removes matching ready deliveries from the main queue
+  and DLQ, and ignores later stale broker redeliveries for that removed job
 - due delayed jobs are promoted by the backend without deleting delayed
   metadata before broker publish; broker publish and metadata update are still
   not a single distributed transaction

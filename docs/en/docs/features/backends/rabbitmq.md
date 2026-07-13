@@ -50,6 +50,9 @@ RabbitMQBackend(
 - `ack(queue, job_id)` performs the actual RabbitMQ message acknowledgement.
 - RabbitMQ waiting delivery respects job priority first, then FIFO order within
   the same priority, when queues are declared with `max_priority`.
+- Published deliveries include backend-managed delivery tokens. Removed jobs
+  leave durable markers so stale broker redeliveries are acknowledged and
+  ignored, while an explicit new enqueue with the same id receives a new token.
 - DLQ publish uses `<queue>.dlq`.
 - worker and queue metadata are maintained in the configured job store.
 

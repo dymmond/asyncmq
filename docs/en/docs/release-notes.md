@@ -119,6 +119,9 @@
   before publishing the retry to the main queue.
 - RabbitMQ job removal now clears matching ready broker deliveries from the
   main queue and DLQ, and acknowledges locally owned active deliveries.
+- RabbitMQ removed-job markers and per-publish delivery tokens now prevent
+  removed active jobs from being resurrected by stale broker redelivery while
+  preserving explicit job-id reuse.
 - Queue cleanup now removes jobs through backend removal paths so legacy
   `clean(...)` operations keep queue membership, broker deliveries, and
   inspection metadata aligned.

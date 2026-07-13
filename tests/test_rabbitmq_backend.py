@@ -19,6 +19,8 @@ RABBIT_TEST_QUEUES = (
     "test_q_promote_delayed",
     "test_q_stalled_restart",
     "test_q_stalled_without_first_heartbeat",
+    "test_q_remote_remove",
+    "test_q_remote_remove.dlq",
     "test_list_state",
     "test_list_state.dlq",
     "test_filters",
@@ -225,6 +227,118 @@ async def test_remove_job_acks_local_in_flight_delivery(backend, redis_store):
     assert ("test_q", "remove-active") not in backend._in_flight
     assert await redis_store.load("test_q", "remove-active") is None
     assert await backend.dequeue("test_q") is None
+
+
+async def test_remove_job_suppresses_remote_in_flight_redelivery(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-remote-active"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    redelivered = None
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+        assert (await redis_store.load(queue_name, job_id))["status"] == State.ACTIVE
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        assert await redis_store.load(queue_name, job_id) is None
+
+        await owner.close()
+        for _ in range(20):
+            redelivered = await observer.dequeue(queue_name)
+            if redelivered is not None:
+                break
+            await asyncio.sleep(0.05)
+
+        assert redelivered is None
+        assert await redis_store.load(queue_name, job_id) is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_job_id_reuse_ignores_old_redelivery(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-remote-reuse"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    delivered = None
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "generation": "old"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await admin.enqueue(queue_name, {"id": job_id, "generation": "new"})
+
+        await owner.close()
+        for _ in range(20):
+            delivered = await observer.dequeue(queue_name)
+            if delivered is not None:
+                break
+            await asyncio.sleep(0.05)
+
+        assert delivered is not None
+        assert delivered["payload"]["generation"] == "new"
+        await observer.ack(queue_name, job_id)
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_active_job_completion_does_not_recreate_metadata(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-then-complete"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "complete-after-remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await owner.complete_active_job(queue_name, claimed["payload"], {"ok": True})
+
+        assert (queue_name, job_id) not in owner._in_flight
+        assert await redis_store.load(queue_name, job_id) is None
+        assert await observer.dequeue(queue_name) is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_active_job_failure_does_not_recreate_dlq_metadata(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-then-fail"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "fail-after-remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await owner.fail_active_job(queue_name, {**claimed["payload"], "last_error": "boom"})
+
+        assert (queue_name, job_id) not in owner._in_flight
+        assert await redis_store.load(queue_name, job_id) is None
+        assert await observer.dequeue(f"{queue_name}.dlq") is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
 
 
 async def test_retry_job_publishes_clean_waiting_payload(backend, redis_store):
