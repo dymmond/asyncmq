@@ -191,6 +191,17 @@ admin = AsyncMQAdmin(
 Do not use wildcard origins for an authenticated dashboard. AsyncMQ rejects
 `cors_allow_origins=("*",)` when `cors_allow_credentials=True`.
 
+## Mutating Request Protection
+
+When `enable_login=True`, dashboard `POST`/`PUT`/`PATCH`/`DELETE` requests must
+come from the same origin as the dashboard host. This protects queue and job
+operations from cross-origin form submissions while keeping normal same-origin
+operator workflows unchanged.
+
+Set `enforce_same_origin=False` only when a trusted reverse proxy or identity
+gateway performs equivalent request-origin enforcement before traffic reaches
+AsyncMQ.
+
 ## High-Value Workflows
 
 ### 1. Find and retry a bad job quickly

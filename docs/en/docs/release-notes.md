@@ -53,6 +53,8 @@
   RabbitMQ broker redelivery already owns the unacknowledged delivery.
 - Dashboard CORS is now opt-in by explicit origin allowlist, with
   wildcard-plus-credentials configurations rejected during admin app startup.
+- Authenticated dashboard mutation requests now enforce same-origin `Origin`
+  checks by default to reduce CSRF exposure on queue and job operations.
 
 ## 0.8.1
 

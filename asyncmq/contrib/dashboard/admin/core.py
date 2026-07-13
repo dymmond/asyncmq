@@ -36,6 +36,7 @@ class AsyncMQAdmin:
         cors_allow_methods: tuple[str, ...] | None = None,
         cors_allow_headers: tuple[str, ...] | None = None,
         cors_allow_credentials: bool | None = None,
+        enforce_same_origin: bool = True,
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -69,6 +70,7 @@ class AsyncMQAdmin:
         self.cors_allow_methods = cors_allow_methods
         self.cors_allow_headers = cors_allow_headers
         self.cors_allow_credentials = cors_allow_credentials
+        self.enforce_same_origin = enforce_same_origin
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -119,6 +121,7 @@ class AsyncMQAdmin:
                     authenticate=self.backend.authenticate,
                     login_path=self.login_path,
                     allowlist=self.allowlist,
+                    enforce_same_origin=self.enforce_same_origin,
                 )
             )
 

@@ -27,6 +27,7 @@ class AuthGateMiddleware:
         authenticate: AuthenticateCallable,
         login_path: str = "/login",
         allowlist: Iterable[str] = ("/login", "/logout", "/static", "/assets"),
+        enforce_same_origin: bool = True,
     ) -> None:
         """
         Initializes the AuthGateMiddleware.
@@ -39,11 +40,27 @@ class AuthGateMiddleware:
                         Defaults to "/login".
             allowlist: An iterable of paths (relative to the child app's root) that do not
                        require authentication. Defaults include login/logout/static assets.
+            enforce_same_origin: If True, unsafe authenticated requests must come
+                       from the same origin as the dashboard host.
         """
         self.app: ASGIApp = app
         self.authenticate: AuthenticateCallable = authenticate
         self.login_path: str = login_path
         self.allowlist: tuple[str, ...] = tuple(allowlist)
+        self.enforce_same_origin = enforce_same_origin
+
+    def _is_same_origin(self, request: Request) -> bool:
+        origin = request.headers.get("origin")
+        if not origin:
+            return True
+
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if not host:
+            return False
+
+        scheme = request.headers.get("x-forwarded-proto") or request.scope.get("scheme", "http")
+        scheme = scheme.split(",", 1)[0].strip()
+        return origin == f"{scheme}://{host}"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """
@@ -78,6 +95,11 @@ class AuthGateMiddleware:
 
         user: Any | None = await self.authenticate(request)
         if user:
+            if self.enforce_same_origin and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+                if not self._is_same_origin(request):
+                    response = PlainText("Cross-origin dashboard request rejected", status_code=403)
+                    await response(scope, receive, send)
+                    return
             # Attach user to request state and proceed
             request.state.user = user
             # Must call the app using the original scope/receive/send, not the Request object

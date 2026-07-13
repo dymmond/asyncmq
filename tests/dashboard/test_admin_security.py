@@ -1,7 +1,22 @@
 import pytest
+from lilya.requests import Request
+from lilya.responses import HTMLResponse, RedirectResponse, Response
 from lilya.testclient.base import TestClient
 
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+
+
+class HeaderBackend(AuthBackend):
+    async def authenticate(self, request: Request) -> dict[str, str] | None:
+        user = request.headers.get("X-Authenticated-User")
+        return {"id": user, "name": user} if user else None
+
+    async def login(self, request: Request) -> Response:
+        return HTMLResponse("Header auth required")
+
+    async def logout(self, request: Request) -> Response:
+        return RedirectResponse("/login", status_code=303)
 
 
 def test_admin_does_not_enable_cross_origin_dashboard_access_by_default():
@@ -47,3 +62,70 @@ def test_admin_rejects_wildcard_credentialed_dashboard_cors():
             cors_allow_origins=("*",),
             cors_allow_credentials=True,
         )
+
+
+def test_auth_gate_rejects_cross_origin_mutating_dashboard_request():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.post(
+        "/asyncmq/queues/critical",
+        data={"action": "pause"},
+        headers={
+            "X-Authenticated-User": "alice",
+            "Origin": "https://attacker.example",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Cross-origin dashboard request rejected"
+
+
+def test_auth_gate_allows_same_origin_mutating_dashboard_request():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.post(
+        "/asyncmq/queues/critical",
+        data={"action": "pause"},
+        headers={
+            "X-Authenticated-User": "alice",
+            "Origin": "http://testserver",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code != 403
+
+
+def test_auth_gate_same_origin_enforcement_can_be_disabled():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=True,
+            backend=HeaderBackend(),
+            include_session=False,
+            enforce_same_origin=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.post(
+        "/asyncmq/queues/critical",
+        data={"action": "pause"},
+        headers={
+            "X-Authenticated-User": "alice",
+            "Origin": "https://attacker.example",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code != 403
