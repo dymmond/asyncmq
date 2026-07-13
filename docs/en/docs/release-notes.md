@@ -66,6 +66,9 @@
 - Redis active lifecycle transitions now require the current active claim before
   completing, retrying, deferring, failing, or expiring a job, preventing stale
   worker completions from clearing recovered active claims.
+- Redis dependency resolution now keeps delayed children in delayed storage until
+  their scheduled time, updating both canonical and delayed payload metadata
+  instead of making them runnable as soon as the last parent completes.
 - PostgreSQL stalled recovery now conditionally moves only still-active job rows
   back to waiting, preserving completed or otherwise terminal rows when recovery
   uses an older stalled snapshot.

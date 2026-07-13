@@ -239,6 +239,50 @@ async def test_promote_due_delayed_moves_redis_job_to_waiting_atomically(redis):
     assert dequeued["id"] == job.id
 
 
+async def test_resolved_dependency_keeps_redis_delayed_child_delayed(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-delayed-child-deps"
+    parent_id = "redis-delayed-parent"
+    run_at = time.time() + 60
+    child = Job(
+        task_id="redis.delayed.child",
+        args=[],
+        kwargs={},
+        job_id="redis-delayed-child",
+        priority=1,
+        depends_on=[parent_id],
+    )
+
+    payload = {**child.to_dict(), "delay_until": run_at}
+    await backend.enqueue_delayed(queue, payload, run_at)
+    await backend.add_dependencies(queue, payload)
+
+    await backend.resolve_dependency(queue, parent_id)
+
+    assert await backend.dequeue(queue) is None
+    assert await redis.zcard(backend._waiting_key(queue)) == 0
+    assert await redis.zcard(backend._delayed_key(queue)) == 1
+
+    stored = await backend.get_job(queue, child.id)
+    assert stored["status"] == State.DELAYED
+    assert "depends_on" not in stored
+
+    delayed = await redis.zrange(backend._delayed_key(queue), 0, -1)
+    delayed_payload = json.loads(delayed[0])
+    assert delayed_payload["id"] == child.id
+    assert delayed_payload["status"] == State.DELAYED
+    assert "depends_on" not in delayed_payload
+
+    await redis.zadd(backend._delayed_key(queue), {delayed[0]: time.time() - 1})
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [child.id]
+    assert await redis.zcard(backend._delayed_key(queue)) == 0
+    dequeued = await backend.dequeue(queue)
+    assert dequeued is not None
+    assert dequeued["id"] == child.id
+
+
 async def test_move_to_dlq(redis):
     backend = RedisBackend()
     job = Job(task_id="redis.dlq", args=[], kwargs={})

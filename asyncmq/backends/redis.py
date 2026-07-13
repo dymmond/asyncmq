@@ -451,6 +451,25 @@ class RedisBackend(BaseBackend):
             if str(payload.get("id")) == job_id:
                 await self.redis.zrem(waiting_key, member)
 
+    async def _replace_delayed_member(
+        self,
+        queue_name: str,
+        job_id: str,
+        payload: dict[str, Any],
+    ) -> float | None:
+        delayed_key = self._delayed_key(queue_name)
+        for member, score in await self.redis.zrange(delayed_key, 0, -1, withscores=True):
+            raw = member.decode("utf-8") if isinstance(member, bytes) else member
+            try:
+                delayed_payload = self._json_serializer.to_dict(raw)
+            except Exception:
+                continue
+            if str(delayed_payload.get("id")) == job_id:
+                await self.redis.zrem(delayed_key, member)
+                await self.redis.zadd(delayed_key, {self._json_serializer.to_json(payload): score})
+                return float(score)
+        return None
+
     def _repeat_key(self, name: str) -> str:
         """
         Generates the Redis key for the Sorted Set holding repeatable job definitions.
@@ -1071,11 +1090,23 @@ class RedisBackend(BaseBackend):
                 # If the job data was successfully loaded.
                 if data:
                     data.pop("depends_on", None)
-                    data["status"] = State.WAITING
-                    # Enqueue the child job into the main waiting queue.
-                    await self.enqueue(queue_name, data)
-                    # Emit a local event indicating the job is now ready for processing.
-                    await event_emitter.emit("job:ready", {"id": child_id})
+                    delayed_payload = {
+                        **data,
+                        "status": State.DELAYED,
+                        "delay_until": data.get("delay_until"),
+                    }
+                    delayed_score = await self._replace_delayed_member(queue_name, child_id, delayed_payload)
+                    if delayed_score is not None and delayed_score > time.time():
+                        await self.job_store.save(queue_name, child_id, delayed_payload)
+                    else:
+                        if delayed_score is not None:
+                            await self.remove_delayed(queue_name, child_id)
+                        data["status"] = State.WAITING
+                        data["delay_until"] = None
+                        # Enqueue the child job into the main waiting queue.
+                        await self.enqueue(queue_name, data)
+                        # Emit a local event indicating the job is now ready for processing.
+                        await event_emitter.emit("job:ready", {"id": child_id})
                 # Delete the child's empty pending dependencies set to clean up.
                 await self.redis.delete(pend_key)
             else:
@@ -1086,6 +1117,8 @@ class RedisBackend(BaseBackend):
                         item.decode("utf-8") if isinstance(item, bytes) else item for item in remaining
                     )
                     await self.job_store.save(queue_name, child_id, data)
+                    if data.get("status") == State.DELAYED or data.get("delay_until") is not None:
+                        await self._replace_delayed_member(queue_name, child_id, data)
 
         # Delete the parent's children set as all children have been processed or checked.
         await self.redis.delete(child_set_key)
