@@ -42,6 +42,7 @@ All built-in backends implement `BaseBackend` methods used by:
 `MongoDBBackend`:
 
 - document persistence
+- waiting and delayed job acquisition is shared through MongoDB documents
 - queue pause/resume state is stored in MongoDB and shared by backend instances
 - lock helper is in-process (`anyio.Lock`), not distributed
 - durable repeatable schedules stored as `status="repeatable"` documents

@@ -38,12 +38,11 @@ MongoDB:
 
 - durable document-backed queue state
 - good fit when your stack is already Mongo-centric
-- process-local waiting queues are dequeued by priority, then FIFO within the
-  same priority
-- due delayed jobs are promoted to waiting under the backend's process-local
-  lock
-- worker lifecycle transitions update the MongoDB job document and process-local
-  runtime mirrors through one backend-owned path
+- waiting jobs are claimed from MongoDB by priority, then FIFO within the same
+  priority, so separate producer and worker processes share the queue
+- due delayed jobs are promoted to waiting through MongoDB document updates
+- worker lifecycle transitions update the MongoDB job document and local runtime
+  mirrors through one backend-owned path
 
 RabbitMQ:
 

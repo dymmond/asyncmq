@@ -101,6 +101,9 @@
 - PostgreSQL, MongoDB, and RabbitMQ queue pause/resume state is now persisted in
   backend storage so separate worker and admin processes observe the same queue
   control state during restarts and rolling operations.
+- MongoDB waiting dequeue and delayed-job promotion now use MongoDB document
+  state transitions, allowing separate producer and worker backend instances to
+  share immediate and delayed jobs instead of relying on process-local mirrors.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

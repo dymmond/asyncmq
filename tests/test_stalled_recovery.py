@@ -87,7 +87,9 @@ async def test_fetch_and_reenqueue(backend):
         state = await backend.get_job_state(queue, job_id)
         assert state == State.WAITING
     elif isinstance(backend, MongoDBBackend):
-        assert payload in backend.queues.get(queue, [])
+        state = await backend.get_job_state(queue, job_id)
+        assert state == State.WAITING
+        assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
 
 
 async def test_scheduler_recovery(backend, monkeypatch):
@@ -126,7 +128,9 @@ async def test_scheduler_recovery(backend, monkeypatch):
         state = await backend.get_job_state(queue, job_id)
         assert state == State.WAITING
     elif isinstance(backend, MongoDBBackend):
-        assert payload in backend.queues.get(queue, [])
+        state = await backend.get_job_state(queue, job_id)
+        assert state == State.WAITING
+        assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
 
 
 async def test_reenqueue_stalled_releases_dequeued_active_job(backend):

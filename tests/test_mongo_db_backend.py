@@ -34,6 +34,22 @@ async def test_enqueue_and_dequeue(backend):
     assert dequeued["id"] == "job1"
 
 
+async def test_dequeue_reads_waiting_jobs_across_backend_instances(backend):
+    queue = "mongo-cross-instance-waiting"
+    job = {"id": "mongo-cross-waiting", "task_id": "task1", "args": [], "kwargs": {}}
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, job)
+
+        dequeued = await observer.dequeue(queue)
+
+        assert dequeued is not None
+        assert dequeued["id"] == job["id"]
+        assert await backend.get_job_state(queue, job["id"]) == State.ACTIVE
+    finally:
+        observer.store.client.close()
+
+
 async def test_dequeue_respects_priority_then_fifo(backend):
     queue = "mongo-priority"
     low = Job(task_id="mongo.priority.low", args=[], kwargs={}, job_id="mongo-low", priority=10)
@@ -83,6 +99,34 @@ async def test_promote_due_delayed_moves_mongodb_job_to_waiting_atomically(backe
     assert await backend.get_job_state(queue, job.id) == State.WAITING
     dequeued = await backend.dequeue(queue)
     assert dequeued["id"] == job.id
+
+
+async def test_promote_due_delayed_reads_jobs_across_backend_instances(backend):
+    queue = "mongo-cross-instance-delayed"
+    job = Job(task_id="mongo.promote.cross", args=[], kwargs={}, job_id="mongo-cross-delayed", priority=1)
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+
+        promoted = await observer.promote_due_delayed(queue)
+        dequeued = await observer.dequeue(queue)
+
+        assert [item["id"] for item in promoted] == [job.id]
+        assert dequeued is not None
+        assert dequeued["id"] == job.id
+    finally:
+        observer.store.client.close()
+
+
+async def test_remove_delayed_removes_mongodb_document(backend):
+    queue = "mongo-remove-delayed"
+    job = Job(task_id="mongo.remove.delayed", args=[], kwargs={}, job_id="mongo-remove-delayed")
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() + 60)
+
+    assert await backend.remove_delayed(queue, job.id) is True
+    assert await backend.remove_delayed(queue, job.id) is False
+    assert await backend.store.load(queue, job.id) is None
 
 
 async def test_update_and_get_job_state(backend):

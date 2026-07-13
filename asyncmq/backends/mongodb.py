@@ -7,6 +7,7 @@ import anyio
 # Motor is an asynchronous MongoDB driver.
 try:
     import motor  # noqa: F401 # Import motor, ignore unused warning if not directly called in this file
+    from pymongo import ReturnDocument
 except ImportError:
     # If motor is not installed, raise a specific ImportError with a helpful message.
     # The 'from None' prevents chaining the original ImportError exception.
@@ -85,6 +86,14 @@ class MongoDBBackend(BaseBackend):
         # Call the connect method of the underlying MongoDBStore to establish the connection.
         await self.store.connect()
         await self._queue_controls.create_index("queue_name", unique=True, background=False)
+        await self.store.collection.create_index(
+            [("queue_name", 1), ("status", 1), ("priority", 1), ("created_at", 1), ("job_id", 1)],
+            background=False,
+        )
+        await self.store.collection.create_index(
+            [("queue_name", 1), ("status", 1), ("delay_until", 1)],
+            background=False,
+        )
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -96,21 +105,41 @@ class MongoDBBackend(BaseBackend):
 
     async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         promoted: list[dict[str, Any]] = []
+        await self.connect()
+        now = time.time()
+        cursor = self.store.collection.find(
+            {"queue_name": queue_name, "status": State.DELAYED, "delay_until": {"$lte": now}}
+        ).sort([("delay_until", 1), ("priority", 1), ("created_at", 1), ("job_id", 1)])
+        due_docs = await cursor.to_list(length=None)
+
         async with self.lock:
-            now = time.time()
-            remaining: list[tuple[float, dict[str, Any]]] = []
             queue = self.queues.setdefault(queue_name, [])
-            for run_at, payload in self.delayed.get(queue_name, []):
-                if run_at > now:
-                    remaining.append((run_at, payload))
+            for payload in due_docs:
+                job_id = str(payload.get("id") or payload.get("job_id"))
+                updated = await self.store.collection.find_one_and_update(
+                    {
+                        "queue_name": queue_name,
+                        "job_id": job_id,
+                        "status": State.DELAYED,
+                        "delay_until": {"$lte": now},
+                    },
+                    {"$set": {"status": State.WAITING, "delay_until": None}},
+                    return_document=ReturnDocument.AFTER,
+                )
+                if updated is None:
                     continue
 
-                waiting_payload = {**payload, "status": State.WAITING, "delay_until": None}
+                updated.pop("_id", None)
+                waiting_payload = dict(updated)
                 queue.append(waiting_payload)
                 promoted.append(waiting_payload)
-                await self.store.save(queue_name, str(payload["id"]), waiting_payload)
 
-            self.delayed[queue_name] = remaining
+            promoted_ids = {str(item.get("id") or item.get("job_id")) for item in promoted}
+            self.delayed[queue_name] = [
+                (run_at, job)
+                for run_at, job in self.delayed.get(queue_name, [])
+                if str(job.get("id") or job.get("job_id")) not in promoted_ids
+            ]
             queue.sort(key=lambda job: job.get("priority", 5))
         return promoted
 
@@ -130,7 +159,7 @@ class MongoDBBackend(BaseBackend):
         # Acquire the lock to ensure exclusive access to in-memory queues.
         async with self.lock:
             job_id = str(payload["id"])
-            waiting_payload = {**payload, "status": State.WAITING}
+            waiting_payload = {**payload, "status": State.WAITING, "created_at": payload.get("created_at", time.time())}
             queue = self.queues.setdefault(queue_name, [])
             self.queues[queue_name] = [job for job in queue if str(job.get("id")) != job_id]
             if not has_pending_dependencies(waiting_payload):
@@ -154,23 +183,31 @@ class MongoDBBackend(BaseBackend):
         Returns:
             The job dictionary if a job was successfully dequeued, otherwise None.
         """
-        # Acquire the lock to ensure exclusive access to in-memory queues.
-        async with self.lock:
-            # Get the in-memory queue list for the specified queue name, defaulting to an empty list.
-            queue = self.queues.get(queue_name, [])
-            # Check if the queue list is not empty.
-            while queue:
-                # Remove and return the first job from the list.
-                job = queue.pop(0)
-                if has_pending_dependencies(job):
-                    continue
-                # Update the job's status to ACTIVE.
-                job["status"] = State.ACTIVE
-                # Save the updated job state to the MongoDB store.
-                await self.store.save(queue_name, job["id"], job)
-                return job
-            # Return None if the queue is empty.
+        await self.connect()
+        claimed = await self.store.collection.find_one_and_update(
+            {
+                "queue_name": queue_name,
+                "status": State.WAITING,
+                "$or": [
+                    {"depends_on": {"$exists": False}},
+                    {"depends_on": None},
+                    {"depends_on": []},
+                ],
+            },
+            {"$set": {"status": State.ACTIVE}},
+            sort=[("priority", 1), ("created_at", 1), ("job_id", 1)],
+            return_document=ReturnDocument.AFTER,
+        )
+        if claimed is None:
             return None
+
+        claimed.pop("_id", None)
+        job = dict(claimed)
+        async with self.lock:
+            self.queues[queue_name] = [
+                queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != str(job.get("id"))
+            ]
+        return job
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -302,11 +339,14 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Add the job and its scheduled run time to the in-memory delayed list.
             # setdefault ensures the list exists even if this is the first delayed job for this queue.
-            self.delayed.setdefault(queue_name, []).append((run_at, payload))
-            # Save the job to the MongoDB store with the EXPIRED status.
-            # Note: The original code sets status to EXPIRED here. Consider changing to DELAYED
-            # if a distinct DELAYED state is desired in the store.
-            await self.store.save(queue_name, payload["id"], {**payload, "status": State.DELAYED})
+            delayed_payload = {
+                **payload,
+                "status": State.DELAYED,
+                "delay_until": run_at,
+                "created_at": payload.get("created_at", time.time()),
+            }
+            self.delayed.setdefault(queue_name, []).append((run_at, delayed_payload))
+            await self.store.save(queue_name, payload["id"], delayed_payload)
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -324,23 +364,25 @@ class MongoDBBackend(BaseBackend):
         Returns:
             A list of job dictionaries that are ready to be processed.
         """
-        # Acquire the lock to ensure exclusive access to in-memory delayed queues.
+        await self.connect()
+        now = time.time()
+        cursor = self.store.collection.find(
+            {"queue_name": queue_name, "status": State.DELAYED, "delay_until": {"$lte": now}}
+        ).sort([("delay_until", 1), ("priority", 1), ("created_at", 1), ("job_id", 1)])
+        due_docs = await cursor.to_list(length=None)
+        due_ids = {str(job.get("id") or job.get("job_id")) for job in due_docs}
         async with self.lock:
-            # Get the current time.
-            now = time.time()
-            due: list[dict[str, Any]] = []  # list to store jobs that are due.
-            remaining: list[tuple[float, dict[str, Any]]] = []  # list to store jobs not yet due.
-            # Iterate through delayed jobs for the specified queue. Use .get() with default []
-            # to handle cases where the queue name doesn't exist in self.delayed.
-            for run_at, job in self.delayed.get(queue_name, []):
-                # Check if the job's run time is now or in the past.
-                if run_at <= now:
-                    due.append(job)  # Add due jobs to the 'due' list.
-                else:
-                    remaining.append((run_at, job))  # Add remaining jobs to 'remaining'.
-            # Update the in-memory delayed list for this queue with only the remaining jobs.
-            self.delayed[queue_name] = remaining
-            return due  # Return the list of jobs that were due.
+            self.delayed[queue_name] = [
+                (run_at, job)
+                for run_at, job in self.delayed.get(queue_name, [])
+                if str(job.get("id") or job.get("job_id")) not in due_ids
+            ]
+
+        due: list[dict[str, Any]] = []
+        for job in due_docs:
+            job.pop("_id", None)
+            due.append(job)
+        return due
 
     async def remove_delayed(self, queue_name: str, job_id: str) -> bool:
         """
@@ -355,7 +397,10 @@ class MongoDBBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to remove from the delayed queue.
         """
-        # Acquire the lock to ensure exclusive access to in-memory delayed queues.
+        await self.connect()
+        result = await self.store.collection.delete_one(
+            {"queue_name": queue_name, "job_id": job_id, "status": State.DELAYED},
+        )
         async with self.lock:
             # Filter the in-memory delayed list, keeping only jobs whose ID does
             # not match the one to be removed. Use .get() with default [] for safety.
@@ -363,7 +408,7 @@ class MongoDBBackend(BaseBackend):
             self.delayed[queue_name] = [
                 (ts, job) for ts, job in self.delayed.get(queue_name, []) if job.get("id") != job_id
             ]
-            return len(self.delayed.get(queue_name, [])) < before
+            return result.deleted_count > 0 or len(self.delayed.get(queue_name, [])) < before
 
     async def update_job_state(self, queue_name: str, job_id: str, state: str) -> None:
         """
@@ -579,7 +624,7 @@ class MongoDBBackend(BaseBackend):
 
                 job_id = cast(str | None, job.get("id") or job.get("job_id"))
                 if job_id:
-                    await self.store.save(queue_name, job_id, job)
+                    await self._replace_lifecycle_payload_locked(queue_name, job)
 
     async def pause_queue(self, queue_name: str) -> None:
         """
