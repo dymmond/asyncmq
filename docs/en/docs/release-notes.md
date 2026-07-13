@@ -2,6 +2,12 @@
 
 ## 0.9.0
 
+### Added
+
+- Benchmark planning now exposes a canonical workload matrix, measurement
+  policy, and competitor availability check for Celery, Dramatiq, Arq, RQ, and
+  Huey before performance results are recorded.
+
 ### Fixed
 
 - Worker dequeue now respects local execution capacity before claiming jobs,
