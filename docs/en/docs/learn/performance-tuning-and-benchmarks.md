@@ -23,6 +23,8 @@ so it can run before optional competitor dependencies are installed.
 covers job object creation/serialization and the `InMemoryBackend` operation
 path. Treat those numbers as AsyncMQ core/runtime microbenchmarks, not as
 networked broker or competitive production throughput results.
+The CodSpeed workflow is manual-only; run it deliberately for performance
+changes instead of making every CI run pay the benchmark cost.
 
 `benchmark_load` runs a parameterized AsyncMQ in-memory load benchmark and
 prints JSON with warmup/repetition counts, per-sample measurements, median,
