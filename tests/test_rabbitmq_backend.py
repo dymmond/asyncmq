@@ -214,6 +214,20 @@ async def test_retry_job_publishes_clean_waiting_payload(backend, redis_store):
     assert "error_traceback" not in message["payload"]
 
 
+async def test_retry_job_removes_matching_dlq_delivery(backend):
+    payload = {"id": "rabbit-retry-dlq", "task": "retry-from-dlq", "status": State.FAILED}
+    await backend.move_to_dlq("test_q", payload)
+
+    assert await backend.retry_job("test_q", "rabbit-retry-dlq") is True
+
+    retried = await backend.dequeue("test_q")
+    assert retried is not None
+    assert retried["payload"]["id"] == "rabbit-retry-dlq"
+    await backend.ack("test_q", retried["job_id"])
+
+    assert await backend.dequeue("test_q.dlq") is None
+
+
 async def test_worker_registration_and_listing(backend):
     await backend.register_worker("w1", "test_q", 2, time.time())
     workers = await backend.list_workers()

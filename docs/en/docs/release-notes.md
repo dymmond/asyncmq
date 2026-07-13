@@ -115,6 +115,8 @@
   to other workers.
 - RabbitMQ queue draining now follows the shared backend contract, including
   delayed-job removal when requested and returning removed job identifiers.
+- RabbitMQ failed-job retry now removes the matching ready DLQ broker delivery
+  before publishing the retry to the main queue.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

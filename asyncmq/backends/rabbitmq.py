@@ -321,6 +321,29 @@ class RabbitMQBackend(BaseBackend):
         if msg is not None and not getattr(msg, "processed", False):
             await msg.ack()
 
+    async def _remove_ready_messages_by_id(self, queue_name: str, job_id: str) -> bool:
+        queue = await self._ensure_queue(queue_name, track=False)
+        removed = False
+        requeue: list[aio_pika.abc.AbstractIncomingMessage] = []
+        while True:
+            msg = await queue.get(no_ack=False, fail=False)
+            if msg is None:
+                break
+            try:
+                payload = self._json_serializer.to_dict(msg.body.decode())
+            except Exception:
+                payload = {}
+            message_id = str(payload.get("id") or msg.message_id or "")
+            if message_id == job_id:
+                await msg.ack()
+                removed = True
+            else:
+                requeue.append(msg)
+
+        for msg in requeue:
+            await msg.nack(requeue=True)
+        return removed
+
     async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
         job_id = str(payload["id"])
         completed_payload = {**payload, "status": State.COMPLETED, "result": result}
@@ -1071,6 +1094,7 @@ class RabbitMQBackend(BaseBackend):
             return False
         # Re-enqueue the job using its original payload.
         payload = entry.get("payload", entry)
+        await self._remove_ready_messages_by_id(f"{queue_name}.dlq", job_id)
         await self.enqueue(queue_name, self._prepare_retry_payload(payload, job_id))
         return True
 

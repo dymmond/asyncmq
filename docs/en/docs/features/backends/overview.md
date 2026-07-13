@@ -60,6 +60,8 @@ RabbitMQ:
 - queue draining follows the shared backend contract by removing queued
   metadata, purging ready broker messages, honoring `include_delayed`, and
   returning removed job ids
+- retrying failed jobs removes the matching ready DLQ broker delivery before
+  publishing the retry to the main queue
 - due delayed jobs are promoted by the backend without deleting delayed
   metadata before broker publish; broker publish and metadata update are still
   not a single distributed transaction
