@@ -317,6 +317,27 @@ class PostgresBackend(BaseBackend):
         payload_json = self._json_serializer.to_json(payload)
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                cancelled = await conn.fetchval(
+                    f"""
+                    SELECT 1
+                    FROM {self._settings.postgres_cancelled_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                    """,
+                    queue_name,
+                    job_id,
+                )
+                if cancelled:
+                    await conn.execute(
+                        f"""
+                        DELETE FROM {self._settings.postgres_jobs_table_name}
+                        WHERE queue_name = $1
+                          AND job_id = $2
+                        """,
+                        queue_name,
+                        job_id,
+                    )
+                    return
                 await conn.execute(
                     f"""
                     INSERT INTO {self._settings.postgres_jobs_table_name}
@@ -1193,6 +1214,25 @@ class PostgresBackend(BaseBackend):
                     queue_name,
                     job_id,
                     [State.WAITING, State.DELAYED],
+                )
+                await conn.execute(
+                    f"""
+                    UPDATE {self._settings.postgres_jobs_table_name}
+                    SET status = $3,
+                        data = data || jsonb_build_object(
+                            'status', $3::text,
+                            'cancelled_at', EXTRACT(EPOCH FROM now())::double precision
+                        ),
+                        delay_until = NULL,
+                        updated_at = now()
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND status = $4
+                    """,
+                    queue_name,
+                    job_id,
+                    "cancelled",
+                    State.ACTIVE,
                 )
         return True
 

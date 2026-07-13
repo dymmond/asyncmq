@@ -36,6 +36,7 @@ All built-in backends implement `BaseBackend` methods used by:
 - SQL persistence and advisory-lock-based lock helper
 - requires schema bootstrap
 - queue pause/resume state is stored in PostgreSQL and shared by backend instances
+- cancellation markers are stored in PostgreSQL and shared by backend instances
 - durable repeatable schedules stored in the repeatables table
 - deduplication and scheduler ownership are coordinated across producers/workers
 

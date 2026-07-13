@@ -117,6 +117,35 @@ async def test_complete_active_job_keeps_result_and_clears_postgres_heartbeat(ba
     assert await backend.get_job_result(queue, job.id) == {"ok": True}
 
 
+async def test_cancelled_active_job_completion_does_not_overwrite_postgres_marker(backend):
+    queue = "postgres-lifecycle-cancel-active"
+    job = Job(task_id="postgres.lifecycle.cancel", args=[], kwargs={}, job_id="pg-cancel-active")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await backend.is_job_cancelled(queue, job.id) is True
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job(queue, job.id) is None
+
+
+async def test_cancel_job_marks_active_postgres_row_cancelled(backend):
+    queue = "postgres-cancel-active-row"
+    job = Job(task_id="postgres.lifecycle.cancel-row", args=[], kwargs={}, job_id="pg-cancel-row")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert await backend.cancel_job(queue, job.id) is True
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    stalled = await backend.fetch_stalled_jobs(time.time() + 60)
+    assert all(item["job_data"]["id"] != job.id for item in stalled)
+
+
 async def test_retry_active_job_keeps_postgres_delayed_row(backend):
     queue = "postgres-lifecycle-retry"
     job = Job(task_id="postgres.lifecycle.retry", args=[], kwargs={}, job_id="pg-retry")

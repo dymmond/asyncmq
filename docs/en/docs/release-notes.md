@@ -69,9 +69,9 @@
   operators can inspect the failure cause after the worker lifecycle transition.
 - Manual retry operations now requeue clean `waiting` payloads across backends,
   clearing stale result and failure fields before the next execution attempt.
-- PostgreSQL cancellation now records the cancellation and removes matching
-  waiting or delayed rows in one transaction so cancelled jobs no longer remain
-  inspectable as eligible work.
+- PostgreSQL cancellation now records the cancellation, removes matching
+  waiting or delayed rows, marks active rows as cancelled, and prevents late
+  lifecycle writes from overwriting cancellation.
 - MongoDB cancellation markers are now persisted in MongoDB and checked during
   dequeue and lifecycle transitions, so separate backend instances no longer
   claim cancelled jobs or overwrite cancellation with late completion.

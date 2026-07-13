@@ -33,6 +33,9 @@ Postgres:
 - due delayed jobs are promoted to waiting in one SQL update
 - worker lifecycle transitions are written through database transactions so
   retry/defer rows are preserved and terminal states remain inspectable
+- cancellation markers are stored in PostgreSQL; waiting and delayed rows are
+  removed, active rows are marked cancelled, and late lifecycle writes do not
+  overwrite cancellation
 
 MongoDB:
 
