@@ -95,7 +95,8 @@
   context to avoid unsafe `fork` behavior in multi-threaded runtimes.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
-  FIFO ordering.
+  FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid
+  scanning waiting and delayed queues when the job is already owned by a worker.
 
 ## 0.8.1
 

@@ -229,6 +229,9 @@ class InMemoryBackend(BaseBackend):
         self.delayed[queue_name] = [
             (run_at, job) for run_at, job in self.delayed.get(queue_name, []) if str(job.get("id")) != job_id
         ]
+        self._remove_active_membership_locked(queue_name, job_id)
+
+    def _remove_active_membership_locked(self, queue_name: str, job_id: str) -> None:
         self.active_jobs.pop((queue_name, job_id), None)
         self.heartbeats.pop((queue_name, job_id), None)
 
@@ -254,7 +257,7 @@ class InMemoryBackend(BaseBackend):
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
-            self._remove_job_memberships_locked(queue_name, job_id)
+            self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(
                 queue_name,
                 {**payload, "result": result},
@@ -274,7 +277,7 @@ class InMemoryBackend(BaseBackend):
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
-            self._remove_job_memberships_locked(queue_name, job_id)
+            self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(
                 queue_name,
                 {**payload, "delay_until": run_at},
@@ -293,7 +296,7 @@ class InMemoryBackend(BaseBackend):
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
-            self._remove_job_memberships_locked(queue_name, job_id)
+            self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(queue_name, payload, status, now)
             self.dlqs.setdefault(queue_name, []).append(stored)
 
