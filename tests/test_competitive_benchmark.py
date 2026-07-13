@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 
+import anyio
 import pytest
 import redis.asyncio as async_redis
 
@@ -200,3 +201,25 @@ async def test_competitive_runner_records_timed_out_samples(monkeypatch):
     assert result.completed == 1
     assert result.failed == 4
     assert result.samples[0]["timed_out"] is True
+
+
+async def test_asyncmq_sample_timeout_bounds_enqueue(monkeypatch):
+    async def blocked_enqueue(self, queue_name, payload):
+        await anyio.sleep(1)
+
+    monkeypatch.setattr(competitive.RedisBackend, "enqueue", blocked_enqueue)
+
+    result = await competitive._run_asyncmq_sample(
+        jobs=5,
+        workers=1,
+        concurrency=1,
+        payload_bytes=16,
+        timeout=0.01,
+        redis_url="redis://localhost:6379/15",
+        queue="asyncmq-benchmark-timeout-enqueue",
+        run_id="unit-enqueue-timeout",
+    )
+
+    assert result["timed_out"] is True
+    assert result["completed"] == 0
+    assert result["failed"] == 5

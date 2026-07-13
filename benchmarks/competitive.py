@@ -266,14 +266,18 @@ async def _run_asyncmq_sample(
 
             enqueue_start = time.perf_counter_ns()
             total_start = enqueue_start
-            for index in range(jobs):
-                job = Job(task_id=ASYNCMQ_TASK_ID, args=[payload, run_id], kwargs={}, job_id=f"{run_id}-{index}")
-                await backend.enqueue(queue, job.to_dict())
+            with anyio.move_on_after(timeout) as enqueue_scope:
+                for index in range(jobs):
+                    job = Job(task_id=ASYNCMQ_TASK_ID, args=[payload, run_id], kwargs={}, job_id=f"{run_id}-{index}")
+                    await backend.enqueue(queue, job.to_dict())
             enqueue_latency_ns = time.perf_counter_ns() - enqueue_start
 
-            with anyio.move_on_after(timeout) as scope:
-                while int(await counter.get(_completion_key(run_id)) or 0) < jobs:
-                    await anyio.sleep(0.01)
+            completion_timed_out = False
+            if not enqueue_scope.cancel_called:
+                with anyio.move_on_after(timeout) as completion_scope:
+                    while int(await counter.get(_completion_key(run_id)) or 0) < jobs:
+                        await anyio.sleep(0.01)
+                completion_timed_out = completion_scope.cancel_called
             tg.cancel_scope.cancel()
 
         total_latency_ns = time.perf_counter_ns() - total_start
@@ -297,7 +301,7 @@ async def _run_asyncmq_sample(
             "max_rss_kb": max_rss_kb,
             "completed": completed,
             "failed": jobs - completed,
-            "timed_out": scope.cancel_called,
+            "timed_out": enqueue_scope.cancel_called or completion_timed_out,
         }
     finally:
         await backend.redis.aclose()

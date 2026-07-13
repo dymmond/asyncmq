@@ -74,7 +74,8 @@ Pass `--dry-run --workload <name>` before a large run to inspect the resolved
 jobs, workers, concurrency, payload size, warmup, and target interpreters.
 Pass `--no-progress-timeout <seconds>` to bound competitor samples that stop
 advancing their completion counter before the overall sample timeout. The
-sample `--timeout` also bounds external producer subprocesses during enqueue.
+sample `--timeout` also bounds producer/enqueue phases so oversized workloads
+return timed-out samples instead of hanging before completion measurement.
 For 1,000-worker local runs, tune `ASYNCMQ_BENCH_COUNTER_MAX_CONNECTIONS` and
 `ASYNCMQ_BENCH_COUNTER_POOL_TIMEOUT` if the benchmark counter itself becomes the
 bottleneck.

@@ -26,7 +26,7 @@
 - Redis waiting queues now index job IDs, keep lifecycle metadata compact, and
   split/compress large payload fields outside Lua hot paths.
 - Redis dequeue now claims runnable jobs through one backend-owned transition.
-- Competitive benchmarks now bound stalled competitor workers and producers.
+- Competitive benchmarks now bound stalled workers and producer/enqueue phases.
 - Competitive benchmark tasks use matching payload-byte counter updates.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
