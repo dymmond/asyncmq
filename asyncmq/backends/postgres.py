@@ -1014,35 +1014,7 @@ class PostgresBackend(BaseBackend):
                         will be removed. If None, all jobs in the specified state
                         will be removed.
         """
-        # Ensure connection is established.
-        await self.connect()
-        # Acquire a connection from the pool.
-        async with self.pool.acquire() as conn:
-            # Check if an age threshold is provided.
-            if older_than:
-                # Calculate the timestamp threshold.
-                threshold_time: float = time.time() - older_than
-                # Execute the DELETE query with queue name, status, and age filter.
-                await conn.execute(
-                    f"""
-                    DELETE FROM {self._settings.postgres_jobs_table_name}
-                    WHERE queue_name = $1 AND status = $2
-                      AND EXTRACT(EPOCH FROM created_at) < $3
-                    """,
-                    queue_name,
-                    state,
-                    threshold_time,
-                )
-            else:
-                # Execute the DELETE query with only queue name and status filter.
-                await conn.execute(
-                    f"""
-                    DELETE FROM {self._settings.postgres_jobs_table_name}
-                    WHERE queue_name = $1 AND status = $2
-                    """,
-                    queue_name,
-                    state,
-                )
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """

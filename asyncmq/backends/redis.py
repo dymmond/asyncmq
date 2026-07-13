@@ -1095,22 +1095,7 @@ class RedisBackend(BaseBackend):
                         all jobs in the specified state might be purged.
                         Defaults to None.
         """
-        # Retrieve jobs matching the specified status from the job store.
-        jobs: list[dict[str, Any]] = await self.job_store.jobs_by_status(queue_name, state)
-        # Iterate through the jobs retrieved.
-        for job in jobs:
-            # Determine the relevant timestamp for comparison (using 'completed_at'
-            # or current time as a fallback if no relevant timestamp exists).
-            # NOTE: This logic assumes 'completed_at' is the relevant timestamp for purging.
-            # More robust logic might consider other timestamps based on the 'state' argument.
-            ts: float = job.get("completed_at", time.time())
-            # Check if the job is older than the 'older_than' timestamp (if provided).
-            if older_than is None or ts < older_than:
-                # Delete the job from the job store.
-                await self.job_store.delete(queue_name, job["id"])
-                # Remove the job from the corresponding Redis Sorted Set by its payload.
-                # This assumes the state name directly maps to the Redis key suffix.
-                await self.redis.zrem(f"queue:{queue_name}:{state}", self._json_serializer.to_json(job))
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """

@@ -925,6 +925,19 @@ class BaseBackend(ABC):
                 removed_ids.append(str(job_id))
         return removed_ids
 
+    async def _purge_jobs_by_state(self, queue_name: str, state: str, older_than: float | None = None) -> list[str]:
+        removed_ids: list[str] = []
+        for job in await self.list_jobs(queue_name, state):
+            if older_than is not None and self._job_cleanup_timestamp(job, state) >= older_than:
+                continue
+
+            job_id = job.get("id") or job.get("job_id")
+            if job_id is None:
+                continue
+            if await self.remove_job(queue_name, str(job_id)):
+                removed_ids.append(str(job_id))
+        return removed_ids
+
     async def obliterate_queue(self, queue_name: str, *, force: bool = False) -> list[str]:
         """
         Irreversibly remove all jobs and repeatable definitions for a queue.

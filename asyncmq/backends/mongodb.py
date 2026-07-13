@@ -756,24 +756,7 @@ class MongoDBBackend(BaseBackend):
                         this timestamp will be purged. If None, all jobs in the
                         specified state are purged from the store. Defaults to None.
         """
-        # Acquire the lock for consistency.
-        async with self.lock:
-            # Get jobs from the store matching the specified state.
-            jobs = await self.store.jobs_by_status(queue_name, state)
-            now = time.time()  # Get the current time for age comparison if needed.
-            # Iterate through the retrieved jobs.
-            for job in jobs:
-                # Determine the relevant timestamp for comparison. Using 'completed_at'
-                # as a common timestamp for states like COMPLETED or FAILED, defaulting
-                # to 'now' if not available (e.g., for states like WAITING if purging them).
-                # NOTE: This logic assumes 'completed_at' is the relevant timestamp for purging.
-                # More robust logic might consider other timestamps based on the 'state' argument.
-                ts = job.get("completed_at", now)
-                # Check if older_than is None (purge all in state) or if the job's timestamp
-                # is strictly before the older_than timestamp.
-                if older_than is None or ts < older_than:
-                    # Delete the job from the store.
-                    await self.store.delete(queue_name, job["id"])
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """

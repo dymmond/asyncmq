@@ -150,6 +150,10 @@ removed = await queue.remove_job(job_id)
 retried = await queue.retry_job(job_id)
 ```
 
+Legacy `queue.clean(state, older_than)` and BullMQ-style `clean_jobs(...)`
+remove matching jobs through the backend removal path, so queue membership,
+broker deliveries, and inspection metadata stay aligned.
+
 Deduplication inspection and release helpers are part of the same producer/admin
 surface:
 

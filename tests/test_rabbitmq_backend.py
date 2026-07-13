@@ -298,6 +298,16 @@ async def test_drain_queue_include_delayed_removes_delayed_metadata(backend):
     assert await backend.list_delayed("test_q") == []
 
 
+async def test_purge_removes_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "purge-ready", "task": "purge"}
+    await backend.enqueue("test_q", payload)
+
+    await backend.purge("test_q", State.WAITING)
+
+    assert await redis_store.load("test_q", "purge-ready") is None
+    assert await backend.dequeue("test_q") is None
+
+
 async def test_ack_does_not_force_completed_state(backend):
     payload = {"id": "ack1", "task_id": "noop", "args": [], "kwargs": {}}
     await backend.enqueue("test_q", payload)

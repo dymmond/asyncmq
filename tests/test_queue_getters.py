@@ -183,6 +183,18 @@ async def test_queue_drain_and_obliterate_follow_admin_semantics(backend):
     assert await queue.get_job(child.id) is None
 
 
+async def test_queue_clean_removes_waiting_backend_membership(backend):
+    queue, task_id = await build_inspection_queue(backend)
+    waiting = Job(task_id=task_id, args=["waiting"], kwargs={})
+
+    await queue.backend.enqueue(queue.name, waiting.to_dict())
+
+    await queue.clean(State.WAITING)
+
+    assert await queue.get_job(waiting.id) is None
+    assert await queue.backend.dequeue(queue.name) is None
+
+
 async def test_queue_remove_and_retry_wrap_backend_admin_apis(backend):
     queue, task_id = await build_inspection_queue(backend)
 

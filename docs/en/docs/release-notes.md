@@ -119,6 +119,9 @@
   before publishing the retry to the main queue.
 - RabbitMQ job removal now clears matching ready broker deliveries from the
   main queue and DLQ, and acknowledges locally owned active deliveries.
+- Queue cleanup now removes jobs through backend removal paths so legacy
+  `clean(...)` operations keep queue membership, broker deliveries, and
+  inspection metadata aligned.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

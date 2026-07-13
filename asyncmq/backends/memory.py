@@ -809,20 +809,7 @@ class InMemoryBackend(BaseBackend):
             older_than: An optional timestamp. This parameter is not fully
                         utilized in this in-memory implementation for all states.
         """
-        to_delete: list[_JobKey] = []
-        # Iterate through a copy of the job_states items to allow deletion during iteration.
-        for (qname, jid), st in list(self.job_states.items()):
-            # Check if the job matches the specified queue name and state.
-            if qname == queue_name and st == state:
-                # Add the job key to the list of keys to delete.
-                to_delete.append((qname, jid))
-
-        # Iterate through the list of job keys to delete.
-        for key in to_delete:
-            # Remove the job's state, result, and progress from the respective dictionaries.
-            self.job_states.pop(key, None)
-            self.job_results.pop(key, None)
-            self.job_progress.pop(key, None)
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """

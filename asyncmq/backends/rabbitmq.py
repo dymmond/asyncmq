@@ -986,13 +986,7 @@ class RabbitMQBackend(BaseBackend):
                 jobs with a 'timestamp' (heartbeat or creation) older than this
                 value will be purged.
         """
-        # Iterate through jobs with the specified status.
-        for j in await self._state.jobs_by_status(queue_name, state):
-            # Check if older_than is not specified or if the job's timestamp
-            # is older than the specified value.
-            if older_than is None or j.get("timestamp", 0) < older_than:
-                # Delete the job from the job store.
-                await self._state.delete(queue_name, j["id"])
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def atomic_add_flow(
         self,
