@@ -93,6 +93,27 @@ async def test_completion_counter_no_progress_timeout_bounds_stalled_samples():
     assert timed_out is True
 
 
+async def test_external_enqueue_timeout_bounds_blocked_producers(monkeypatch):
+    def fake_run_subprocess(command, *, env=None, timeout=None):
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr(competitive, "_run_subprocess", fake_run_subprocess)
+
+    enqueue_latency_ns, timed_out = await competitive._enqueue_external(
+        "rq",
+        target_python=sys.executable,
+        jobs=5,
+        payload_bytes=16,
+        run_id="blocked-producer",
+        queue="blocked-producer-queue",
+        redis_url="redis://localhost:6379/15",
+        timeout=0.01,
+    )
+
+    assert enqueue_latency_ns > 0
+    assert timed_out is True
+
+
 async def test_competitive_asyncmq_runner_processes_all_jobs():
     result = await run_target(
         target="asyncmq",

@@ -96,8 +96,13 @@ def _target_env(redis_url: str, queue: str, concurrency: int) -> dict[str, str]:
     return env
 
 
-def _run_subprocess(command: Sequence[str], *, env: dict[str, str] | None = None) -> None:
-    subprocess.run(command, check=True, env=env, text=True)
+def _run_subprocess(
+    command: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+) -> None:
+    subprocess.run(command, check=True, env=env, text=True, timeout=timeout)
 
 
 def prepare_envs(targets: Sequence[str], root: Path) -> list[dict[str, Any]]:
@@ -421,7 +426,8 @@ async def _enqueue_external(
     run_id: str,
     queue: str,
     redis_url: str,
-) -> int:
+    timeout: float,
+) -> tuple[int, bool]:
     enqueue_start = time.perf_counter_ns()
     command = [
         target_python,
@@ -441,8 +447,11 @@ async def _enqueue_external(
         redis_url,
     ]
     env = _target_env(redis_url, queue, 1)
-    await anyio.to_thread.run_sync(lambda: _run_subprocess(command, env=env))
-    return time.perf_counter_ns() - enqueue_start
+    try:
+        await anyio.to_thread.run_sync(lambda: _run_subprocess(command, env=env, timeout=timeout))
+    except subprocess.TimeoutExpired:
+        return time.perf_counter_ns() - enqueue_start, True
+    return time.perf_counter_ns() - enqueue_start, False
 
 
 async def _wait_for_completion_counter(
@@ -514,7 +523,7 @@ async def _run_external_sample(
             )
         worker_startup_ns = time.perf_counter_ns() - worker_start
         total_start = time.perf_counter_ns()
-        enqueue_latency_ns = await _enqueue_external(
+        enqueue_latency_ns, enqueue_timed_out = await _enqueue_external(
             target,
             target_python=target_python,
             jobs=jobs,
@@ -522,9 +531,10 @@ async def _run_external_sample(
             run_id=run_id,
             queue=queue,
             redis_url=redis_url,
+            timeout=timeout,
         )
 
-        timed_out = await _wait_for_completion_counter(
+        timed_out = enqueue_timed_out or await _wait_for_completion_counter(
             counter,
             _completion_key(run_id),
             jobs=jobs,
