@@ -174,6 +174,23 @@ class AppSettings(Settings):
         )
 ```
 
+## Dashboard CORS
+
+Dashboard CORS is same-origin by default. `AsyncMQAdmin(include_cors=True)` only
+installs CORS middleware when explicit origins are configured.
+
+```python
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=auth_backend,
+    cors_allow_origins=("https://ops.example.com",),
+    cors_allow_credentials=True,
+)
+```
+
+Do not use wildcard origins for an authenticated dashboard. AsyncMQ rejects
+`cors_allow_origins=("*",)` when `cors_allow_credentials=True`.
+
 ## High-Value Workflows
 
 ### 1. Find and retry a bad job quickly

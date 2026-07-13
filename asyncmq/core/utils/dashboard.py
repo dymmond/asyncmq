@@ -61,6 +61,32 @@ class DashboardConfig:
     domain: str | None = None
     """The domain scope for which the cookie is valid."""
 
+    cors_allow_origins: tuple[str, ...] = ()
+    """
+    Origins allowed to access the dashboard through browser CORS.
+    Empty by default so the dashboard remains same-origin unless explicitly
+    configured.
+    """
+
+    cors_allow_methods: tuple[str, ...] = ("GET", "POST", "OPTIONS")
+    """HTTP methods allowed when dashboard CORS is explicitly configured."""
+
+    cors_allow_headers: tuple[str, ...] = (
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "HX-Request",
+        "HX-Target",
+        "HX-Trigger",
+    )
+    """HTTP headers allowed when dashboard CORS is explicitly configured."""
+
+    cors_allow_credentials: bool = False
+    """
+    Whether browsers may include credentials for configured CORS origins.
+    Must not be combined with a wildcard origin.
+    """
+
     @property
     def session_middleware(self) -> DefineMiddleware:
         """

@@ -51,6 +51,8 @@
 - RabbitMQ stalled recovery now discovers queues from persisted metadata after
   backend restart and avoids publishing a duplicate recovery message when
   RabbitMQ broker redelivery already owns the unacknowledged delivery.
+- Dashboard CORS is now opt-in by explicit origin allowlist, with
+  wildcard-plus-credentials configurations rejected during admin app startup.
 
 ## 0.8.1
 

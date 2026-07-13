@@ -32,6 +32,10 @@ class AsyncMQAdmin:
         url_prefix: str | None = None,
         include_session: bool = True,
         include_cors: bool = True,
+        cors_allow_origins: tuple[str, ...] | None = None,
+        cors_allow_methods: tuple[str, ...] | None = None,
+        cors_allow_headers: tuple[str, ...] | None = None,
+        cors_allow_credentials: bool | None = None,
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -61,6 +65,10 @@ class AsyncMQAdmin:
         # Extras
         self.include_session = include_session
         self.include_cors = include_cors
+        self.cors_allow_origins = cors_allow_origins
+        self.cors_allow_methods = cors_allow_methods
+        self.cors_allow_headers = cors_allow_headers
+        self.cors_allow_credentials = cors_allow_credentials
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -79,16 +87,26 @@ class AsyncMQAdmin:
         middlewares: list[DefineMiddleware] = []
 
         if self.include_cors:
-            # 1. Base Middleware Setup (CORS, Session, AuthGate)
-            middlewares = [
-                DefineMiddleware(
-                    CORSMiddleware,
-                    allow_origins=["*"],
-                    allow_methods=["*"],
-                    allow_headers=["*"],
-                    allow_credentials=True,
-                ),
-            ]
+            allow_origins = self.cors_allow_origins or config.cors_allow_origins
+            allow_methods = self.cors_allow_methods or config.cors_allow_methods
+            allow_headers = self.cors_allow_headers or config.cors_allow_headers
+            allow_credentials = (
+                self.cors_allow_credentials
+                if self.cors_allow_credentials is not None
+                else config.cors_allow_credentials
+            )
+            if "*" in allow_origins and allow_credentials:
+                raise ValueError("Dashboard CORS cannot combine wildcard origins with credentials.")
+            if allow_origins:
+                middlewares.append(
+                    DefineMiddleware(
+                        CORSMiddleware,
+                        allow_origins=list(allow_origins),
+                        allow_methods=list(allow_methods),
+                        allow_headers=list(allow_headers),
+                        allow_credentials=allow_credentials,
+                    )
+                )
 
         if self.include_session:
             middlewares.append(config.session_middleware)

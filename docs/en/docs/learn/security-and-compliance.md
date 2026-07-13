@@ -15,6 +15,8 @@ AsyncMQ provides runtime primitives; secure operation is your responsibility.
 - enable authentication (`AsyncMQAdmin(enable_login=True, backend=...)`)
 - use strong session/JWT secrets
 - restrict dashboard exposure by network controls and identity provider layers
+- keep dashboard CORS same-origin unless an exact operator origin is required
+- never combine wildcard CORS origins with credentialed dashboard sessions
 
 ## Logging and Data Handling
 

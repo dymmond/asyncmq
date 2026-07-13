@@ -54,6 +54,13 @@ MongoDB fields:
 
 - `dashboard_config` property returns `DashboardConfig`
 
+Dashboard CORS fields on `DashboardConfig`:
+
+- `cors_allow_origins: tuple[str, ...] = ()`
+- `cors_allow_methods: tuple[str, ...] = ("GET", "POST", "OPTIONS")`
+- `cors_allow_headers: tuple[str, ...]`
+- `cors_allow_credentials: bool = False`
+
 See also:
 - [Settings Guide](../features/settings.md)
 - [Dashboard](../dashboard/dashboard.md)
