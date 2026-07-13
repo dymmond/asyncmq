@@ -28,6 +28,7 @@ Postgres:
 
 - durable SQL-backed queue state
 - suitable when you prefer SQL operational tooling and transactions
+- waiting jobs are dequeued by priority, then FIFO within the same priority
 - worker lifecycle transitions are written through database transactions so
   retry/defer rows are preserved and terminal states remain inspectable
 
@@ -35,6 +36,8 @@ MongoDB:
 
 - durable document-backed queue state
 - good fit when your stack is already Mongo-centric
+- process-local waiting queues are dequeued by priority, then FIFO within the
+  same priority
 - worker lifecycle transitions update the MongoDB job document and process-local
   runtime mirrors through one backend-owned path
 
@@ -45,6 +48,8 @@ RabbitMQ:
 - worker lifecycle transitions are backend-owned and persist metadata before
   acknowledging broker deliveries; RabbitMQ broker state and metadata storage
   are not a single distributed transaction
+- broker-level priority requires a priority-enabled RabbitMQ queue declaration
+  and is not normalized by AsyncMQ
 
 ## Selection Guidance
 

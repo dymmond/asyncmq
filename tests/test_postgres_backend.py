@@ -28,6 +28,21 @@ async def test_enqueue_and_dequeue(backend):
     assert dequeued["id"] == "job1"
 
 
+async def test_dequeue_respects_priority_then_fifo(backend):
+    queue = "postgres-priority"
+    low = Job(task_id="postgres.priority.low", args=[], kwargs={}, job_id="pg-low", priority=10)
+    first = Job(task_id="postgres.priority.first", args=[], kwargs={}, job_id="pg-first", priority=1)
+    second = Job(task_id="postgres.priority.second", args=[], kwargs={}, job_id="pg-second", priority=1)
+
+    await backend.enqueue(queue, low.to_dict())
+    await backend.enqueue(queue, first.to_dict())
+    await backend.enqueue(queue, second.to_dict())
+
+    assert (await backend.dequeue(queue))["id"] == "pg-first"
+    assert (await backend.dequeue(queue))["id"] == "pg-second"
+    assert (await backend.dequeue(queue))["id"] == "pg-low"
+
+
 async def test_ack(backend):
     job = {"id": "job2", "task_id": "test_task", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)

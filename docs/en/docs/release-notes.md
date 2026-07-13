@@ -28,6 +28,8 @@
   `enable_stalled_check=True`.
 - Stalled recovery now validates active-job release from real dequeued jobs,
   including local RabbitMQ in-flight delivery acknowledgement during recovery.
+- PostgreSQL and MongoDB waiting-job dequeue now respects priority first and
+  FIFO order within the same priority.
 
 ## 0.8.1
 

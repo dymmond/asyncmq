@@ -150,7 +150,8 @@ class PostgresBackend(BaseBackend):
         Uses a `SELECT FOR UPDATE SKIP LOCKED` query within a transaction to
         atomically select the next waiting job, update its status to `State.ACTIVE`,
         and return its payload. This prevents multiple workers from picking the
-        same job. Jobs are selected based on creation time (`created_at ASC`).
+        same job. Jobs are selected by priority first and creation time second,
+        preserving FIFO order among jobs with the same priority.
 
         Args:
             queue_name: The name of the queue to dequeue a job from.
@@ -173,7 +174,7 @@ class PostgresBackend(BaseBackend):
                     WHERE id = (
                         SELECT id FROM {self._settings.postgres_jobs_table_name}
                         WHERE queue_name = $1 AND status = $2
-                        ORDER BY created_at ASC
+                        ORDER BY COALESCE((data ->> 'priority')::int, 5) ASC, created_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                     )

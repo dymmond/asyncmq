@@ -109,7 +109,9 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Add the payload to the end of the in-memory queue list for this queue.
             # setdefault ensures the list exists even if this is the first job for this queue.
-            self.queues.setdefault(queue_name, []).append(payload)
+            queue = self.queues.setdefault(queue_name, [])
+            queue.append(payload)
+            queue.sort(key=lambda job: job.get("priority", 5))
             # Save the job to the MongoDB store with the WAITING status.
             # Use {**payload, "status": State.WAITING} to create a new dict with updated status.
             await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
@@ -639,7 +641,9 @@ class MongoDBBackend(BaseBackend):
         async with self.lock:
             # Extend the in-memory queue list with the list of jobs.
             # setdefault ensures the list exists even if this is the first job for this queue.
-            self.queues.setdefault(queue_name, []).extend(jobs)
+            queue = self.queues.setdefault(queue_name, [])
+            queue.extend(jobs)
+            queue.sort(key=lambda job: job.get("priority", 5))
             # Iterate through each job and save it to the MongoDB store with the WAITING status.
             for job in jobs:
                 await self.store.save(queue_name, job["id"], {**job, "status": State.WAITING})

@@ -34,6 +34,21 @@ async def test_enqueue_and_dequeue(backend):
     assert dequeued["id"] == "job1"
 
 
+async def test_dequeue_respects_priority_then_fifo(backend):
+    queue = "mongo-priority"
+    low = Job(task_id="mongo.priority.low", args=[], kwargs={}, job_id="mongo-low", priority=10)
+    first = Job(task_id="mongo.priority.first", args=[], kwargs={}, job_id="mongo-first", priority=1)
+    second = Job(task_id="mongo.priority.second", args=[], kwargs={}, job_id="mongo-second", priority=1)
+
+    await backend.enqueue(queue, low.to_dict())
+    await backend.enqueue(queue, first.to_dict())
+    await backend.enqueue(queue, second.to_dict())
+
+    assert (await backend.dequeue(queue))["id"] == "mongo-first"
+    assert (await backend.dequeue(queue))["id"] == "mongo-second"
+    assert (await backend.dequeue(queue))["id"] == "mongo-low"
+
+
 async def test_move_to_dlq(backend):
     job = {"id": "job2", "task_id": "task2", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)
