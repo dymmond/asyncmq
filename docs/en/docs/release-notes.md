@@ -23,8 +23,8 @@
 - Deployment guidance now covers process separation, Docker images, Kubernetes
   probes, rolling worker restarts, backend readiness, and recovery expectations.
 - Benchmark tooling now includes a parameterized AsyncMQ in-memory load runner
-  that emits JSON throughput and latency measurements for local regression
-  checks.
+  that emits JSON throughput, latency, CPU, and max RSS measurements for local
+  regression checks.
 - Worker execution can now emit optional OpenTelemetry spans with queue, task,
   retry, priority, status, and exception attributes when tracing is enabled.
 - Dashboard authentication now includes an authorization gate for admin users

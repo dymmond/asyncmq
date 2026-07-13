@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 
@@ -16,6 +17,11 @@ from asyncmq.workers import process_job
 
 TASK_ID = "benchmarks.load_asyncmq.payload_task"
 
+try:
+    import resource
+except ImportError:  # pragma: no cover - resource is Unix-only.
+    resource = None  # type: ignore[assignment]
+
 
 @dataclass(frozen=True)
 class LoadResult:
@@ -26,8 +32,22 @@ class LoadResult:
     enqueue_latency_ns: int
     total_latency_ns: int
     throughput_jobs_per_second: float
+    cpu_user_seconds: float | None
+    cpu_system_seconds: float | None
+    max_rss_kb: int | None
     completed: int
     failed: int
+
+
+def _resource_snapshot() -> tuple[float | None, float | None, int | None]:
+    if resource is None:
+        return None, None, None
+
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    max_rss = int(usage.ru_maxrss)
+    if sys.platform == "darwin":
+        max_rss = max_rss // 1024
+    return float(usage.ru_utime), float(usage.ru_stime), max_rss
 
 
 async def _payload_task(payload: str) -> int:
@@ -61,6 +81,7 @@ async def run_load(
         failed_count = len(backend.dlqs.get(queue, []))
         return completed_count, failed_count
 
+    cpu_user_start, cpu_system_start, _ = _resource_snapshot()
     enqueue_start = time.perf_counter_ns()
     for index in range(jobs):
         job = Job(task_id=TASK_ID, args=[payload], kwargs={}, job_id=f"load-{index}")
@@ -83,6 +104,13 @@ async def run_load(
     total_latency_ns = time.perf_counter_ns() - total_start
     completed, failed = await terminal_counts()
     throughput = completed / (total_latency_ns / 1_000_000_000) if total_latency_ns else 0.0
+    cpu_user_end, cpu_system_end, max_rss_kb = _resource_snapshot()
+    cpu_user_seconds = None
+    cpu_system_seconds = None
+    if cpu_user_start is not None and cpu_user_end is not None:
+        cpu_user_seconds = cpu_user_end - cpu_user_start
+    if cpu_system_start is not None and cpu_system_end is not None:
+        cpu_system_seconds = cpu_system_end - cpu_system_start
 
     return LoadResult(
         jobs=jobs,
@@ -92,6 +120,9 @@ async def run_load(
         enqueue_latency_ns=enqueue_latency_ns,
         total_latency_ns=total_latency_ns,
         throughput_jobs_per_second=throughput,
+        cpu_user_seconds=cpu_user_seconds,
+        cpu_system_seconds=cpu_system_seconds,
+        max_rss_kb=max_rss_kb,
         completed=completed,
         failed=failed,
     )

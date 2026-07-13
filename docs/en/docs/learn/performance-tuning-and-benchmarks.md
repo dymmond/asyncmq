@@ -24,8 +24,9 @@ networked broker or competitive production throughput results.
 
 `benchmark_load` runs a parameterized AsyncMQ in-memory load benchmark and
 prints JSON with enqueue latency, total latency, throughput, worker count,
-concurrency, payload size, completed jobs, and failed jobs. Use it for local
-runtime smoke measurements before moving to real backend and competitor runs:
+concurrency, payload size, CPU time, max RSS, completed jobs, and failed jobs.
+Use it for local runtime smoke measurements before moving to real backend and
+competitor runs:
 
 ```shell
 hatch run python -m benchmarks.load_asyncmq \

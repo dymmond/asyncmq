@@ -11,10 +11,15 @@ async def test_load_runner_processes_all_jobs():
     assert result.completed == 25
     assert result.failed == 0
     assert result.throughput_jobs_per_second > 0
+    assert result.cpu_user_seconds is None or result.cpu_user_seconds >= 0
+    assert result.cpu_system_seconds is None or result.cpu_system_seconds >= 0
+    assert result.max_rss_kb is None or result.max_rss_kb > 0
 
 
 def test_load_runner_cli_outputs_json(capsys):
     exit_code = main(["--jobs", "5", "--workers", "2", "--payload-bytes", "16", "--json"])
 
     assert exit_code == 0
-    assert '"completed": 5' in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert '"completed": 5' in output
+    assert '"max_rss_kb":' in output
