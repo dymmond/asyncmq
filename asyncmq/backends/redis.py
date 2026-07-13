@@ -31,6 +31,87 @@ redis.call('ZREM', KEYS[1], items[1])
 return items[1]
 """
 
+CLAIM_SCRIPT: str = """
+-- KEYS[1]: waiting zset
+-- KEYS[2]: cancelled job-id set
+-- KEYS[3]: job state hash
+-- KEYS[4]: job result hash
+-- KEYS[5]: active hash
+-- KEYS[6]: queue job-id set
+-- KEYS[7]: job heartbeat hash
+-- ARGV[1]: canonical job key prefix
+-- ARGV[2]: active_since timestamp string
+local job_key_prefix = ARGV[1]
+local active_since = ARGV[2]
+
+local function member_job(member)
+  local ok, payload = pcall(cjson.decode, member)
+  if ok and type(payload) == 'table' then
+    local job_id = payload.id
+    if job_id then
+      return tostring(job_id), payload, member
+    end
+    return nil, payload, member
+  end
+  return tostring(member), nil, nil
+end
+
+local function has_pending_dependencies(payload)
+  local depends_on = payload.depends_on
+  return type(depends_on) == 'table' and next(depends_on) ~= nil
+end
+
+while true do
+  local items = redis.call('ZRANGE', KEYS[1], 0, 0)
+  if #items == 0 then
+    return nil
+  end
+
+  local member = items[1]
+  redis.call('ZREM', KEYS[1], member)
+
+  local job_id, _, member_json = member_job(member)
+  if job_id then
+    local job_key = job_key_prefix .. job_id
+    local stored_json = redis.call('GET', job_key)
+    local candidate_json = stored_json or member_json
+
+    if candidate_json then
+      local ok, payload = pcall(cjson.decode, candidate_json)
+      if ok and type(payload) == 'table' then
+        if redis.call('SISMEMBER', KEYS[2], job_id) == 1 then
+          payload.status = 'cancelled'
+          payload.result = nil
+          redis.call('SET', job_key, cjson.encode(payload))
+          redis.call('SADD', KEYS[6], job_id)
+          redis.call('HSET', KEYS[3], job_id, 'cancelled')
+          redis.call('HDEL', KEYS[4], job_id)
+          redis.call('HDEL', KEYS[5], job_id)
+          redis.call('HDEL', KEYS[7], job_id)
+        elseif has_pending_dependencies(payload) then
+          payload.status = 'waiting'
+          redis.call('SET', job_key, cjson.encode(payload))
+          redis.call('SADD', KEYS[6], job_id)
+          redis.call('HSET', KEYS[3], job_id, 'waiting')
+          redis.call('HDEL', KEYS[4], job_id)
+        else
+          if not stored_json and member_json then
+            redis.call('SET', job_key, member_json)
+          end
+          redis.call('SADD', KEYS[6], job_id)
+          redis.call('HSET', KEYS[3], job_id, 'active')
+          redis.call('HDEL', KEYS[4], job_id)
+          redis.call('HSET', KEYS[5], job_id, active_since)
+          payload.status = 'active'
+          payload.active_since = active_since
+          return cjson.encode(payload)
+        end
+      end
+    end
+  end
+end
+"""
+
 ENQUEUE_SCRIPT: str = """
 -- KEYS[1]: waiting zset
 -- KEYS[2]: waiting sequence counter
@@ -331,9 +412,8 @@ class RedisBackend(BaseBackend):
         uses the provided Redis client instance. Initializes a `RedisJobStore`
         instance, which is responsible for handling the persistent storage and
         retrieval of full job data payloads in Redis (typically using simple
-        key-value pairs or Hashes). It also registers the `POP_SCRIPT` and
-        `FLOW_SCRIPT` Lua scripts with Redis for atomic operations like
-        dequeueing and flow creation.
+        key-value pairs or Hashes). It also registers Lua scripts with Redis
+        for atomic operations like dequeue claiming and flow creation.
 
         Args:
             redis_url_or_client: Either a connection URL string for the Redis
@@ -361,8 +441,10 @@ class RedisBackend(BaseBackend):
             # Initialize the RedisJobStore with the same Redis client instance.
             self.job_store = RedisJobStore(redis_client=redis_url_or_client)
 
-        # Register the Lua POP_SCRIPT for atomic dequeue operations.
+        # Register the Lua POP_SCRIPT for compatibility with older internal
+        # callers and CLAIM_SCRIPT for the hot dequeue ownership transition.
         self.pop_script: AsyncScript = self.redis.register_script(POP_SCRIPT)
+        self._claim_script: AsyncScript = self.redis.register_script(CLAIM_SCRIPT)
         self._enqueue_script: AsyncScript = self.redis.register_script(ENQUEUE_SCRIPT)
         # Register the Lua FLOW_SCRIPT for atomic flow creation (bulk enqueue + dependencies).
         self.flow_script: AsyncScript = self.redis.register_script(FLOW_SCRIPT)
@@ -730,12 +812,9 @@ class RedisBackend(BaseBackend):
         """
         Asynchronously attempts to dequeue the next job from the specified queue.
 
-        Uses a pre-registered Lua script (`POP_SCRIPT`) to atomically retrieve
-        and remove the highest priority job (the one with the lowest score)
-        from the waiting queue's Sorted Set. If a job is dequeued, its state
-        is updated to `State.ACTIVE` in the job store, and it's added to a
-        Redis Hash (`queue:{queue_name}:active`) keyed by job ID, along with
-        the timestamp of when it became active.
+        Uses a pre-registered Lua claim script to atomically remove the next
+        runnable waiting member, persist active ownership metadata, and return
+        the active payload.
 
         Args:
             queue_name: The name of the queue to dequeue a job from.
@@ -744,58 +823,24 @@ class RedisBackend(BaseBackend):
             The job data as a dictionary if a job was successfully dequeued,
             otherwise None.
         """
-        # Get the Redis key for the waiting queue's Sorted Set.
-        key: str = self._waiting_key(queue_name)
-        # Execute the Lua script to atomically pop the next job from the Sorted Set.
-        # New waiting entries are job IDs; legacy entries may still be JSON payloads.
-        while raw := await self.pop_script(keys=[key]):
-            job_id, payload = self._job_id_and_payload_from_member(raw)
-            if job_id is None:
-                continue
-            read_pipe = self.redis.pipeline(transaction=False)
-            read_pipe.get(self._job_store_key(queue_name, job_id))
-            read_pipe.sismember(self._cancelled_key(queue_name), job_id)
-            stored_raw, is_cancelled = await read_pipe.execute()
-            if isinstance(stored_raw, bytes):
-                stored_raw = stored_raw.decode("utf-8")
-            stored = self._json_serializer.to_dict(stored_raw) if stored_raw else None
-            candidate = stored or payload
-            if candidate is None:
-                continue
-            if is_cancelled:
-                cancelled_payload = {**candidate, "status": "cancelled", "delay_until": None}
-                cancelled_payload.pop("result", None)
-                write_pipe = self.redis.pipeline(transaction=False)
-                write_pipe.set(
-                    self._job_store_key(queue_name, job_id), self._json_serializer.to_json(cancelled_payload)
-                )
-                write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
-                write_pipe.hset(self._job_state_key(queue_name), job_id, "cancelled")
-                write_pipe.hdel(self._job_result_key(queue_name), job_id)
-                write_pipe.hdel(self._active_key(queue_name), job_id)
-                write_pipe.hdel(self._job_heartbeat_key(queue_name), job_id)
-                await write_pipe.execute()
-                continue
-            if has_pending_dependencies(candidate):
-                waiting_payload = {**candidate, "status": State.WAITING}
-                write_pipe = self.redis.pipeline(transaction=False)
-                write_pipe.set(self._job_store_key(queue_name, job_id), self._json_serializer.to_json(waiting_payload))
-                write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
-                write_pipe.hset(self._job_state_key(queue_name), job_id, State.WAITING)
-                write_pipe.hdel(self._job_result_key(queue_name), job_id)
-                await write_pipe.execute()
-                continue
-            active_since = time.time()
-            active_payload = {**candidate, "status": State.ACTIVE, "active_since": active_since}
-            write_pipe = self.redis.pipeline(transaction=False)
-            write_pipe.sadd(self._job_store_ids_key(queue_name), job_id)
-            write_pipe.hset(self._job_state_key(queue_name), job_id, State.ACTIVE)
-            write_pipe.hdel(self._job_result_key(queue_name), job_id)
-            write_pipe.hset(self._active_key(queue_name), job_id, str(active_since))
-            await write_pipe.execute()
-            return active_payload
-        # If the script returned nil (no jobs in the waiting queue).
-        return None
+        active_since = time.time()
+        raw = await self._claim_script(
+            keys=[
+                self._waiting_key(queue_name),
+                self._cancelled_key(queue_name),
+                self._job_state_key(queue_name),
+                self._job_result_key(queue_name),
+                self._active_key(queue_name),
+                self._job_store_ids_key(queue_name),
+                self._job_heartbeat_key(queue_name),
+            ],
+            args=[f"jobs:{queue_name}:", repr(active_since)],
+        )
+        if raw is None:
+            return None
+        payload = self._json_serializer.to_dict(raw)
+        payload["active_since"] = active_since
+        return payload
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """

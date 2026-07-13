@@ -193,6 +193,31 @@ async def test_redis_claim_and_complete_do_not_rewrite_large_canonical_payload(r
     assert hydrated["args"] == [body]
 
 
+async def test_redis_dequeue_claims_without_client_side_pop_or_pipeline(redis, monkeypatch):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-claim-script-hot-path"
+    job = Job(task_id="redis.claim.script", args=[], kwargs={}, job_id="j-claim-script")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    async def fail_pop_script(*args, **kwargs):
+        raise AssertionError("dequeue should use the Redis claim script, not pop_script")
+
+    def fail_pipeline(*args, **kwargs):
+        raise AssertionError("dequeue should not perform client-side claim pipelines")
+
+    monkeypatch.setattr(backend, "pop_script", fail_pop_script)
+    monkeypatch.setattr(backend.redis, "pipeline", fail_pipeline)
+
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert payload["id"] == job.id
+    assert payload["status"] == State.ACTIVE
+    assert await redis.hget(backend._active_key(queue), job.id) == repr(payload["active_since"])
+    assert await redis.zcard(backend._waiting_key(queue)) == 0
+
+
 async def test_complete_active_job_preserves_unrelated_redis_waiting_backlog(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-lifecycle-complete-backlog"
