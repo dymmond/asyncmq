@@ -1385,6 +1385,8 @@ class RedisBackend(BaseBackend):
         heartbeat_removed = await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
         if active_removed > 0 or heartbeat_removed > 0:
             removed = True
+        if await self.redis.srem(self._cancelled_key(queue_name), job_id) > 0:
+            removed = True
 
         if stored is not None:
             removed = True
@@ -1393,7 +1395,6 @@ class RedisBackend(BaseBackend):
         if removed:
             await self.redis.delete(f"deps:{queue_name}:{job_id}:pending")
             await self.redis.delete(f"deps:{queue_name}:parent:{job_id}")
-            await self.redis.srem(self._cancelled_key(queue_name), job_id)
             await self.job_store.delete(queue_name, job_id)
         # Return whether the job was found and removed from any queue.
         return removed

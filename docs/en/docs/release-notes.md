@@ -77,6 +77,8 @@
   lifecycle writes from overwriting cancellation.
 - PostgreSQL job removal now clears cancellation markers even when cancellation
   had already removed the runnable job row.
+- Redis and MongoDB job removal now also clear cancellation markers when
+  cancellation exists without a runnable queue member or job document.
 - MongoDB cancellation markers are now persisted in MongoDB and checked during
   dequeue and lifecycle transitions, so separate backend instances no longer
   claim cancelled jobs or overwrite cancellation with late completion.

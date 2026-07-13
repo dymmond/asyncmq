@@ -1431,10 +1431,13 @@ class MongoDBBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to remove.
         """
+        await self.connect()
         existing = await self.store.load(queue_name, job_id)
-        if not existing:
+        cancelled = await self._is_job_durably_cancelled(queue_name, job_id)
+        if not existing and not cancelled:
             return False
-        await self.store.delete(queue_name, job_id)
+        if existing:
+            await self.store.delete(queue_name, job_id)
         await self._clear_job_cancelled(queue_name, job_id)
         async with self.lock:
             self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]

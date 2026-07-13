@@ -27,7 +27,8 @@ Redis:
 - worker lifecycle transitions use Redis-side scripts for active-job
   completion, retry/defer, expiration, cancellation, and DLQ routing
 - cancellation markers are stored in Redis and respected by lifecycle scripts
-  so late completions cannot overwrite cancelled jobs
+  so late completions cannot overwrite cancelled jobs; removal clears markers
+  even when only cancellation state remains
 
 Postgres:
 
@@ -52,7 +53,8 @@ MongoDB:
 - worker lifecycle transitions update the MongoDB job document and local runtime
   mirrors through one backend-owned path
 - cancellation markers are stored in MongoDB so separate backend instances stop
-  claiming cancelled waiting, delayed, or active jobs
+  claiming cancelled waiting, delayed, or active jobs; removal clears markers
+  even when only cancellation state remains
 
 RabbitMQ:
 

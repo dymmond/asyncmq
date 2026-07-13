@@ -60,3 +60,15 @@ async def test_remove_job(redis):
     assert not any(json.loads(m)["id"] == "r3" for m in waiting)
     assert not any(json.loads(m)["id"] == "r3" for m in delayed)
     assert not any(json.loads(m)["id"] == "r3" for m in dlq)
+
+
+async def test_remove_job_clears_redis_cancellation_marker(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue, job_id = "q1", "r-cancelled-remove"
+
+    await backend.cancel_job(queue, job_id)
+    assert await backend.is_job_cancelled(queue, job_id)
+
+    assert await backend.remove_job(queue, job_id) is True
+
+    assert not await backend.is_job_cancelled(queue, job_id)

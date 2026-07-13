@@ -61,3 +61,18 @@ async def test_remove_job_mongo():
 
     job = await backend.store.load(queue, job_id)
     assert job is None
+
+
+@pytest.mark.anyio
+async def test_remove_job_clears_mongodb_cancellation_marker():
+    backend = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="asyncmq_test")
+    await backend.connect()
+
+    queue = "q1"
+    job_id = "m-cancelled-remove"
+    await backend.cancel_job(queue, job_id)
+    assert await backend.is_job_cancelled(queue, job_id)
+
+    assert await backend.remove_job(queue, job_id) is True
+
+    assert not await backend.is_job_cancelled(queue, job_id)
