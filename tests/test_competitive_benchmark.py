@@ -147,6 +147,23 @@ async def test_asyncmq_benchmark_counter_uses_blocking_pool():
         await _close_asyncmq_counter(redis_url)
 
 
+async def test_asyncmq_payload_task_records_completion_and_bytes(monkeypatch):
+    redis_url = "redis://localhost:6379/15"
+    client = async_redis.from_url(redis_url)
+    await client.flushdb()
+    monkeypatch.setenv("ASYNCMQ_BENCH_REDIS_URL", redis_url)
+    try:
+        result = await competitive._asyncmq_payload_task("abcd", "unit-bytes")
+
+        assert result == 4
+        assert int(await client.get(competitive._completion_key("unit-bytes")) or 0) == 1
+        assert int(await client.get(competitive._bytes_key("unit-bytes")) or 0) == 4
+    finally:
+        await _close_asyncmq_counter(redis_url)
+        await client.flushdb()
+        await client.aclose()
+
+
 async def test_competitive_runner_records_timed_out_samples(monkeypatch):
     async def fake_sample(**kwargs):
         return {

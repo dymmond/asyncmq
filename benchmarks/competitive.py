@@ -78,6 +78,10 @@ def _completion_key(run_id: str) -> str:
     return f"asyncmq:benchmark:{run_id}:completed"
 
 
+def _bytes_key(run_id: str) -> str:
+    return f"asyncmq:benchmark:{run_id}:bytes"
+
+
 def _venv_python(root: Path, target: str) -> Path:
     bindir = "Scripts" if sys.platform == "win32" else "bin"
     return root / target / bindir / "python"
@@ -199,7 +203,10 @@ def _run_dimensions(args: argparse.Namespace) -> RunDimensions:
 async def _asyncmq_payload_task(payload: str, run_id: str) -> int:
     redis_url = os.environ.get("ASYNCMQ_BENCH_REDIS_URL", REDIS_URL)
     client = _asyncmq_counter_client(redis_url)
-    await client.incr(_completion_key(run_id))
+    pipe = client.pipeline()
+    pipe.incr(_completion_key(run_id))
+    pipe.incrby(_bytes_key(run_id), len(payload))
+    await pipe.execute()
     return len(payload)
 
 
@@ -224,7 +231,7 @@ def _asyncmq_counter_client(redis_url: str) -> Any:
 async def _close_asyncmq_counter(redis_url: str) -> None:
     client = _ASYNCMQ_COUNTERS.pop(redis_url, None)
     if client is not None:
-        await client.aclose()
+        await client.aclose(close_connection_pool=True)
 
 
 async def _run_asyncmq_sample(
