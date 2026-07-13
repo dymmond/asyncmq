@@ -117,6 +117,26 @@ def _heartbeat_renewal_interval(settings: Any) -> float:
     return max(0.1, min(check_interval, threshold / 3))
 
 
+async def _save_job_heartbeat_safely(
+    backend: BaseBackend,
+    queue_name: str,
+    job_id: str,
+    timestamp: float,
+    failure_count: int,
+) -> bool:
+    try:
+        await backend.save_heartbeat(queue_name, job_id, timestamp)
+    except Exception as exc:
+        if failure_count == 1 or failure_count % 10 == 0:
+            logger.warning(
+                f"Failed to renew heartbeat for job {job_id!r} in queue {queue_name!r} "
+                f"(failure #{failure_count}); continuing execution: {exc}",
+                exc_info=True,
+            )
+        return False
+    return True
+
+
 async def process_job(
     queue_name: str,
     limiter: CapacityLimiter,
@@ -318,9 +338,17 @@ async def handle_job(
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
         async def heartbeat_renewal_loop() -> None:
+            heartbeat_failures = 0
             while True:
                 await anyio.sleep(_heartbeat_renewal_interval(settings))
-                await backend.save_heartbeat(queue_name, job.id, time.time())
+                saved = await _save_job_heartbeat_safely(
+                    backend,
+                    queue_name,
+                    job.id,
+                    time.time(),
+                    heartbeat_failures + 1,
+                )
+                heartbeat_failures = 0 if saved else heartbeat_failures + 1
 
         with job_execution_span(settings, queue_name, job.to_dict()) as span:
             try:

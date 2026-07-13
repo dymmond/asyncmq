@@ -184,6 +184,9 @@ starts and renews it while the handler is still running.
 The renewal interval is derived from `stalled_threshold` and
 `stalled_check_interval`, so a healthy long-running async handler should not be
 re-enqueued merely because it ran longer than the visibility window.
+After the initial active heartbeat is written, transient renewal write failures
+are logged and the renewal loop keeps retrying without cancelling the running
+handler.
 
 Handlers may still refresh explicitly when they hand work to external systems
 and want to report a domain-specific checkpoint:

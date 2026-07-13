@@ -58,6 +58,8 @@
 - Stalled-job visibility now renews job heartbeats while handlers run, and the
   normal worker entrypoints start stalled recovery automatically when
   `enable_stalled_check=True`.
+- Job heartbeat renewal write failures after the initial active heartbeat are
+  now logged and retried without cancelling the running handler.
 - Stalled recovery now validates active-job release from real dequeued jobs,
   including local RabbitMQ in-flight delivery acknowledgement during recovery.
 - Redis stalled recovery now atomically re-checks canonical active state before
