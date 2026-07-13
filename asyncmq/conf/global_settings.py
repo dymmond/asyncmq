@@ -417,6 +417,13 @@ class Settings(BaseSettings):
     """
     heartbeat_ttl: int = 30
 
+    max_job_payload_bytes: int | None = 1_048_576
+    """
+    Maximum JSON-encoded job payload size accepted by public producer APIs.
+
+    Set to None to disable the producer-side guard. Defaults to 1 MiB.
+    """
+
     """
     A list of module paths in which to look for @task-decorated callables.
     E.g. ["myapp.runs.tasks", "myapp.jobs.tasks"].

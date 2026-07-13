@@ -9,6 +9,7 @@ Main settings class: `asyncmq.conf.global_settings.Settings`.
 - `worker_concurrency: int = 1`
 - `scan_interval: float = 1.0`
 - `heartbeat_ttl: int = 30`
+- `max_job_payload_bytes: int | None = 1_048_576`
 - `tasks: list[str] = []`
 - `secret_key: str | None = None`
 

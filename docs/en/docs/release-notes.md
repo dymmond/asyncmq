@@ -12,6 +12,9 @@
   run shutdown hooks before process termination.
 - Dashboard deployments now expose `/metrics/prometheus` with scrapeable queue,
   worker, and readiness gauges for Prometheus-compatible monitoring.
+- Public producer APIs now enforce a configurable JSON-encoded job payload size
+  guard through `max_job_payload_bytes` to reduce resource-exhaustion risk from
+  oversized jobs.
 
 ### Fixed
 
