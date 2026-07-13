@@ -24,6 +24,8 @@
   RabbitMQ/MongoDB state handling.
 - Redis waiting queues now index job IDs and keep volatile state/result metadata
   compact, reducing hot-path scans, memory pressure, and large-payload rewrites.
+- Competitive benchmarks now bound stalled competitor samples so one queue
+  runner cannot block an entire comparison.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
 

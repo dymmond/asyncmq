@@ -70,6 +70,8 @@ Use an isolated Redis database or disposable Redis instance for competitive
 runs. The harness flushes the selected Redis database before each sample.
 Pass `--dry-run --workload <name>` before a large run to inspect the resolved
 jobs, workers, concurrency, payload size, warmup, and target interpreters.
+Pass `--no-progress-timeout <seconds>` to bound competitor samples that stop
+advancing their completion counter before the overall sample timeout.
 For 1,000-worker local runs, tune `ASYNCMQ_BENCH_COUNTER_MAX_CONNECTIONS` and
 `ASYNCMQ_BENCH_COUNTER_POOL_TIMEOUT` if the benchmark counter itself becomes the
 bottleneck.

@@ -445,6 +445,35 @@ async def _enqueue_external(
     return time.perf_counter_ns() - enqueue_start
 
 
+async def _wait_for_completion_counter(
+    counter: Any,
+    key: str,
+    *,
+    jobs: int,
+    timeout: float,
+    no_progress_timeout: float,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    no_progress_deadline = time.monotonic() + no_progress_timeout if no_progress_timeout > 0 else None
+    completed = int(counter.get(key) or 0)
+
+    while completed < jobs:
+        now = time.monotonic()
+        if now >= deadline:
+            return True
+        if no_progress_deadline is not None and now >= no_progress_deadline:
+            return True
+
+        await anyio.sleep(0.01)
+        next_completed = int(counter.get(key) or 0)
+        if next_completed > completed:
+            completed = next_completed
+            if no_progress_timeout > 0:
+                no_progress_deadline = time.monotonic() + no_progress_timeout
+
+    return False
+
+
 async def _run_external_sample(
     *,
     target: str,
@@ -458,6 +487,7 @@ async def _run_external_sample(
     queue: str,
     run_id: str,
     worker_startup_delay: float,
+    no_progress_timeout: float,
 ) -> dict[str, int | float | bool | None]:
     from redis import Redis
 
@@ -494,9 +524,13 @@ async def _run_external_sample(
             redis_url=redis_url,
         )
 
-        with anyio.move_on_after(timeout) as scope:
-            while int(counter.get(_completion_key(run_id)) or 0) < jobs:
-                await anyio.sleep(0.01)
+        timed_out = await _wait_for_completion_counter(
+            counter,
+            _completion_key(run_id),
+            jobs=jobs,
+            timeout=timeout,
+            no_progress_timeout=no_progress_timeout,
+        )
         total_latency_ns = time.perf_counter_ns() - total_start
     finally:
         _stop_workers(processes)
@@ -519,7 +553,7 @@ async def _run_external_sample(
         "max_rss_kb": max_rss_kb,
         "completed": completed,
         "failed": jobs - completed,
-        "timed_out": scope.cancel_called,
+        "timed_out": timed_out,
     }
 
 
@@ -537,6 +571,7 @@ async def run_target(
     repetitions: int,
     redis_url: str,
     worker_startup_delay: float,
+    no_progress_timeout: float = 30.0,
 ) -> CompetitiveResult:
     if target not in TARGETS:
         raise ValueError(f"unknown target: {target}")
@@ -572,6 +607,7 @@ async def run_target(
                 queue=queue,
                 run_id=run_id,
                 worker_startup_delay=worker_startup_delay,
+                no_progress_timeout=no_progress_timeout,
             )
 
     samples: list[dict[str, int | float | bool | None]] = []
@@ -601,6 +637,7 @@ async def run_target(
                 queue=queue,
                 run_id=run_id,
                 worker_startup_delay=worker_startup_delay,
+                no_progress_timeout=no_progress_timeout,
             )
         samples.append(sample)
 
@@ -676,6 +713,7 @@ async def run_competitive(args: argparse.Namespace) -> list[CompetitiveResult]:
             repetitions=args.repetitions,
             redis_url=args.redis_url,
             worker_startup_delay=args.worker_startup_delay,
+            no_progress_timeout=args.no_progress_timeout,
         )
         for target in selected
     ]
@@ -698,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--redis-url", default=REDIS_URL)
     parser.add_argument("--worker-startup-delay", type=float, default=4.0)
+    parser.add_argument("--no-progress-timeout", type=float, default=30.0)
     parser.add_argument("--venv-root", type=Path, default=Path(".benchmarks/envs"))
     parser.add_argument("--target-python", action="append", default=[], help="TARGET=/path/to/python override.")
     parser.add_argument(

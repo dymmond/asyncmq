@@ -12,6 +12,7 @@ from benchmarks.competitive import (
     _close_asyncmq_counter,
     _parse_target_python,
     _select_targets,
+    _wait_for_completion_counter,
     _worker_exit_summary,
     benchmark_inventory,
     main,
@@ -74,6 +75,22 @@ def test_worker_exit_summary_includes_stderr():
 
     assert "return_code=7" in summary
     assert "worker boom" in summary
+
+
+async def test_completion_counter_no_progress_timeout_bounds_stalled_samples():
+    class FrozenCounter:
+        def get(self, key):
+            return 1
+
+    timed_out = await _wait_for_completion_counter(
+        FrozenCounter(),
+        "completion-key",
+        jobs=5,
+        timeout=60.0,
+        no_progress_timeout=0.01,
+    )
+
+    assert timed_out is True
 
 
 async def test_competitive_asyncmq_runner_processes_all_jobs():
