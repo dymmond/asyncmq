@@ -5,6 +5,7 @@ import anyio
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend
+from asyncmq.logging import logger
 
 if TYPE_CHECKING:
     from asyncmq.backends.base import BaseBackend
@@ -42,17 +43,42 @@ async def stalled_recovery_scheduler(
 
     while True:
         cutoff = time.time() - threshold
-        # Fetch jobs whose heartbeat is older than cutoff
-        stalled: list[dict[str, Any]] = await backend.fetch_stalled_jobs(cutoff)
+        try:
+            # Fetch jobs whose heartbeat is older than cutoff.
+            stalled: list[dict[str, Any]] = await backend.fetch_stalled_jobs(cutoff)
+        except Exception:
+            logger.error("Stalled recovery scan failed", exc_info=True)
+            await anyio.sleep(check_interval)
+            continue
+
         for entry in stalled:
             queue_name = entry.get("queue_name") or entry.get("queue")
             if not queue_name:
                 continue
             job_data = entry["job_data"]
-            # Re-enqueue the stalled job
-            await backend.reenqueue_stalled(queue_name, job_data)
-            # Emit a stalled event, including queue_name in payload
+
+            try:
+                # Re-enqueue the stalled job.
+                await backend.reenqueue_stalled(queue_name, job_data)
+            except Exception:
+                logger.error(
+                    "Failed to re-enqueue stalled job %r from queue %r",
+                    job_data.get("id"),
+                    queue_name,
+                    exc_info=True,
+                )
+                continue
+
+            # Emit a stalled event, including queue_name in payload.
             event_data = {"queue_name": queue_name, **job_data}
-            await backend.emit_event("job:stalled", event_data)
+            try:
+                await backend.emit_event("job:stalled", event_data)
+            except Exception:
+                logger.error(
+                    "Failed to emit stalled recovery event for job %r from queue %r",
+                    job_data.get("id"),
+                    queue_name,
+                    exc_info=True,
+                )
 
         await anyio.sleep(check_interval)

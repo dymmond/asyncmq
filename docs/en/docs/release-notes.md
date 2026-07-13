@@ -79,6 +79,8 @@
   `enable_stalled_check=True`.
 - Job heartbeat renewal write failures after the initial active heartbeat are
   now logged and retried without cancelling the running handler.
+- Stalled recovery now logs transient scan, individual requeue, and stalled
+  event-emission failures without stopping the recovery loop.
 - Stalled recovery now validates active-job release from real dequeued jobs,
   including local RabbitMQ in-flight delivery acknowledgement during recovery.
 - Redis stalled recovery now atomically re-checks canonical active state before

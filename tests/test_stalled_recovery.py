@@ -190,6 +190,101 @@ async def test_scheduler_recovery(backend, monkeypatch):
         assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
 
 
+async def test_stalled_recovery_scheduler_survives_transient_fetch_failure():
+    class FlakyFetchBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetch_calls = 0
+            self.recovered: list[str] = []
+
+        async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+            self.fetch_calls += 1
+            if self.fetch_calls == 1:
+                raise RuntimeError("temporary backend outage")
+            return [{"queue_name": "flaky-fetch", "job_data": {"id": "recovered", "task": "tx"}}]
+
+        async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+            self.recovered.append(str(job_data["id"]))
+
+    backend = FlakyFetchBackend()
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(stalled_recovery_scheduler, backend, 0.01, 0.01)
+        with anyio.fail_after(1):
+            while "recovered" not in backend.recovered:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert backend.fetch_calls >= 2
+
+
+async def test_stalled_recovery_scheduler_continues_after_single_reenqueue_failure():
+    class PartiallyFailingBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.recovered: list[str] = []
+            self.events: list[str] = []
+
+        async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+            return [
+                {"queue_name": "partial", "job_data": {"id": "bad", "task": "tx"}},
+                {"queue_name": "partial", "job_data": {"id": "good", "task": "tx"}},
+            ]
+
+        async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+            job_id = str(job_data["id"])
+            if job_id == "bad":
+                raise RuntimeError("write failed")
+            self.recovered.append(job_id)
+
+        async def emit_event(self, event: str, data: dict[str, Any]) -> None:
+            self.events.append(str(data["id"]))
+
+    backend = PartiallyFailingBackend()
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(stalled_recovery_scheduler, backend, 0.01, 0.01)
+        with anyio.fail_after(1):
+            while "good" not in backend.recovered:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert "bad" not in backend.recovered
+    assert "good" in backend.recovered
+    assert "good" in backend.events
+
+
+async def test_stalled_recovery_scheduler_continues_after_event_failure():
+    class EventFailingBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetch_calls = 0
+            self.recovered: list[str] = []
+            self.event_attempts = 0
+
+        async def fetch_stalled_jobs(self, older_than: float) -> list[dict[str, Any]]:
+            self.fetch_calls += 1
+            if self.fetch_calls == 1:
+                return [{"queue_name": "event-failure", "job_data": {"id": "event-failed", "task": "tx"}}]
+            return []
+
+        async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
+            self.recovered.append(str(job_data["id"]))
+
+        async def emit_event(self, event: str, data: dict[str, Any]) -> None:
+            self.event_attempts += 1
+            raise RuntimeError("event bus unavailable")
+
+    backend = EventFailingBackend()
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(stalled_recovery_scheduler, backend, 0.01, 0.01)
+        with anyio.fail_after(1):
+            while backend.fetch_calls < 2:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert backend.recovered == ["event-failed"]
+    assert backend.event_attempts == 1
+
+
 async def test_reenqueue_stalled_releases_dequeued_active_job(backend):
     queue = "qa-active-release"
     job_id = "active-release"

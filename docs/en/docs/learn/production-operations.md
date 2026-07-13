@@ -206,6 +206,8 @@ operations, not long-term warehouse analytics.
 3. verify long-running handlers are still renewing job heartbeats
 4. after a worker process is killed, wait at least `stalled_threshold` before
    expecting another recovery loop to release the active claim
+5. inspect recovery logs for backend scan, requeue, or event-emission failures
+   if jobs remain active after the threshold
 
 ## Retention and Cleanup
 

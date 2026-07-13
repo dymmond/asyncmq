@@ -49,6 +49,11 @@ complete its active job. The job remains active until its heartbeat or active
 claim crosses the stalled threshold, then another recovery loop can release the
 same active claim back to waiting work.
 
+Transient backend errors during stalled scans, individual requeue operations, or
+stalled-event emission are logged and the recovery loop continues. Jobs remain
+eligible for later recovery attempts until a backend-owned lifecycle transition
+successfully releases them.
+
 Important limits:
 
 - `InMemoryBackend` stalled recovery is process-local and does not survive
