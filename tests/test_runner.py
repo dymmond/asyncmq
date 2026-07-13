@@ -169,6 +169,134 @@ async def test_worker_handles_multiple_jobs():
         assert state == State.COMPLETED
 
 
+async def test_run_worker_concurrency_one_reserves_only_one_executable_job():
+    backend = InMemoryBackend()
+    started = anyio.Event()
+    release = anyio.Event()
+    started_count = 0
+
+    @task(queue="runner")
+    async def blocking_prefetch_task(value):
+        nonlocal started_count
+        started_count += 1
+        started.set()
+        await release.wait()
+        return value
+
+    task_id = get_task_id(blocking_prefetch_task)
+    for index in range(25):
+        job = Job(task_id=task_id, args=[index], kwargs={}, job_id=f"prefetch-{index}")
+        await backend.enqueue("runner", job.to_dict())
+
+    worker = asyncio.create_task(
+        run_worker("runner", backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+    )
+    try:
+        with anyio.fail_after(2.0):
+            await started.wait()
+        await anyio.sleep(0.2)
+
+        active_ids = [job_id for queue_name, job_id in backend.active_jobs if queue_name == "runner"]
+        assert active_ids == ["prefetch-0"]
+        assert len(backend.queues.get("runner", [])) == 24
+        assert started_count == 1
+    finally:
+        release.set()
+        await anyio.sleep(0.05)
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+
+async def test_run_worker_reservations_never_exceed_concurrency():
+    backend = InMemoryBackend()
+    release = anyio.Event()
+    third_started = anyio.Event()
+    started_count = 0
+
+    @task(queue="runner")
+    async def concurrent_blocking_task(value):
+        nonlocal started_count
+        started_count += 1
+        if started_count == 3:
+            third_started.set()
+        await release.wait()
+        return value
+
+    task_id = get_task_id(concurrent_blocking_task)
+    for index in range(10):
+        job = Job(task_id=task_id, args=[index], kwargs={}, job_id=f"bounded-{index}")
+        await backend.enqueue("runner", job.to_dict())
+
+    worker = asyncio.create_task(
+        run_worker("runner", backend=backend, concurrency=3, rate_limit=None, rate_interval=1.0, repeatables=None)
+    )
+    try:
+        with anyio.fail_after(2.0):
+            await third_started.wait()
+        await anyio.sleep(0.2)
+
+        active_ids = [job_id for queue_name, job_id in backend.active_jobs if queue_name == "runner"]
+        assert active_ids == ["bounded-0", "bounded-1", "bounded-2"]
+        assert len(backend.queues.get("runner", [])) == 7
+        assert started_count == 3
+    finally:
+        release.set()
+        await anyio.sleep(0.05)
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+
+async def test_waiting_jobs_remain_available_to_other_workers_when_one_worker_is_full():
+    backend = InMemoryBackend()
+    release = anyio.Event()
+    first_started = anyio.Event()
+    second_started = anyio.Event()
+    started: list[str] = []
+
+    @task(queue="runner")
+    async def shared_queue_blocking_task(value):
+        started.append(value)
+        if value == "first":
+            first_started.set()
+        if value == "second":
+            second_started.set()
+        await release.wait()
+        return value
+
+    task_id = get_task_id(shared_queue_blocking_task)
+    await backend.enqueue("runner", Job(task_id=task_id, args=["first"], kwargs={}, job_id="shared-1").to_dict())
+    await backend.enqueue("runner", Job(task_id=task_id, args=["second"], kwargs={}, job_id="shared-2").to_dict())
+
+    worker_one = asyncio.create_task(
+        run_worker("runner", backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+    )
+    try:
+        with anyio.fail_after(2.0):
+            await first_started.wait()
+        assert await backend.get_job_state("runner", "shared-2") == State.WAITING
+
+        worker_two = asyncio.create_task(
+            run_worker("runner", backend=backend, concurrency=1, rate_limit=None, rate_interval=1.0, repeatables=None)
+        )
+        try:
+            with anyio.fail_after(2.0):
+                await second_started.wait()
+            assert set(started) == {"first", "second"}
+            assert len([job_id for queue_name, job_id in backend.active_jobs if queue_name == "runner"]) == 2
+        finally:
+            worker_two.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker_two
+    finally:
+        release.set()
+        await anyio.sleep(0.05)
+        worker_one.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker_one
+
+
 async def test_worker_respects_backoff():
     backend = InMemoryBackend()
     job = Job(task_id=get_task_id(raise_error), args=[], kwargs={}, max_retries=2, backoff=0.2)
