@@ -44,6 +44,11 @@ still be recovered once the claim is older than `stalled_threshold`. A recovery
 loop scans stale active claims and stale heartbeats, then releases matching jobs
 back to runnable work.
 
+For persistent backends, a killed worker process does not acknowledge or
+complete its active job. The job remains active until its heartbeat or active
+claim crosses the stalled threshold, then another recovery loop can release the
+same active claim back to waiting work.
+
 Important limits:
 
 - `InMemoryBackend` stalled recovery is process-local and does not survive

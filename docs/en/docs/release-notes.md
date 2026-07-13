@@ -52,6 +52,8 @@
 - Production documentation now clarifies backend-specific same-priority
   ordering, RabbitMQ broker ordering, process-local pause limitations, and
   dashboard route prefixes.
+- Delivery semantics now explicitly describe killed-worker stalled recovery
+  behavior and the threshold delay before active claims become releasable.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

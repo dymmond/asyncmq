@@ -204,6 +204,8 @@ operations, not long-term warehouse analytics.
 1. confirm `enable_stalled_check=True`
 2. confirm workers are running through `run_worker(...)`, `Queue.run()`, or `Worker.run()`
 3. verify long-running handlers are still renewing job heartbeats
+4. after a worker process is killed, wait at least `stalled_threshold` before
+   expecting another recovery loop to release the active claim
 
 ## Retention and Cleanup
 

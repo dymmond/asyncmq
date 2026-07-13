@@ -1,5 +1,11 @@
 import json
+import os
+import subprocess
+import sys
+import textwrap
 import time
+from pathlib import Path
+from typing import Any
 
 import anyio
 import pytest
@@ -16,6 +22,56 @@ from asyncmq.core.utils.postgres import install_or_drop_postgres_backend
 pytestmark = pytest.mark.anyio
 
 gs = settings
+
+
+async def _wait_for_redis_value(
+    client: Any,
+    key: str,
+    expected: str,
+    process: subprocess.Popen[str],
+    *,
+    timeout: float = 5.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            stdout, stderr = process.communicate(timeout=1)
+            pytest.fail(
+                f"worker process exited before {key!r} was set\n"
+                f"returncode={process.returncode}\nstdout={stdout}\nstderr={stderr}"
+            )
+        if await client.get(key) == expected:
+            return
+        await anyio.sleep(0.05)
+    pytest.fail(f"timed out waiting for Redis key {key!r} to equal {expected!r}")
+
+
+async def _wait_for_process_exit(process: subprocess.Popen[str], *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return
+        await anyio.sleep(0.05)
+    process.kill()
+    pytest.fail("worker process did not exit after kill")
+
+
+async def _wait_for_stalled_entry(
+    backend: RedisBackend,
+    queue: str,
+    job_id: str,
+    *,
+    threshold: float = 0.2,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        stalled = await backend.fetch_stalled_jobs(time.time() - threshold)
+        for entry in stalled:
+            if entry["queue_name"] == queue and entry["job_data"]["id"] == job_id:
+                return entry
+        await anyio.sleep(0.05)
+    pytest.fail(f"timed out waiting for stalled job {job_id!r} in queue {queue!r}")
 
 
 @pytest.fixture(params=[InMemoryBackend, RedisBackend, PostgresBackend, MongoDBBackend])
@@ -286,6 +342,116 @@ async def test_redis_stalled_recovery_survives_backend_restart():
         await producer.redis.flushdb()
         await producer.redis.aclose()
         await producer.job_store.redis.aclose()
+        await recovery.redis.aclose()
+        await recovery.job_store.redis.aclose()
+
+
+async def test_redis_worker_process_kill_releases_active_job_after_stalled_recovery(tmp_path):
+    queue = "redis-worker-process-kill"
+    job_id = "redis-worker-process-kill-job"
+    task_id = "tests._redis_killed_worker_task"
+    started_key = f"{queue}:started"
+    redis_url = "redis://localhost:6379"
+    payload = {"id": job_id, "task": task_id, "args": [], "kwargs": {}, "priority": 0}
+
+    backend = RedisBackend(redis_url)
+    recovery = RedisBackend(redis_url)
+    await backend.redis.flushdb()
+
+    worker_script = tmp_path / "redis_crash_worker.py"
+    worker_script.write_text(
+        textwrap.dedent(
+            """
+            import sys
+
+            import anyio
+            import redis.asyncio as redis
+
+            from asyncmq.backends.redis import RedisBackend
+            from asyncmq.conf import settings
+            from asyncmq.runners import run_worker
+            from asyncmq.tasks import TASK_REGISTRY
+
+
+            REDIS_URL = sys.argv[1]
+            QUEUE = sys.argv[2]
+            STARTED_KEY = sys.argv[3]
+            TASK_ID = sys.argv[4]
+
+
+            async def killed_worker_task() -> None:
+                client = redis.from_url(REDIS_URL, decode_responses=True)
+                try:
+                    await client.set(STARTED_KEY, "1")
+                finally:
+                    await client.aclose()
+                await anyio.sleep(60)
+
+
+            async def main() -> None:
+                TASK_REGISTRY.clear()
+                TASK_REGISTRY[TASK_ID] = {"func": killed_worker_task}
+                settings.backend = RedisBackend(REDIS_URL)
+                settings.enable_stalled_check = True
+                settings.stalled_threshold = 0.2
+                settings.stalled_check_interval = 0.05
+                await run_worker(
+                    QUEUE,
+                    backend=settings.backend,
+                    concurrency=1,
+                    rate_limit=None,
+                    repeatables=None,
+                    scan_interval=0.05,
+                )
+
+
+            if __name__ == "__main__":
+                anyio.run(main)
+            """
+        )
+    )
+
+    project_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    process = subprocess.Popen(
+        [sys.executable, str(worker_script), redis_url, queue, started_key, task_id],
+        cwd=project_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        await backend.enqueue(queue, payload)
+
+        await _wait_for_redis_value(backend.redis, started_key, "1", process)
+        assert await backend.get_job_state(queue, job_id) == State.ACTIVE
+        assert await backend.redis.hexists(backend._active_key(queue), job_id)
+
+        process.kill()
+        await _wait_for_process_exit(process)
+
+        stalled = await _wait_for_stalled_entry(recovery, queue, job_id)
+        await recovery.reenqueue_stalled(queue, stalled["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.WAITING
+        assert not await recovery.redis.hexists(recovery._active_key(queue), job_id)
+        assert not await recovery.redis.hexists(recovery._job_heartbeat_key(queue), job_id)
+
+        recovered = await recovery.dequeue(queue)
+        assert recovered is not None
+        assert recovered["id"] == job_id
+        assert recovered["active_since"] != stalled["job_data"]["active_since"]
+    finally:
+        if process.poll() is None:
+            process.kill()
+            await _wait_for_process_exit(process)
+        process.communicate(timeout=1)
+        await backend.redis.flushdb()
+        await backend.redis.aclose()
+        await backend.job_store.redis.aclose()
         await recovery.redis.aclose()
         await recovery.job_store.redis.aclose()
 
