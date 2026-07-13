@@ -10,6 +10,8 @@ AsyncMQ ships two benchmark entrypoints:
 hatch run benchmark_plan
 hatch run benchmark
 hatch run benchmark_load
+hatch run benchmark_prepare
+hatch run benchmark_compare
 ```
 
 `benchmark_plan` prints the canonical workload dimensions, measurement policy,
@@ -25,9 +27,9 @@ networked broker or competitive production throughput results.
 `benchmark_load` runs a parameterized AsyncMQ in-memory load benchmark and
 prints JSON with warmup/repetition counts, per-sample measurements, median,
 P95, P99, min, and max statistics, enqueue latency, total latency, throughput,
-worker count, concurrency, payload size, CPU time, max RSS, completed jobs, and
-failed jobs. Use it for local runtime smoke measurements before moving to real
-backend and competitor runs:
+worker count, per-worker concurrency, total concurrency, payload size, CPU
+time, max RSS, completed jobs, and failed jobs. Use it for local runtime smoke
+measurements before moving to real backend and competitor runs:
 
 ```shell
 hatch run python -m benchmarks.load_asyncmq \
@@ -49,6 +51,27 @@ hatch run benchmark_competitors
 
 If a competitor is missing, the command exits non-zero rather than silently
 producing an incomplete comparison.
+
+For executable comparisons, use the Redis-backed competitive harness. It reuses
+the benchmark plan and runner statistics, but isolates competitor dependencies
+in per-target virtual environments because some queue libraries require
+incompatible Redis client versions:
+
+```shell
+hatch run benchmark_prepare
+hatch run python -m benchmarks.competitive \
+  --targets asyncmq,celery,dramatiq,arq,rq,huey \
+  --jobs 10000 \
+  --workers 1 \
+  --concurrency 10 \
+  --payload-bytes 128 \
+  --warmup-jobs 1000 \
+  --repetitions 5 \
+  --json
+```
+
+Use an isolated Redis database or disposable Redis instance for competitive
+runs. The harness flushes the selected Redis database before each sample.
 
 ## Benchmark Methodology
 

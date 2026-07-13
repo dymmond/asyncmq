@@ -8,6 +8,7 @@
 .tox/
 .ty_cache/
 .venv/
+.benchmarks/
 .vscode/
 __pycache__/
 virtualenv/

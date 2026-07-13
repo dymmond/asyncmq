@@ -9,7 +9,8 @@
   inspection, liveness/readiness probes, and Prometheus metrics.
 - Added observability and diagnostics options: structured JSON logging,
   optional OpenTelemetry job spans, richer worker visibility, and benchmark
-  tooling with warmups, repeated samples, and summary statistics.
+  tooling with warmups, repeated samples, summary statistics, and isolated
+  competitor runners.
 - Added safety and deployment guidance: payload-size limits, dashboard admin
   authorization, explicit CORS/same-origin controls, delivery-semantics docs,
   Docker/Kubernetes deployment notes, and benchmark planning against Celery,

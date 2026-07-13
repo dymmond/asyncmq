@@ -30,6 +30,7 @@ class LoadResult:
     jobs: int
     workers: int
     concurrency: int
+    total_concurrency: int
     payload_bytes: int
     warmup_jobs: int
     repetitions: int
@@ -73,13 +74,14 @@ def _metric_statistics(samples: list[dict[str, int | float | None]]) -> dict[str
         "enqueue_latency_ns",
         "total_latency_ns",
         "throughput_jobs_per_second",
+        "worker_startup_ns",
         "cpu_user_seconds",
         "cpu_system_seconds",
         "max_rss_kb",
     )
     result: dict[str, dict[str, int | float]] = {}
     for metric in metrics:
-        values = [sample[metric] for sample in samples if sample[metric] is not None]
+        values = [sample[metric] for sample in samples if sample.get(metric) is not None]
         if not values:
             continue
         numeric_values = [value for value in values if isinstance(value, int | float)]
@@ -204,6 +206,7 @@ async def run_load(
         jobs=jobs,
         workers=workers,
         concurrency=concurrency,
+        total_concurrency=workers * concurrency,
         payload_bytes=payload_bytes,
         warmup_jobs=warmup_jobs,
         repetitions=repetitions,

@@ -1,0 +1,651 @@
+"""Competitive benchmark harness for AsyncMQ and external task queues."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import time
+import venv
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import anyio
+
+from asyncmq.backends.redis import RedisBackend
+from asyncmq.jobs import Job
+from asyncmq.tasks import TASK_REGISTRY
+from asyncmq.workers import process_job
+from benchmarks.load_asyncmq import _metric_statistics, _resource_snapshot
+
+REDIS_URL = "redis://localhost:6379/15"
+ASYNCMQ_TASK_ID = "benchmarks.competitive.asyncmq_payload_task"
+
+
+@dataclass(frozen=True)
+class Target:
+    name: str
+    packages: tuple[str, ...]
+    description: str
+
+
+@dataclass(frozen=True)
+class CompetitiveResult:
+    target: str
+    jobs: int
+    workers: int
+    concurrency: int
+    total_concurrency: int
+    payload_bytes: int
+    warmup_jobs: int
+    repetitions: int
+    enqueue_latency_ns: int
+    total_latency_ns: int
+    throughput_jobs_per_second: float
+    worker_startup_ns: int
+    cpu_user_seconds: float | None
+    cpu_system_seconds: float | None
+    max_rss_kb: int | None
+    completed: int
+    failed: int
+    samples: list[dict[str, int | float | None]]
+    statistics: dict[str, dict[str, int | float]]
+
+
+TARGETS: dict[str, Target] = {
+    "asyncmq": Target("asyncmq", (), "AsyncMQ RedisBackend using this Hatch environment."),
+    "celery": Target("celery", ("celery[redis]>=5.6,<6",), "Celery with Redis broker/result backend."),
+    "dramatiq": Target("dramatiq", ("dramatiq[redis]>=2.2,<3",), "Dramatiq with RedisBroker."),
+    "arq": Target("arq", ("arq>=0.28,<0.29",), "Arq with Redis queue workers."),
+    "rq": Target("rq", ("rq>=2.10,<3",), "RQ with Redis workers."),
+    "huey": Target("huey", ("huey>=3.2,<4", "redis>=5,<6"), "Huey with RedisHuey."),
+}
+
+
+def _completion_key(run_id: str) -> str:
+    return f"asyncmq:benchmark:{run_id}:completed"
+
+
+def _venv_python(root: Path, target: str) -> Path:
+    bindir = "Scripts" if sys.platform == "win32" else "bin"
+    return root / target / bindir / "python"
+
+
+def _target_env(redis_url: str, queue: str, concurrency: int) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "ASYNCMQ_BENCH_CONCURRENCY": str(concurrency),
+            "ASYNCMQ_BENCH_QUEUE": queue,
+            "ASYNCMQ_BENCH_REDIS_URL": redis_url,
+            "PYTHONUNBUFFERED": "1",
+        }
+    )
+    return env
+
+
+def _run_subprocess(command: Sequence[str], *, env: dict[str, str] | None = None) -> None:
+    subprocess.run(command, check=True, env=env, text=True)
+
+
+def prepare_envs(targets: Sequence[str], root: Path) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    root.mkdir(parents=True, exist_ok=True)
+    for target_name in targets:
+        target = TARGETS[target_name]
+        if target.name == "asyncmq":
+            prepared.append({"target": target.name, "python": sys.executable, "packages": []})
+            continue
+
+        env_dir = root / target.name
+        python = _venv_python(root, target.name)
+        if not python.exists():
+            venv.EnvBuilder(with_pip=True).create(env_dir)
+
+        _run_subprocess([str(python), "-m", "pip", "install", "--upgrade", "pip"])
+        _run_subprocess([str(python), "-m", "pip", "install", *target.packages])
+        _run_subprocess([str(python), "-m", "pip", "check"])
+        prepared.append({"target": target.name, "python": str(python), "packages": list(target.packages)})
+    return prepared
+
+
+def _resolve_target_python(target: str, root: Path, explicit: dict[str, str]) -> str:
+    if target == "asyncmq":
+        return sys.executable
+    if target in explicit:
+        return explicit[target]
+    candidate = _venv_python(root, target)
+    return str(candidate) if candidate.exists() else sys.executable
+
+
+def _parse_target_python(values: Sequence[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--target-python values must use TARGET=/path/to/python")
+        target, python = value.split("=", 1)
+        if target not in TARGETS:
+            raise ValueError(f"unknown target for --target-python: {target}")
+        result[target] = python
+    return result
+
+
+def _select_targets(raw_targets: str) -> list[str]:
+    if raw_targets == "all":
+        return list(TARGETS)
+    selected = [item.strip() for item in raw_targets.split(",") if item.strip()]
+    unknown = [target for target in selected if target not in TARGETS]
+    if unknown:
+        raise ValueError(f"unknown benchmark targets: {', '.join(unknown)}")
+    return selected
+
+
+async def _asyncmq_payload_task(payload: str, run_id: str) -> int:
+    from redis import Redis
+
+    client = Redis.from_url(os.environ.get("ASYNCMQ_BENCH_REDIS_URL", REDIS_URL))
+    try:
+        client.incr(_completion_key(run_id))
+    finally:
+        client.close()
+    return len(payload)
+
+
+async def _run_asyncmq_sample(
+    *,
+    jobs: int,
+    workers: int,
+    concurrency: int,
+    payload_bytes: int,
+    timeout: float,
+    redis_url: str,
+    queue: str,
+    run_id: str,
+) -> dict[str, int | float | None]:
+    from redis import Redis
+
+    payload = "x" * payload_bytes
+    TASK_REGISTRY[ASYNCMQ_TASK_ID] = {"func": _asyncmq_payload_task}
+    backend = RedisBackend(redis_url)
+    counter = Redis.from_url(redis_url)
+    counter.flushdb()
+    os.environ["ASYNCMQ_BENCH_REDIS_URL"] = redis_url
+
+    cpu_user_start, cpu_system_start, _ = _resource_snapshot()
+    worker_start = time.perf_counter_ns()
+    worker_startup_ns = time.perf_counter_ns() - worker_start
+
+    enqueue_start = time.perf_counter_ns()
+    for index in range(jobs):
+        job = Job(task_id=ASYNCMQ_TASK_ID, args=[payload, run_id], kwargs={}, job_id=f"{run_id}-{index}")
+        await backend.enqueue(queue, job.to_dict())
+    enqueue_latency_ns = time.perf_counter_ns() - enqueue_start
+
+    total_start = time.perf_counter_ns()
+    async with anyio.create_task_group() as tg:
+        for _ in range(workers):
+            tg.start_soon(process_job, queue, anyio.CapacityLimiter(concurrency), None, backend)
+
+        with anyio.fail_after(timeout):
+            while int(counter.get(_completion_key(run_id)) or 0) < jobs:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    total_latency_ns = time.perf_counter_ns() - total_start
+    completed = int(counter.get(_completion_key(run_id)) or 0)
+    throughput = completed / (total_latency_ns / 1_000_000_000) if total_latency_ns else 0.0
+    cpu_user_end, cpu_system_end, max_rss_kb = _resource_snapshot()
+
+    await backend.redis.aclose()
+    await backend.job_store.redis.aclose()
+    counter.close()
+    return {
+        "enqueue_latency_ns": enqueue_latency_ns,
+        "total_latency_ns": total_latency_ns,
+        "throughput_jobs_per_second": throughput,
+        "worker_startup_ns": worker_startup_ns,
+        "cpu_user_seconds": (
+            cpu_user_end - cpu_user_start if cpu_user_start is not None and cpu_user_end is not None else None
+        ),
+        "cpu_system_seconds": (
+            cpu_system_end - cpu_system_start if cpu_system_start is not None and cpu_system_end is not None else None
+        ),
+        "max_rss_kb": max_rss_kb,
+        "completed": completed,
+        "failed": jobs - completed,
+    }
+
+
+def _worker_command(target: str, python: str, queue: str, concurrency: int, redis_url: str) -> list[str]:
+    if target == "celery":
+        return [
+            python,
+            "-m",
+            "celery",
+            "-A",
+            "benchmarks.competitor_apps:celery_app",
+            "worker",
+            "--loglevel=WARNING",
+            "--pool=threads",
+            f"--concurrency={concurrency}",
+            "-Q",
+            queue,
+        ]
+    if target == "dramatiq":
+        return [
+            python,
+            "-m",
+            "dramatiq",
+            "--processes",
+            "1",
+            "--threads",
+            str(concurrency),
+            "--queues",
+            queue,
+            "--path",
+            os.getcwd(),
+            "--skip-logging",
+            "benchmarks.competitor_apps:dramatiq_broker",
+            "benchmarks.competitor_apps",
+        ]
+    if target == "arq":
+        return [python, "-m", "arq", "benchmarks.competitor_apps.ArqWorkerSettings"]
+    if target == "rq":
+        return [
+            python,
+            "-m",
+            "rq.cli",
+            "worker",
+            "--url",
+            redis_url,
+            "--path",
+            os.getcwd(),
+            "--logging_level",
+            "WARNING",
+            queue,
+        ]
+    if target == "huey":
+        return [
+            python,
+            "-m",
+            "huey.bin.huey_consumer",
+            "benchmarks.competitor_apps.huey",
+            "--workers",
+            str(concurrency),
+            "--worker-type",
+            "thread",
+            "--delay",
+            "0.01",
+            "--max-delay",
+            "0.1",
+        ]
+    raise ValueError(f"unsupported external target: {target}")
+
+
+def _start_workers(
+    *,
+    target: str,
+    python: str,
+    workers: int,
+    concurrency: int,
+    redis_url: str,
+    queue: str,
+) -> list[subprocess.Popen[bytes]]:
+    process_count = workers * concurrency if target == "rq" else workers
+    command_concurrency = 1 if target == "rq" else concurrency
+    env = _target_env(redis_url, queue, command_concurrency)
+    return [
+        subprocess.Popen(
+            _worker_command(target, python, queue, command_concurrency, redis_url),
+            cwd=os.getcwd(),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(process_count)
+    ]
+
+
+def _stop_workers(processes: Sequence[subprocess.Popen[bytes]]) -> None:
+    for process in processes:
+        if process.poll() is None:
+            process.terminate()
+    deadline = time.monotonic() + 10
+    for process in processes:
+        while process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+async def _enqueue_external(
+    target: str,
+    *,
+    target_python: str,
+    jobs: int,
+    payload_bytes: int,
+    run_id: str,
+    queue: str,
+    redis_url: str,
+) -> int:
+    enqueue_start = time.perf_counter_ns()
+    command = [
+        target_python,
+        "-c",
+        "from benchmarks.competitor_apps import main; raise SystemExit(main())",
+        "--target",
+        target,
+        "--jobs",
+        str(jobs),
+        "--payload-bytes",
+        str(payload_bytes),
+        "--run-id",
+        run_id,
+        "--queue",
+        queue,
+        "--redis-url",
+        redis_url,
+    ]
+    env = _target_env(redis_url, queue, 1)
+    await anyio.to_thread.run_sync(lambda: _run_subprocess(command, env=env))
+    return time.perf_counter_ns() - enqueue_start
+
+
+async def _run_external_sample(
+    *,
+    target: str,
+    target_python: str,
+    jobs: int,
+    workers: int,
+    concurrency: int,
+    payload_bytes: int,
+    timeout: float,
+    redis_url: str,
+    queue: str,
+    run_id: str,
+    worker_startup_delay: float,
+) -> dict[str, int | float | None]:
+    from redis import Redis
+
+    counter = Redis.from_url(redis_url)
+    counter.flushdb()
+    cpu_user_start, cpu_system_start, _ = _resource_snapshot()
+
+    worker_start = time.perf_counter_ns()
+    processes = _start_workers(
+        target=target,
+        python=target_python,
+        workers=workers,
+        concurrency=concurrency,
+        redis_url=redis_url,
+        queue=queue,
+    )
+    try:
+        await anyio.sleep(worker_startup_delay)
+        exited = [process.returncode for process in processes if process.poll() is not None]
+        if exited:
+            raise RuntimeError(f"{target} worker exited before jobs were enqueued: return_codes={exited}")
+        worker_startup_ns = time.perf_counter_ns() - worker_start
+        enqueue_latency_ns = await _enqueue_external(
+            target,
+            target_python=target_python,
+            jobs=jobs,
+            payload_bytes=payload_bytes,
+            run_id=run_id,
+            queue=queue,
+            redis_url=redis_url,
+        )
+
+        total_start = time.perf_counter_ns()
+        with anyio.fail_after(timeout):
+            while int(counter.get(_completion_key(run_id)) or 0) < jobs:
+                await anyio.sleep(0.01)
+        total_latency_ns = time.perf_counter_ns() - total_start
+    finally:
+        _stop_workers(processes)
+
+    completed = int(counter.get(_completion_key(run_id)) or 0)
+    throughput = completed / (total_latency_ns / 1_000_000_000) if total_latency_ns else 0.0
+    cpu_user_end, cpu_system_end, max_rss_kb = _resource_snapshot()
+    counter.close()
+    return {
+        "enqueue_latency_ns": enqueue_latency_ns,
+        "total_latency_ns": total_latency_ns,
+        "throughput_jobs_per_second": throughput,
+        "worker_startup_ns": worker_startup_ns,
+        "cpu_user_seconds": (
+            cpu_user_end - cpu_user_start if cpu_user_start is not None and cpu_user_end is not None else None
+        ),
+        "cpu_system_seconds": (
+            cpu_system_end - cpu_system_start if cpu_system_start is not None and cpu_system_end is not None else None
+        ),
+        "max_rss_kb": max_rss_kb,
+        "completed": completed,
+        "failed": jobs - completed,
+    }
+
+
+async def run_target(
+    *,
+    target: str,
+    target_python: str,
+    jobs: int,
+    workers: int,
+    concurrency: int,
+    payload_bytes: int,
+    timeout: float,
+    warmup_jobs: int,
+    repetitions: int,
+    redis_url: str,
+    worker_startup_delay: float,
+) -> CompetitiveResult:
+    if target not in TARGETS:
+        raise ValueError(f"unknown target: {target}")
+    if jobs <= 0 or workers <= 0 or concurrency <= 0 or repetitions <= 0:
+        raise ValueError("jobs, workers, concurrency, and repetitions must be greater than zero")
+    if payload_bytes < 0 or warmup_jobs < 0:
+        raise ValueError("payload_bytes and warmup_jobs must be greater than or equal to zero")
+
+    queue = f"asyncmq-benchmark-{target}-{uuid4().hex}"
+    if warmup_jobs:
+        run_id = f"warmup-{uuid4().hex}"
+        if target == "asyncmq":
+            await _run_asyncmq_sample(
+                jobs=warmup_jobs,
+                workers=workers,
+                concurrency=concurrency,
+                payload_bytes=payload_bytes,
+                timeout=timeout,
+                redis_url=redis_url,
+                queue=queue,
+                run_id=run_id,
+            )
+        else:
+            await _run_external_sample(
+                target=target,
+                target_python=target_python,
+                jobs=warmup_jobs,
+                workers=workers,
+                concurrency=concurrency,
+                payload_bytes=payload_bytes,
+                timeout=timeout,
+                redis_url=redis_url,
+                queue=queue,
+                run_id=run_id,
+                worker_startup_delay=worker_startup_delay,
+            )
+
+    samples: list[dict[str, int | float | None]] = []
+    for _ in range(repetitions):
+        run_id = f"sample-{uuid4().hex}"
+        if target == "asyncmq":
+            sample = await _run_asyncmq_sample(
+                jobs=jobs,
+                workers=workers,
+                concurrency=concurrency,
+                payload_bytes=payload_bytes,
+                timeout=timeout,
+                redis_url=redis_url,
+                queue=queue,
+                run_id=run_id,
+            )
+        else:
+            sample = await _run_external_sample(
+                target=target,
+                target_python=target_python,
+                jobs=jobs,
+                workers=workers,
+                concurrency=concurrency,
+                payload_bytes=payload_bytes,
+                timeout=timeout,
+                redis_url=redis_url,
+                queue=queue,
+                run_id=run_id,
+                worker_startup_delay=worker_startup_delay,
+            )
+        samples.append(sample)
+
+    stats = _metric_statistics(samples)
+    return CompetitiveResult(
+        target=target,
+        jobs=jobs,
+        workers=workers,
+        concurrency=concurrency,
+        total_concurrency=workers * concurrency,
+        payload_bytes=payload_bytes,
+        warmup_jobs=warmup_jobs,
+        repetitions=repetitions,
+        enqueue_latency_ns=int(stats["enqueue_latency_ns"]["median"]),
+        total_latency_ns=int(stats["total_latency_ns"]["median"]),
+        throughput_jobs_per_second=float(stats["throughput_jobs_per_second"]["median"]),
+        worker_startup_ns=int(stats["worker_startup_ns"]["median"]),
+        cpu_user_seconds=(float(stats["cpu_user_seconds"]["median"]) if "cpu_user_seconds" in stats else None),
+        cpu_system_seconds=(float(stats["cpu_system_seconds"]["median"]) if "cpu_system_seconds" in stats else None),
+        max_rss_kb=int(stats["max_rss_kb"]["max"]) if "max_rss_kb" in stats else None,
+        completed=int(min(sample["completed"] or 0 for sample in samples)),
+        failed=int(max(sample["failed"] or 0 for sample in samples)),
+        samples=samples,
+        statistics=stats,
+    )
+
+
+def benchmark_inventory() -> dict[str, Any]:
+    return {
+        "already_exists": [
+            "benchmarks.plan canonical workloads and competitor list",
+            "CodSpeed microbenchmarks for job and InMemoryBackend operations",
+            "benchmarks.load_asyncmq JSON load runner with warmup/repetitions/statistics",
+        ],
+        "reused": [
+            "workload dimensions",
+            "time.perf_counter_ns timing policy",
+            "median/p95/p99/min/max statistics",
+            "CPU and max RSS sampling",
+            "Hatch benchmark command style",
+        ],
+        "added": [
+            "Redis-backed competitive runner",
+            "shared completion signal across target queues",
+            "isolated per-target virtualenv preparation",
+            "target Python selection for dependency-conflicting competitors",
+        ],
+        "why_new_work_was_unavoidable": [
+            "existing code only benchmarked AsyncMQ internals and an AsyncMQ in-memory load path",
+            "competitors were listed for availability but had no executable workload adapter",
+            "Arq's redis<6 dependency conflicts with AsyncMQ's redis>=7 dependency in one interpreter",
+        ],
+    }
+
+
+async def run_competitive(args: argparse.Namespace) -> list[CompetitiveResult]:
+    selected = _select_targets(args.targets)
+    target_pythons = _parse_target_python(args.target_python)
+    return [
+        await run_target(
+            target=target,
+            target_python=_resolve_target_python(target, args.venv_root, target_pythons),
+            jobs=args.jobs,
+            workers=args.workers,
+            concurrency=args.concurrency,
+            payload_bytes=args.payload_bytes,
+            timeout=args.timeout,
+            warmup_jobs=args.warmup_jobs,
+            repetitions=args.repetitions,
+            redis_url=args.redis_url,
+            worker_startup_delay=args.worker_startup_delay,
+        )
+        for target in selected
+    ]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run comparable Redis-backed queue benchmarks.")
+    parser.add_argument("--targets", default="asyncmq", help="Comma-separated targets or 'all'.")
+    parser.add_argument("--jobs", type=int, default=1_000)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--payload-bytes", type=int, default=128)
+    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--warmup-jobs", type=int, default=0)
+    parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--redis-url", default=REDIS_URL)
+    parser.add_argument("--worker-startup-delay", type=float, default=4.0)
+    parser.add_argument("--venv-root", type=Path, default=Path(".benchmarks/envs"))
+    parser.add_argument("--target-python", action="append", default=[], help="TARGET=/path/to/python override.")
+    parser.add_argument(
+        "--prepare-envs", action="store_true", help="Create isolated competitor virtualenvs and install packages."
+    )
+    parser.add_argument("--inventory", action="store_true", help="Report benchmark infrastructure audit data.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print selected targets and environment paths without running jobs."
+    )
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    args = parser.parse_args(argv)
+
+    selected = _select_targets(args.targets)
+    payload: dict[str, Any] = {"inventory": benchmark_inventory() if args.inventory else None}
+    if args.prepare_envs:
+        payload["prepared"] = prepare_envs(selected, args.venv_root)
+    if args.dry_run:
+        explicit = _parse_target_python(args.target_python)
+        payload["dry_run"] = [
+            {
+                "target": target,
+                "python": _resolve_target_python(target, args.venv_root, explicit),
+                "packages": list(TARGETS[target].packages),
+            }
+            for target in selected
+        ]
+    if not args.prepare_envs and not args.dry_run:
+        payload["results"] = [asdict(result) for result in asyncio.run(run_competitive(args))]
+
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        if payload.get("inventory"):
+            print("Benchmark inventory")
+            for key, values in payload["inventory"].items():
+                print(f"{key}:")
+                for value in values:
+                    print(f"  - {value}")
+        for item in payload.get("prepared", []):
+            print(f"prepared {item['target']}: {item['python']}")
+        for item in payload.get("dry_run", []):
+            print(f"{item['target']}: python={item['python']} packages={item['packages']}")
+        for item in payload.get("results", []):
+            print(
+                "{target}: completed={completed} throughput={throughput_jobs_per_second:.2f}/s "
+                "enqueue_ns={enqueue_latency_ns}".format(**item)
+            )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
