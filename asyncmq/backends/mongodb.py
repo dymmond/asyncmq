@@ -21,7 +21,7 @@ from asyncmq.backends.base import (
 )
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.inspection import has_pending_dependencies, matches_job_type, normalize_job_type
 from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.mongodb import MongoDBStore
@@ -127,15 +127,15 @@ class MongoDBBackend(BaseBackend):
         """
         # Acquire the lock to ensure exclusive access to in-memory queues.
         async with self.lock:
-            # Add the payload to the end of the in-memory queue list for this queue.
-            # setdefault ensures the list exists even if this is the first job for this queue.
+            job_id = str(payload["id"])
+            waiting_payload = {**payload, "status": State.WAITING}
             queue = self.queues.setdefault(queue_name, [])
-            queue.append(payload)
-            queue.sort(key=lambda job: job.get("priority", 5))
-            # Save the job to the MongoDB store with the WAITING status.
-            # Use {**payload, "status": State.WAITING} to create a new dict with updated status.
-            await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
-            return cast(str, payload["id"])
+            self.queues[queue_name] = [job for job in queue if str(job.get("id")) != job_id]
+            if not has_pending_dependencies(waiting_payload):
+                self.queues[queue_name].append(waiting_payload)
+                self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
+            await self.store.save(queue_name, job_id, waiting_payload)
+            return job_id
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -157,9 +157,11 @@ class MongoDBBackend(BaseBackend):
             # Get the in-memory queue list for the specified queue name, defaulting to an empty list.
             queue = self.queues.get(queue_name, [])
             # Check if the queue list is not empty.
-            if queue:
+            while queue:
                 # Remove and return the first job from the list.
                 job = queue.pop(0)
+                if has_pending_dependencies(job):
+                    continue
                 # Update the job's status to ACTIVE.
                 job["status"] = State.ACTIVE
                 # Save the updated job state to the MongoDB store.
@@ -527,6 +529,9 @@ class MongoDBBackend(BaseBackend):
 
                 # Update the 'depends_on' field in the job data with the combined list.
                 job["depends_on"] = existing_deps
+                self.queues[queue_name] = [
+                    queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != str(job["id"])
+                ]
                 # Save the updated job data back to the MongoDB store.
                 await self.store.save(queue_name, job["id"], job)
 
@@ -560,9 +565,15 @@ class MongoDBBackend(BaseBackend):
                     job.pop("depends_on", None)
                     # Do not enqueue duplicates if the job is already runnable/in-flight.
                     current_state = job.get("status")
-                    if current_state not in {State.WAITING, State.DELAYED, State.ACTIVE, State.COMPLETED}:
+                    if current_state not in {State.DELAYED, State.ACTIVE, State.COMPLETED, State.FAILED, State.EXPIRED}:
                         job["status"] = State.WAITING
+                        self.queues[queue_name] = [
+                            queued
+                            for queued in self.queues.get(queue_name, [])
+                            if str(queued.get("id")) != str(job.get("id"))
+                        ]
                         self.queues.setdefault(queue_name, []).append(job)
+                        self.queues[queue_name].sort(key=lambda queued: queued.get("priority", 5))
 
                 job_id = cast(str | None, job.get("id") or job.get("job_id"))
                 if job_id:
@@ -780,31 +791,25 @@ class MongoDBBackend(BaseBackend):
         # Acquire the lock to make the entire flow addition operation atomic within this instance.
         async with self.lock:
             created_ids: list[str] = []
-            # Enqueue payloads into the in-memory queue and save to the store.
-            for payload in job_dicts:
-                # Add the payload to the in-memory queue list for this queue.
-                self.queues.setdefault(queue_name, []).append(payload)
-                # Save the job to the MongoDB store with the WAITING status.
-                await self.store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
-                # Add the job ID to the list of created IDs.
-                created_ids.append(payload["id"])
-
-            # Register dependencies by updating the 'depends_on' field in the store.
+            deps_by_child: dict[str, set[str]] = {}
             for parent, child in dependency_links:
-                # Load the child job from the store.
-                job = await self.store.load(queue_name, child)
-                # If the child job is found.
-                if job:
-                    # Get the existing dependencies list from the loaded job, defaulting to empty.
-                    deps = job.get("depends_on", [])
-                    # If the parent ID is not already in the dependencies list.
-                    if parent not in deps:
-                        # Add the parent ID to the dependencies list.
-                        deps.append(parent)
-                        # Update the 'depends_on' field in the job data.
-                        job["depends_on"] = deps
-                        # Save the updated job data back to the store.
-                        await self.store.save(queue_name, child, job)
+                deps_by_child.setdefault(child, set()).add(parent)
+
+            for payload in job_dicts:
+                job_id = str(payload["id"])
+                deps = set(payload.get("depends_on", [])) | deps_by_child.get(job_id, set())
+                stored = {**payload, "status": State.WAITING}
+                if deps:
+                    stored["depends_on"] = sorted(deps)
+                else:
+                    stored.pop("depends_on", None)
+
+                if not has_pending_dependencies(stored):
+                    self.queues.setdefault(queue_name, []).append(stored)
+                await self.store.save(queue_name, job_id, stored)
+                created_ids.append(job_id)
+
+            self.queues.setdefault(queue_name, []).sort(key=lambda job: job.get("priority", 5))
 
             return created_ids  # Return the list of IDs for the enqueued jobs.
 
@@ -880,17 +885,25 @@ class MongoDBBackend(BaseBackend):
         # Acquire the lock to protect shared state (queues and heartbeats accessed here).
         async with self.lock:
             retry_payload = dict(job_data)
+            retry_payload.pop("_id", None)
+            retry_payload.pop("job_id", None)
+            retry_payload.pop("queue_name", None)
             retry_payload.pop("status", None)
+            retry_payload.pop("heartbeat", None)
+            retry_payload.pop("updated_at", None)
             # Append the job data to the specified in-memory queue list.
             # setdefault ensures the queue list exists even if this is the first job
             # for this queue.
-            self.queues.setdefault(queue_name, []).append(retry_payload)
-
-            # Remove the heartbeat entry for this job as it's no longer running.
-            # Use .pop with a default of None to avoid errors if the heartbeat was
-            # already removed or if 'id' is missing.
             job_id = retry_payload.get("id")
             if isinstance(job_id, str):
+                self.queues[queue_name] = [
+                    queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
+                ]
+                self.queues.setdefault(queue_name, []).append(retry_payload)
+                self.queues[queue_name].sort(key=lambda job: job.get("priority", 5))
+                # Remove the heartbeat entry for this job as it's no longer running.
+                # Use .pop with a default of None to avoid errors if the heartbeat was
+                # already removed or if 'id' is missing.
                 self.heartbeats.pop((queue_name, job_id), None)
                 await self.store.save(queue_name, job_id, {**retry_payload, "status": State.WAITING})
 

@@ -145,7 +145,8 @@ Workers will not execute the child until all parents have completed. While
 dependencies remain unresolved:
 
 - the job appears in `waiting-children` inspection views
-- runtime gating keeps it from executing
+- backends keep it out of runnable waiting queues
+- runtime gating remains a defensive guard for stale payloads
 - completion of a parent removes that parent id from the child payload
 
 Example:

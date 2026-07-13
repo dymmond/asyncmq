@@ -531,16 +531,24 @@ class BaseBackend(ABC):
             A list of job IDs that were successfully enqueued, in the order
             they were provided in `job_dicts`.
         """
+        deps_by_child: dict[str, set[str]] = {}
+        for parent, child in dependency_links:
+            deps_by_child.setdefault(child, set()).add(parent)
+
         # Default fallback implementation: enqueue jobs sequentially
         created_ids: list[str] = []
         for jd in job_dicts:
-            created_ids.append(jd["id"])
+            job_id = jd["id"]
+            deps = set(jd.get("depends_on", [])) | deps_by_child.get(job_id, set())
+            if deps:
+                jd = {**jd, "depends_on": sorted(deps)}
+            created_ids.append(job_id)
             await self.enqueue(queue_name, jd)
 
         # Then register dependencies sequentially
-        for parent, child in dependency_links:
+        for child, parents in deps_by_child.items():
             # Add dependency for the child job on the parent job
-            await self.add_dependencies(queue_name, {"id": child, "depends_on": [parent]})
+            await self.add_dependencies(queue_name, {"id": child, "depends_on": sorted(parents)})
 
         return created_ids  # Return the list of IDs for the enqueued jobs.
 

@@ -96,19 +96,20 @@ Production advice:
 
 ## Runtime Dependency Resolution
 
-At execution time, workers enforce dependencies in a backend-neutral way.
+Backends keep jobs with unresolved parents out of the runnable waiting queue.
 
-If a dequeued job still has unresolved parents:
+While a child still has unresolved parents:
 
-- it is not executed
-- it is moved back to `delayed` briefly
-- it remains visible through `waiting-children` inspection APIs
+- it is stored durably with its `depends_on` metadata
+- it is visible through `waiting-children` inspection APIs
+- workers do not acquire it as runnable work
 
 When a parent completes, the backend removes that parent id from each affected
 child. Once the last unresolved parent is removed, the child becomes runnable.
 
-This means flow correctness does not depend solely on producer-side setup.
-Workers still protect execution ordering.
+Workers still keep a defensive dependency gate in the execution path for stale
+or externally mutated payloads, but normal operation does not rely on dequeueing
+and re-delaying blocked children.
 
 ## Failure Semantics
 

@@ -9,7 +9,7 @@ from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.inspection import has_pending_dependencies, matches_job_type, normalize_job_type
 from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.redis_store import RedisJobStore
@@ -344,6 +344,17 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:dlq'
         return f"queue:{name}:dlq"
 
+    async def _remove_waiting_member(self, queue_name: str, job_id: str) -> None:
+        waiting_key = self._waiting_key(queue_name)
+        for member in await self.redis.zrange(waiting_key, 0, -1):
+            raw = member.decode("utf-8") if isinstance(member, bytes) else member
+            try:
+                payload = self._json_serializer.to_dict(raw)
+            except Exception:
+                continue
+            if str(payload.get("id")) == job_id:
+                await self.redis.zrem(waiting_key, member)
+
     def _repeat_key(self, name: str) -> str:
         """
         Generates the Redis key for the Sorted Set holding repeatable job definitions.
@@ -373,18 +384,25 @@ class RedisBackend(BaseBackend):
             payload: The job data as a dictionary, expected to contain at least
                      an "id" and optionally a "priority" key.
         """
+        job_id = str(payload["id"])
+        waiting_payload = {**payload, "status": State.WAITING}
+        if has_pending_dependencies(waiting_payload):
+            await self._remove_waiting_member(queue_name, job_id)
+            await self.job_store.save(queue_name, job_id, waiting_payload)
+            await self.add_dependencies(queue_name, waiting_payload)
+            return job_id
+
         # Get job priority from the payload, defaulting to 5 if not provided.
-        priority: int = int(payload.get("priority", 5))
+        priority: int = int(waiting_payload.get("priority", 5))
         score = await self._next_waiting_score(queue_name, priority)
         # Get the Redis key for the waiting queue's Sorted Set.
         key: str = self._waiting_key(queue_name)
         # Add the JSON-serialized payload to the Sorted Set with the calculated score.
         # ZADD updates the score if the member (the JSON string) already exists.
-        await self.redis.zadd(key, {self._json_serializer.to_json(payload): score})
+        await self.redis.zadd(key, {self._json_serializer.to_json(waiting_payload): score})
         # Update the job's status to WAITING and save the full payload in the job store.
-        # Create a new dictionary to avoid modifying the original payload in place.
-        await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.WAITING})
-        return cast(str, payload["id"])
+        await self.job_store.save(queue_name, job_id, waiting_payload)
+        return job_id
 
     async def get_job(self, queue_name: str, job_id: str) -> dict[str, Any] | None:
         """
@@ -427,19 +445,23 @@ class RedisBackend(BaseBackend):
         key: str = self._waiting_key(queue_name)
         # Execute the Lua script to atomically pop the next job from the Sorted Set.
         # The script returns the JSON string of the job payload or nil.
-        raw: str | None = await self.pop_script(keys=[key])
-        # If a job payload (as a JSON string) was returned by the script.
-        if raw:
+        while raw := await self.pop_script(keys=[key]):
             # Deserialize the job payload from the JSON string into a dictionary.
             payload: dict[str, Any] = self._json_serializer.to_dict(raw)
+            job_id = str(payload["id"])
+            stored = await self.job_store.load(queue_name, job_id)
+            candidate = stored or payload
+            if has_pending_dependencies(candidate):
+                await self.job_store.save(queue_name, job_id, {**candidate, "status": State.WAITING})
+                continue
             # Update the job's status to ACTIVE and save the full payload in the job store.
             # Create a new dictionary to avoid modifying the original payload in place.
-            await self.job_store.save(queue_name, payload["id"], {**payload, "status": State.ACTIVE})
+            await self.job_store.save(queue_name, job_id, {**candidate, "status": State.ACTIVE})
             # Add the job ID and the current time to the active jobs Hash.
             # This hash tracks jobs currently being processed.
-            await self.redis.hset(self._active_key(queue_name), payload["id"], str(time.time()))
+            await self.redis.hset(self._active_key(queue_name), job_id, str(time.time()))
             # Return the dequeued job payload as a dictionary.
-            return payload
+            return candidate
         # If the script returned nil (no jobs in the waiting queue).
         return None
 
@@ -874,10 +896,11 @@ class RedisBackend(BaseBackend):
         job_id: str = job_dict["id"]
         # Get the list of parent job IDs this child depends on from the input dictionary,
         # defaulting to an empty list if 'depends_on' is not present.
-        pending: list[str] = job_dict.get("depends_on", [])
+        pending: list[str] = list(dict.fromkeys(job_dict.get("depends_on", [])))
 
         # If there are dependencies specified in the input dictionary.
         if pending:
+            job_id = str(job_id)
             # Generate the Redis key for the Set of parent IDs this job is waiting on.
             pend_key: str = f"deps:{queue_name}:{job_id}:pending"
             # Add all parent IDs from the 'pending' list to this Set.
@@ -890,6 +913,13 @@ class RedisBackend(BaseBackend):
                 parent_children_key: str = f"deps:{queue_name}:parent:{parent}"
                 # Add the child job ID to this parent's children Set.
                 await self.redis.sadd(parent_children_key, job_id)
+            data = await self.job_store.load(queue_name, job_id)
+            if data is not None:
+                merged = sorted(set(data.get("depends_on", [])) | set(pending))
+                data["depends_on"] = merged
+                data["status"] = data.get("status") or State.WAITING
+                await self.job_store.save(queue_name, job_id, data)
+                await self._remove_waiting_member(queue_name, job_id)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -929,12 +959,22 @@ class RedisBackend(BaseBackend):
                 data: dict[str, Any] | None = await self.job_store.load(queue_name, child_id)
                 # If the job data was successfully loaded.
                 if data:
+                    data.pop("depends_on", None)
+                    data["status"] = State.WAITING
                     # Enqueue the child job into the main waiting queue.
                     await self.enqueue(queue_name, data)
                     # Emit a local event indicating the job is now ready for processing.
                     await event_emitter.emit("job:ready", {"id": child_id})
                 # Delete the child's empty pending dependencies set to clean up.
                 await self.redis.delete(pend_key)
+            else:
+                data = await self.job_store.load(queue_name, child_id)
+                if data:
+                    remaining = await self.redis.smembers(pend_key)
+                    data["depends_on"] = sorted(
+                        item.decode("utf-8") if isinstance(item, bytes) else item for item in remaining
+                    )
+                    await self.job_store.save(queue_name, child_id, data)
 
         # Delete the parent's children set as all children have been processed or checked.
         await self.redis.delete(child_set_key)
@@ -1300,6 +1340,7 @@ class RedisBackend(BaseBackend):
             True if the job was found and removed from any queue, False otherwise.
         """
         removed: bool = False
+        stored = await self.job_store.load(queue_name, job_id)
         # Define the list of Redis keys for the Sorted Sets to check for the job.
         keys_to_check: list[str] = [
             self._waiting_key(queue_name),
@@ -1330,7 +1371,13 @@ class RedisBackend(BaseBackend):
         if active_removed > 0 or heartbeat_removed > 0:
             removed = True
 
+        if stored is not None:
+            removed = True
+            for parent in stored.get("depends_on", []):
+                await self.redis.srem(f"deps:{queue_name}:parent:{parent}", job_id)
         if removed:
+            await self.redis.delete(f"deps:{queue_name}:{job_id}:pending")
+            await self.redis.delete(f"deps:{queue_name}:parent:{job_id}")
             await self.job_store.delete(queue_name, job_id)
         # Return whether the job was found and removed from any queue.
         return removed
@@ -1342,36 +1389,12 @@ class RedisBackend(BaseBackend):
         dependency_links: list[tuple[str, str]],
     ) -> Any:
         """
-        Atomically enqueues multiple jobs to the waiting queue and registers
-        their parent-child dependencies using the pre-registered `FLOW_SCRIPT`
-        Lua script.
+        Adds multiple jobs and registers their parent-child dependencies.
 
-        This script performs the following actions atomically:
-        1. Adds each job payload from `job_dicts` to the waiting queue Sorted
-           Set (`queue:{queue_name}:waiting`) with a score of 0 (highest priority).
-           Note this differs from the `enqueue` and `bulk_enqueue` methods which
-           use a priority-based score.
-        2. Decodes each job payload JSON to extract the job ID.
-        3. For each dependency pair (parent_id, child_id) from `dependency_links`,
-           it sets a field in a Redis Hash keyed by the parent ID
-           (`queue:{queue_name}:deps:parent_id`) with the child_id as the field
-           and '1' as the value. This tracks which children are waiting on a
-           parent using HSET. Note this differs from the `add_dependencies` method
-           which uses SADD to track children waiting on a parent.
-
-        Important Considerations:
-        - This script *does not* save the full job payload in the job store
-          (e.g., `jobs:{queue_name}:{job_id}`). This needs to be handled separately
-          if persistent storage of all job details is required immediately upon
-          flow creation.
-        - This script *does not* set up the child's pending dependency set
-          (`deps:{queue_name}:{child_id}:pending`) which is used by `resolve_dependency`.
-          The dependency resolution logic in `resolve_dependency` relies on this
-          Set being populated elsewhere.
-        - Due to the atomic nature of the script, jobs are enqueued *before*
-          their pending dependencies are fully registered (if `add_dependencies`
-          is called separately). The system relies on `resolve_dependency` to
-          handle the actual state transitions based on the pending Sets.
+        Jobs with unresolved parents are saved in the canonical job store and
+        registered in the same pending/parent Redis sets used by
+        ``resolve_dependency``. Only root jobs, or children whose dependencies
+        have already been cleared, are added to the runnable waiting sorted set.
 
         Args:
             queue_name: The name of the queue.
@@ -1382,15 +1405,25 @@ class RedisBackend(BaseBackend):
 
         Returns:
             A list of the IDs (strings) of the jobs that were successfully
-            enqueued by the script.
+            created.
         """
+        deps_by_child: dict[str, set[str]] = {}
+        for parent_id, child_id in dependency_links:
+            deps_by_child.setdefault(child_id, set()).add(parent_id)
+
         created_ids: list[str] = []
         for payload in job_dicts:
-            created_ids.append(await self.enqueue(queue_name, payload))
+            job_id = str(payload["id"])
+            deps = set(payload.get("depends_on", [])) | deps_by_child.get(job_id, set())
+            stored = {**payload, "status": State.WAITING}
+            if deps:
+                stored["depends_on"] = sorted(deps)
+            else:
+                stored.pop("depends_on", None)
+            created_ids.append(await self.enqueue(queue_name, stored))
 
-        # Keep compatibility with existing Redis dependency-hash conventions.
-        for parent_id, child_id in dependency_links:
-            await self.redis.hset(f"queue:{queue_name}:deps:{parent_id}", child_id, 1)
+        for child_id, parents in deps_by_child.items():
+            await self.add_dependencies(queue_name, {"id": child_id, "depends_on": sorted(parents)})
 
         return created_ids
 

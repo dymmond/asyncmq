@@ -13,7 +13,7 @@ import anyio
 from asyncmq.backends.base import BaseBackend, DelayedInfo, RepeatableInfo, WorkerInfo
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.inspection import has_pending_dependencies, matches_job_type, normalize_job_type
 from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 from asyncmq.stores.base import BaseJobStore
@@ -197,19 +197,34 @@ class RabbitMQBackend(BaseBackend):
             The unique identifier of the enqueued job.
         """
         job_id = str(payload["id"])
+        waiting_payload = {**payload, "status": State.WAITING}
+
+        if has_pending_dependencies(waiting_payload):
+            waiting_payload["_dependency_blocked"] = True
+            await self._state.save(
+                queue_name,
+                job_id,
+                {
+                    "id": job_id,
+                    "payload": waiting_payload,
+                    "status": State.WAITING,
+                    "depends_on": waiting_payload["depends_on"],
+                },
+            )
+            return job_id
 
         # 1) persist job metadata as 'waiting'
-        await self._state.save(queue_name, job_id, {"id": job_id, "payload": payload, "status": State.WAITING})
+        await self._state.save(queue_name, job_id, {"id": job_id, "payload": waiting_payload, "status": State.WAITING})
 
         # 2) ensure AMQP queue exists
         await self._ensure_queue(queue_name)
 
         # 4) build and publish the message
         msg = Message(
-            self._json_serializer.to_json(payload).encode(),
+            self._json_serializer.to_json(waiting_payload).encode(),
             message_id=job_id,
             delivery_mode=DeliveryMode.PERSISTENT,
-            priority=self._message_priority(payload),
+            priority=self._message_priority(waiting_payload),
         )
         await self._chan.default_exchange.publish(msg, routing_key=queue_name)
 
@@ -234,22 +249,38 @@ class RabbitMQBackend(BaseBackend):
 
         queue = await self._ensure_queue(queue_name)
 
-        # 3) attempt to get one message, returning None if empty
-        msg = await queue.get(no_ack=False, fail=False)
-        if msg is None:
-            return None
+        while True:
+            # 3) attempt to get one message, returning None if empty
+            msg = await queue.get(no_ack=False, fail=False)
+            if msg is None:
+                return None
 
-        # 4) decode payload and defer ack until backend.ack() is called
-        payload = self._json_serializer.to_dict(msg.body.decode())
-        job_id = str(payload.get("id") or msg.message_id or "")
-        if not job_id:
-            await msg.reject(requeue=False)
-            return None
+            # 4) decode payload and defer ack until backend.ack() is called
+            payload = self._json_serializer.to_dict(msg.body.decode())
+            job_id = str(payload.get("id") or msg.message_id or "")
+            if not job_id:
+                await msg.reject(requeue=False)
+                return None
 
-        payload.setdefault("id", job_id)
-        async with self._in_flight_lock:
-            self._in_flight[(queue_name, job_id)] = msg
-        return {"job_id": job_id, "payload": payload}
+            payload.setdefault("id", job_id)
+            stored = await self._state.load(queue_name, job_id)
+            candidate = self._normalize_stored_job(stored) if stored else payload
+            stored_token = candidate.get("_dependency_release_token")
+            if stored_token and payload.get("_dependency_release_token") != stored_token:
+                await msg.ack()
+                continue
+            if has_pending_dependencies(candidate) or candidate.get("_dependency_blocked"):
+                await self._state.save(
+                    queue_name,
+                    job_id,
+                    {"id": job_id, "payload": candidate, "status": State.WAITING},
+                )
+                await msg.ack()
+                continue
+
+            async with self._in_flight_lock:
+                self._in_flight[(queue_name, job_id)] = msg
+            return {"job_id": job_id, "payload": candidate}
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -753,12 +784,23 @@ class RabbitMQBackend(BaseBackend):
             job_dict: A dictionary containing the job's 'id' and its
                 'depends_on' list (if any).
         """
+        job_id = str(job_dict["id"])
         # Load the existing job entry or create an empty dictionary if not found.
-        entry = await self._store_entry(queue_name, job_dict["id"])
+        entry = await self._store_entry(queue_name, job_id)
         # Update the 'depends_on' field with the provided dependencies.
-        entry["depends_on"] = list(job_dict.get("depends_on", []))
+        pending = list(dict.fromkeys(job_dict.get("depends_on", [])))
+        if not pending:
+            return
+        payload = dict(entry.get("payload", job_dict)) if isinstance(entry.get("payload", job_dict), dict) else {}
+        payload.setdefault("id", job_id)
+        merged = sorted(set(payload.get("depends_on", [])) | set(entry.get("depends_on", [])) | set(pending))
+        payload["depends_on"] = merged
+        payload["_dependency_blocked"] = True
+        entry["payload"] = payload
+        entry["depends_on"] = merged
+        entry["status"] = entry.get("status") or State.WAITING
         # Save the updated entry back to the job store.
-        await self._state.save(queue_name, job_dict["id"], entry)
+        await self._state.save(queue_name, job_id, entry)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -781,18 +823,27 @@ class RabbitMQBackend(BaseBackend):
             if parent_id in deps:
                 # If the parent_id is in the dependencies, remove it.
                 deps.remove(parent_id)
+                current = j.get("status")
                 if deps:
                     j["depends_on"] = deps
+                    payload = dict(j.get("payload", {})) if isinstance(j.get("payload"), dict) else {}
+                    payload["depends_on"] = deps
+                    payload["_dependency_blocked"] = True
+                    j["payload"] = payload
                 else:
                     j.pop("depends_on", None)
+                    payload = dict(j.get("payload", j)) if isinstance(j.get("payload", j), dict) else {"id": j["id"]}
+                    payload["id"] = j["id"]
+                    payload.pop("depends_on", None)
+                    payload.pop("_dependency_blocked", None)
+                    payload["_dependency_release_token"] = str(time.time_ns())
+                    j["payload"] = payload
+                    j["status"] = State.WAITING
                 # Save the updated job entry.
                 await self._state.save(queue_name, j["id"], j)
                 if not deps:
                     # If all dependencies are resolved, enqueue the job.
-                    current = j.get("status")
-                    if current not in {State.WAITING, State.DELAYED, State.ACTIVE, State.COMPLETED}:
-                        payload = j.get("payload", j)
-                        payload["id"] = j["id"]
+                    if current not in {State.DELAYED, State.ACTIVE, State.COMPLETED, State.FAILED, State.EXPIRED}:
                         await self.enqueue(queue_name, payload)
 
     async def pause_queue(self, queue_name: str) -> None:
@@ -910,23 +961,22 @@ class RabbitMQBackend(BaseBackend):
         Returns:
             A list of job IDs that were created as part of this flow.
         """
-        # Identify all job IDs that are children in any dependency link.
+        deps_by_child: dict[str, set[str]] = {}
+        for parent_id, child_id in dependency_links:
+            deps_by_child.setdefault(child_id, set()).add(parent_id)
+
         created_ids: list[str] = []
 
         for jd in job_dicts:
-            job_id = jd["id"]
+            job_id = str(jd["id"])
+            deps = set(jd.get("depends_on", [])) | deps_by_child.get(job_id, set())
+            if deps:
+                jd = {**jd, "depends_on": sorted(deps)}
             created_ids.append(job_id)
             await self.enqueue(queue_name, jd)
 
-        for parent_id, child_id in dependency_links:
-            # this will push a Redis HSET (e.g. queue:<q>:deps:<parent> => child)
-            await self.add_dependencies(
-                queue_name,
-                {
-                    "id": child_id,
-                    "depends_on": [parent_id],
-                },
-            )
+        for child_id, parents in deps_by_child.items():
+            await self.add_dependencies(queue_name, {"id": child_id, "depends_on": sorted(parents)})
 
         return created_ids
 

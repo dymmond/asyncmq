@@ -206,10 +206,22 @@ class PostgresBackend(BaseBackend):
                 row: Record | None = await conn.fetchrow(
                     f"""
                     UPDATE {self._settings.postgres_jobs_table_name}
-                    SET status = $3, updated_at = now()
+                    SET
+                        status = $3,
+                        data = data || jsonb_build_object('status', $3::text),
+                        updated_at = now()
                     WHERE id = (
                         SELECT id FROM {self._settings.postgres_jobs_table_name}
-                        WHERE queue_name = $1 AND status = $2
+                        WHERE queue_name = $1
+                          AND status = $2
+                          AND COALESCE(
+                              CASE
+                                  WHEN jsonb_typeof(data -> 'depends_on') = 'array'
+                                  THEN jsonb_array_length(data -> 'depends_on')
+                                  ELSE 0
+                              END,
+                              0
+                          ) = 0
                         ORDER BY COALESCE((data ->> 'priority')::int, 5) ASC, created_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
@@ -742,17 +754,40 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
-        job_id: str = job_dict["id"]
+        job_id: str = str(job_dict["id"])
         # Get the list of parent IDs from the input dictionary.
-        dependencies: list[str] = job_dict.get("depends_on", [])
-        # Load the existing job data from the job store.
-        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
-        # If the job was found.
-        if job:
-            # Add the new dependencies to the job's data. Overwrites existing list.
-            job["depends_on"] = dependencies
-            # Save the updated job data back to the job store.
-            await self.store.save(queue_name, job_id, job)
+        dependencies: list[str] = list(dict.fromkeys(job_dict.get("depends_on", [])))
+        if not dependencies:
+            return
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    f"""
+                    SELECT data
+                    FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1 AND job_id = $2
+                    FOR UPDATE
+                    """,
+                    queue_name,
+                    job_id,
+                )
+                job = self._json_serializer.to_dict(row["data"]) if row else {**job_dict, "id": job_id}
+                merged = sorted(set(job.get("depends_on", [])) | set(dependencies))
+                job["depends_on"] = merged
+                job["status"] = job.get("status") or State.WAITING
+                await conn.execute(
+                    f"""
+                    INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (queue_name, job_id)
+                    DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
+                    """,
+                    queue_name,
+                    job_id,
+                    self._json_serializer.to_json(job),
+                    job.get("status"),
+                )
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -834,25 +869,31 @@ class PostgresBackend(BaseBackend):
         # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Enqueue all jobs by saving them with WAITING status.
-                for payload in job_dicts:
-                    payload["status"] = State.WAITING
-                    # Use the job store's save method within the transaction.
-                    await self.store.save(queue_name, payload["id"], payload)
-                # Register dependencies by updating child job data.
+                deps_by_child: dict[str, set[str]] = {}
                 for parent, child in dependency_links:
-                    # Load the child job data from the store.
-                    job: dict[str, Any] | None = await self.store.load(queue_name, child)
-                    # If the child job exists.
-                    if job is not None:
-                        # Get the existing dependencies or initialize an empty list.
-                        deps: list[str] = job.get("depends_on", [])
-                        # Add the parent ID to the dependencies list if not already present.
-                        if parent not in deps:
-                            deps.append(parent)
-                            job["depends_on"] = deps
-                            # Save the updated child job data back to the store.
-                            await self.store.save(queue_name, child, job)
+                    deps_by_child.setdefault(child, set()).add(parent)
+
+                # Save all jobs with their merged dependency metadata.
+                for payload in job_dicts:
+                    job_id = str(payload["id"])
+                    deps = set(payload.get("depends_on", [])) | deps_by_child.get(job_id, set())
+                    stored = {**payload, "status": State.WAITING}
+                    if deps:
+                        stored["depends_on"] = sorted(deps)
+                    else:
+                        stored.pop("depends_on", None)
+                    await conn.execute(
+                        f"""
+                        INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (queue_name, job_id)
+                        DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
+                        """,
+                        queue_name,
+                        job_id,
+                        self._json_serializer.to_json(stored),
+                        State.WAITING,
+                    )
         # Return the list of IDs of the jobs that were initially provided.
         return [payload["id"] for payload in job_dicts]
 
