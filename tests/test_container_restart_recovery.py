@@ -5,6 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
+from pymongo import MongoClient
 
 from asyncmq.backends.mongodb import MongoDBBackend
 from asyncmq.backends.postgres import PostgresBackend
@@ -72,6 +73,17 @@ async def _wait_mongo() -> None:
         await backend.health_check()
     finally:
         backend.store.client.close()
+
+
+async def _drop_mongo_database(database: str) -> None:
+    def drop() -> None:
+        client: MongoClient = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+        try:
+            client.drop_database(database)
+        finally:
+            client.close()
+
+    await anyio.to_thread.run_sync(drop)
 
 
 async def _wait_rabbitmq() -> None:
@@ -168,7 +180,7 @@ async def test_mongodb_stalled_recovery_survives_container_restart():
     job_id = "container-restart-mongo-job"
     database = "asyncmq_container_restart"
     producer = MongoDBBackend(mongo_url=MONGO_URL, database=database)
-    producer.store.client.drop_database(database)
+    await _drop_mongo_database(database)
 
     try:
         await producer.connect()
@@ -193,13 +205,10 @@ async def test_mongodb_stalled_recovery_survives_container_restart():
             assert recovered is not None
             assert recovered["id"] == job_id
         finally:
-            recovery.store.client.drop_database(database)
             recovery.store.client.close()
     finally:
         await _wait_mongo()
-        cleanup = MongoDBBackend(mongo_url=MONGO_URL, database=database)
-        cleanup.store.client.drop_database(database)
-        cleanup.store.client.close()
+        await _drop_mongo_database(database)
 
 
 async def test_rabbitmq_stalled_recovery_survives_container_restart():
