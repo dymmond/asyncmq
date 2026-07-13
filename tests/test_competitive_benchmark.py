@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 
 import pytest
@@ -11,6 +12,7 @@ from benchmarks.competitive import (
     _close_asyncmq_counter,
     _parse_target_python,
     _select_targets,
+    _worker_exit_summary,
     benchmark_inventory,
     main,
     run_target,
@@ -58,6 +60,20 @@ def test_competitive_cli_dry_run_outputs_json(capsys):
     assert payload["dry_run"][0]["concurrency"] == 10
     assert payload["dry_run"][1]["target"] == "rq"
     assert payload["inventory"]["added"]
+
+
+def test_worker_exit_summary_includes_stderr():
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stderr.write('worker boom'); raise SystemExit(7)"],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+    )
+    process.wait(timeout=5)
+
+    summary = _worker_exit_summary([process])
+
+    assert "return_code=7" in summary
+    assert "worker boom" in summary
 
 
 async def test_competitive_asyncmq_runner_processes_all_jobs():

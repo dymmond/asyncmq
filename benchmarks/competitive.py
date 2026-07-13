@@ -376,10 +376,27 @@ def _start_workers(
             cwd=os.getcwd(),
             env=env,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
         for _ in range(process_count)
     ]
+
+
+def _worker_exit_summary(processes: Sequence[subprocess.Popen[bytes]]) -> str:
+    summaries: list[str] = []
+    for index, process in enumerate(processes):
+        if process.poll() is None:
+            continue
+        stderr = ""
+        if process.stderr is not None:
+            try:
+                stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                stderr = ""
+        if len(stderr) > 2_000:
+            stderr = stderr[-2_000:]
+        summaries.append(f"worker={index} return_code={process.returncode} stderr={stderr!r}")
+    return "; ".join(summaries)
 
 
 def _stop_workers(processes: Sequence[subprocess.Popen[bytes]]) -> None:
@@ -461,7 +478,10 @@ async def _run_external_sample(
         await anyio.sleep(worker_startup_delay)
         exited = [process.returncode for process in processes if process.poll() is not None]
         if exited:
-            raise RuntimeError(f"{target} worker exited before jobs were enqueued: return_codes={exited}")
+            raise RuntimeError(
+                f"{target} worker exited before jobs were enqueued: "
+                f"return_codes={exited}; {_worker_exit_summary(processes)}"
+            )
         worker_startup_ns = time.perf_counter_ns() - worker_start
         total_start = time.perf_counter_ns()
         enqueue_latency_ns = await _enqueue_external(

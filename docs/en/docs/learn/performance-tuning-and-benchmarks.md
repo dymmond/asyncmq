@@ -131,7 +131,8 @@ Track at least:
 
 ## Backend Notes
 
-- Redis: monitor latency, memory, and key cardinality.
+- Redis: monitor latency, memory, and key cardinality. Ready queues index job
+  IDs; payload size still affects canonical job storage and network transfer.
 - Postgres: monitor locks, table/index bloat, and connection pool saturation.
 - MongoDB: monitor write/read latency and collection/index growth.
 - RabbitMQ: monitor queue depth, unacked messages, and broker flow control.

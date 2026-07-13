@@ -25,6 +25,8 @@ Redis:
 
 - default backend in settings
 - strong feature coverage and good operational fit for queue workloads
+- waiting queues store job IDs while canonical Redis job storage owns payloads,
+  avoiding duplicated large-payload writes in the ready queue
 - due delayed jobs are promoted to waiting through a Redis-side script
 - dependency resolution preserves delayed children in delayed storage until
   their scheduled time

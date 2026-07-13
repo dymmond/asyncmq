@@ -67,6 +67,45 @@ async def test_enqueue_and_dequeue(redis):
     assert result["id"] == job.id
 
 
+async def test_enqueue_stores_waiting_member_as_job_id(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-waiting-id-member"
+    body = "x" * 256_000
+    job = Job(task_id="redis.large", args=[body], kwargs={}, job_id="redis-large-id")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    members = await redis.zrange(backend._waiting_key(queue), 0, -1)
+    assert members == [job.id]
+    assert body not in members[0]
+
+    stored = await backend.get_job(queue, job.id)
+    assert stored is not None
+    assert stored["args"] == [body]
+
+    dequeued = await backend.dequeue(queue)
+    assert dequeued is not None
+    assert dequeued["id"] == job.id
+    assert dequeued["args"] == [body]
+
+
+async def test_dequeue_accepts_legacy_json_waiting_member(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-legacy-json-waiting"
+    payload = {
+        **Job(task_id="redis.legacy", args=["legacy"], kwargs={}, job_id="legacy-json-waiting").to_dict(),
+        "status": State.WAITING,
+    }
+
+    await redis.zadd(backend._waiting_key(queue), {backend._json_serializer.to_json(payload): 1})
+
+    dequeued = await backend.dequeue(queue)
+    assert dequeued is not None
+    assert dequeued["id"] == payload["id"]
+    assert dequeued["status"] == State.ACTIVE
+    assert await backend.get_job_state(queue, payload["id"]) == State.ACTIVE
+
+
 async def test_same_priority_jobs_preserve_fifo_order(redis):
     backend = RedisBackend()
     first = Job(task_id="redis.first", args=[], kwargs={}, priority=5)
@@ -181,6 +220,19 @@ async def test_cancelled_waiting_job_is_not_listed_as_redis_waiting(redis):
     assert all(item["id"] != job.id for item in waiting)
 
 
+async def test_cancel_job_removes_id_waiting_member(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-cancel-id-waiting"
+    job = Job(task_id="redis.cancel.id", args=[], kwargs={}, job_id="redis-cancel-id")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    assert await redis.zrange(backend._waiting_key(queue), 0, -1) == [job.id]
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await redis.zrange(backend._waiting_key(queue), 0, -1) == []
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+
+
 async def test_dequeue_skips_stale_cancelled_redis_waiting_member(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-cancel-stale-waiting"
@@ -279,6 +331,7 @@ async def test_promote_due_delayed_moves_redis_job_to_waiting_atomically(redis):
     assert [item["id"] for item in promoted] == [job.id]
     assert await redis.zcard(backend._delayed_key(queue)) == 0
     assert await redis.zcard(backend._waiting_key(queue)) == 1
+    assert await redis.zrange(backend._waiting_key(queue), 0, -1) == [job.id]
     stored = await backend.get_job(queue, job.id)
     assert stored["status"] == State.WAITING
     dequeued = await backend.dequeue(queue)

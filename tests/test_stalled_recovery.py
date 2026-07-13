@@ -24,6 +24,15 @@ pytestmark = pytest.mark.anyio
 gs = settings
 
 
+def _redis_member_job_id(member: Any) -> str | None:
+    raw = member.decode("utf-8") if isinstance(member, bytes) else str(member)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    return str(payload.get("id")) if isinstance(payload, dict) and payload.get("id") is not None else raw
+
+
 async def _wait_for_redis_value(
     client: Any,
     key: str,
@@ -138,7 +147,7 @@ async def test_fetch_and_reenqueue(backend):
         assert payload in backend.queues.get(queue, [])
     elif isinstance(backend, RedisBackend):
         items = await backend.redis.zrange(f"queue:{queue}:waiting", 0, -1)
-        assert any(json.loads(item)["id"] == job_id for item in items)
+        assert any(_redis_member_job_id(item) == job_id for item in items)
     elif isinstance(backend, PostgresBackend):
         state = await backend.get_job_state(queue, job_id)
         assert state == State.WAITING
@@ -180,7 +189,7 @@ async def test_scheduler_recovery(backend, monkeypatch):
         assert any(job["id"] == job_id for job in backend.queues.get(queue, []))
     elif isinstance(backend, RedisBackend):
         items = await backend.redis.zrange(f"queue:{queue}:waiting", 0, -1)
-        assert any(json.loads(item)["id"] == job_id for item in items)
+        assert any(_redis_member_job_id(item) == job_id for item in items)
     elif isinstance(backend, PostgresBackend):
         state = await backend.get_job_state(queue, job_id)
         assert state == State.WAITING
@@ -311,7 +320,7 @@ async def test_reenqueue_stalled_releases_dequeued_active_job(backend):
         assert not await backend.redis.hexists(backend._active_key(queue), job_id)
         assert not await backend.redis.hexists(backend._job_heartbeat_key(queue), job_id)
         items = await backend.redis.zrange(f"queue:{queue}:waiting", 0, -1)
-        assert any(json.loads(item)["id"] == job_id for item in items)
+        assert any(_redis_member_job_id(item) == job_id for item in items)
     elif isinstance(backend, PostgresBackend):
         assert await backend.get_job_state(queue, job_id) == State.WAITING
     elif isinstance(backend, MongoDBBackend):

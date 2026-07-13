@@ -4,48 +4,28 @@
 
 ### Added
 
-- Added production operations surfaces: cooperative worker draining, SIGINT/SIGTERM
-  drain handling, queue drain/clean/obliterate CLI commands, single-worker
-  inspection, liveness/readiness probes, and Prometheus metrics.
-- Added observability and diagnostics options: structured JSON logging,
-  optional OpenTelemetry job spans, richer worker visibility, and benchmark
-  tooling with warmups, repeated samples, summary statistics, and isolated
-  competitor runners for canonical workloads and 1,000-worker fanout runs.
-- Added safety and deployment guidance: payload-size limits, dashboard admin
-  authorization, explicit CORS/same-origin controls, delivery-semantics docs,
-  Docker/Kubernetes deployment notes, and benchmark planning against Celery,
-  Dramatiq, Arq, RQ, and Huey.
+- Production operations: worker draining, shutdown handling, queue
+  drain/clean/obliterate commands, worker inspection, health probes, and
+  Prometheus metrics.
+- Observability and diagnostics: structured logging, optional OpenTelemetry
+  spans, richer worker visibility, and reproducible competitive benchmarks.
+- Production guidance for delivery semantics, deployment, recovery,
+  monitoring, security defaults, and backend selection.
 
 ### Fixed
 
-- Worker reservation now respects local execution capacity and rate-limit
-  tokens before dequeueing, so workers no longer hide more runnable work than
-  they can execute.
-- Completion, retry, expiration, cancellation, DLQ, delayed, and cleanup paths
-  now use backend-owned lifecycle transitions for Redis, PostgreSQL, MongoDB,
-  RabbitMQ, and in-memory storage.
-- Stalled recovery now records active claim timestamps, renews long-running job
-  heartbeats, retries transient recovery-loop failures, preserves terminal
-  states, and releases abandoned jobs across persistent backend restarts.
-- Backend behavior was aligned for priority/FIFO dequeue, delayed promotion,
-  dependency blocking, cancellation markers, manual retry payload cleanup,
-  queue pause/resume persistence, RabbitMQ delivery tokens, and MongoDB
-  cross-process waiting/delayed state.
-- Redis hot paths now avoid queue scans and apply bounded client-pool
-  backpressure under high worker fanout.
-- Competitive benchmarks now measure comparable end-to-end completion latency
-  with workers running before enqueue.
-- Worker and scheduler loops now tolerate transient heartbeat, delayed-scan,
-  repeatable-schedule, and lifecycle-event listener failures without stopping
-  unrelated job processing.
-- Dashboard and CLI hardening now fail closed for unsafe auth claims, missing
-  unsafe-request origins, weak JWT secrets, unsafe CORS defaults, Rich markup
-  injection, and expensive readiness probes.
-- Sandbox execution now defaults to safer process spawning and fails closed on
-  timeout unless fallback is explicitly enabled.
-- Documentation now describes delivery guarantees, backend caveats, production
-  deployment, recovery behavior, monitoring, benchmark methodology, and
-  operational runbooks more explicitly.
+- Worker reservation is bounded by execution capacity and rate-limit tokens.
+- Lifecycle transitions are backend-owned for completion, retry, expiration,
+  cancellation, DLQ, delayed, and cleanup paths.
+- Stalled recovery releases abandoned active jobs while preserving terminal
+  states across persistent backend restarts.
+- Backend behavior is aligned for priority/FIFO ordering, delayed promotion,
+  dependency blocking, cancellation, retry cleanup, pause/resume, and
+  RabbitMQ/MongoDB state handling.
+- Redis waiting queues now index job IDs while canonical storage owns payloads,
+  reducing hot-path scans, memory pressure, and large-payload broker writes.
+- Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
+  hardened for production operation.
 
 ## 0.8.1
 

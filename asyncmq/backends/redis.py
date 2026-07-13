@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Any, Union, cast
 
@@ -21,7 +20,8 @@ DEFAULT_REDIS_POOL_TIMEOUT = 30.0
 # (first element in the sorted set, i.e., score 0) from a Redis Sorted Set.
 # This prevents race conditions when multiple workers try to dequeue jobs simultaneously.
 # KEYS[1] is the key of the Redis Sorted Set (e.g., 'queue:{queue_name}:waiting').
-# The script returns the job payload (as a JSON string) or nil if the set is empty.
+# The script returns the waiting member (job id for new entries, JSON for legacy
+# entries) or nil if the set is empty.
 POP_SCRIPT: str = """
 local items = redis.call('ZRANGE', KEYS[1], 0, 0)
 if #items == 0 then
@@ -42,7 +42,7 @@ ENQUEUE_SCRIPT: str = """
 local priority = tonumber(ARGV[1])
 local sequence = redis.call('INCR', KEYS[2])
 local score = priority * 1000000000000 + sequence
-redis.call('ZADD', KEYS[1], score, ARGV[2])
+redis.call('ZADD', KEYS[1], score, ARGV[3])
 redis.call('SET', KEYS[3], ARGV[2])
 redis.call('SADD', KEYS[4], ARGV[3])
 return score
@@ -98,7 +98,7 @@ PROMOTE_DELAYED: str = """
 -- ARGV[1]: number of candidate jobs
 -- Per candidate:
 --   delayed member JSON
---   waiting member/canonical JSON
+--   canonical waiting job JSON
 --   job id
 --   waiting zset score
 --   canonical job key
@@ -115,7 +115,7 @@ for _ = 1, total do
   idx = idx + 5
 
   if redis.call('ZREM', KEYS[1], delayed_json) > 0 then
-    redis.call('ZADD', KEYS[2], waiting_score, waiting_json)
+    redis.call('ZADD', KEYS[2], waiting_score, job_id)
     redis.call('SET', job_key, waiting_json)
     redis.call('SADD', KEYS[3], job_id)
     table.insert(promoted, waiting_json)
@@ -148,6 +148,7 @@ local now = tonumber(ARGV[5])
 local expected_active_since = tonumber(ARGV[6])
 
 local function remove_job_member(zset_key, target_id)
+  redis.call('ZREM', zset_key, target_id)
   local members = redis.call('ZRANGE', zset_key, 0, -1)
   for _, member in ipairs(members) do
     local ok, job = pcall(cjson.decode, member)
@@ -252,7 +253,7 @@ end
 
 redis.call('HDEL', KEYS[2], job_id)
 redis.call('HDEL', KEYS[3], job_id)
-redis.call('ZADD', KEYS[1], score, job_json)
+redis.call('ZADD', KEYS[1], score, job_id)
 redis.call('SET', KEYS[4], job_json)
 redis.call('SADD', KEYS[5], job_id)
 return 1
@@ -469,16 +470,63 @@ class RedisBackend(BaseBackend):
         # Key format: 'queue:{queue_name}:dlq'
         return f"queue:{name}:dlq"
 
-    async def _remove_waiting_member(self, queue_name: str, job_id: str) -> None:
-        waiting_key = self._waiting_key(queue_name)
-        for member in await self.redis.zrange(waiting_key, 0, -1):
-            raw = member.decode("utf-8") if isinstance(member, bytes) else member
-            try:
-                payload = self._json_serializer.to_dict(raw)
-            except Exception:
+    def _member_text(self, member: Any) -> str:
+        if isinstance(member, bytes):
+            return member.decode("utf-8")
+        return str(member)
+
+    def _job_id_and_payload_from_member(self, member: Any) -> tuple[str | None, dict[str, Any] | None]:
+        raw = self._member_text(member)
+        try:
+            payload = self._json_serializer.to_dict(raw)
+        except Exception:
+            return raw, None
+        if isinstance(payload, dict):
+            job_id = payload.get("id")
+            return (str(job_id), payload) if job_id is not None else (None, payload)
+        return raw, None
+
+    async def _remove_zset_job_member(self, redis_key: str, job_id: str, *, id_member: bool = False) -> bool:
+        removed = False
+        if id_member and await self.redis.zrem(redis_key, job_id) > 0:
+            removed = True
+        for member in await self.redis.zrange(redis_key, 0, -1):
+            member_job_id, payload = self._job_id_and_payload_from_member(member)
+            if payload is None and not id_member:
                 continue
-            if str(payload.get("id")) == job_id:
-                await self.redis.zrem(waiting_key, member)
+            if member_job_id == job_id and await self.redis.zrem(redis_key, member) > 0:
+                removed = True
+        return removed
+
+    async def _remove_waiting_member(self, queue_name: str, job_id: str) -> bool:
+        return await self._remove_zset_job_member(self._waiting_key(queue_name), job_id, id_member=True)
+
+    async def _load_indexed_job(self, queue_name: str, member: Any) -> dict[str, Any] | None:
+        job_id, payload = self._job_id_and_payload_from_member(member)
+        if job_id is None:
+            return payload
+        stored = await self.job_store.load(queue_name, job_id)
+        return stored or payload
+
+    async def _remove_delayed_member(self, queue_name: str, job_id: str) -> bool:
+        return await self._remove_zset_job_member(self._delayed_key(queue_name), job_id)
+
+    async def _remove_dlq_member(self, queue_name: str, job_id: str) -> bool:
+        return await self._remove_zset_job_member(self._dlq_key(queue_name), job_id)
+
+    async def _remove_job_from_indexes(self, queue_name: str, job_id: str) -> bool:
+        removed = await self._remove_waiting_member(queue_name, job_id)
+        removed = await self._remove_delayed_member(queue_name, job_id) or removed
+        removed = await self._remove_dlq_member(queue_name, job_id) or removed
+        return removed
+
+    async def _indexed_jobs(self, queue_name: str, redis_key: str) -> list[dict[str, Any]]:
+        jobs: list[dict[str, Any]] = []
+        for raw in await self.redis.zrange(redis_key, 0, -1):
+            payload = await self._load_indexed_job(queue_name, raw)
+            if payload is not None:
+                jobs.append(payload)
+        return jobs
 
     async def _replace_delayed_member(
         self,
@@ -593,11 +641,11 @@ class RedisBackend(BaseBackend):
         # Get the Redis key for the waiting queue's Sorted Set.
         key: str = self._waiting_key(queue_name)
         # Execute the Lua script to atomically pop the next job from the Sorted Set.
-        # The script returns the JSON string of the job payload or nil.
+        # New waiting entries are job IDs; legacy entries may still be JSON payloads.
         while raw := await self.pop_script(keys=[key]):
-            # Deserialize the job payload from the JSON string into a dictionary.
-            payload: dict[str, Any] = self._json_serializer.to_dict(raw)
-            job_id = str(payload["id"])
+            job_id, payload = self._job_id_and_payload_from_member(raw)
+            if job_id is None:
+                continue
             read_pipe = self.redis.pipeline(transaction=False)
             read_pipe.get(self._job_store_key(queue_name, job_id))
             read_pipe.sismember(self._cancelled_key(queue_name), job_id)
@@ -606,6 +654,8 @@ class RedisBackend(BaseBackend):
                 stored_raw = stored_raw.decode("utf-8")
             stored = self._json_serializer.to_dict(stored_raw) if stored_raw else None
             candidate = stored or payload
+            if candidate is None:
+                continue
             if is_cancelled:
                 cancelled_payload = {**candidate, "status": "cancelled", "delay_until": None}
                 cancelled_payload.pop("result", None)
@@ -654,31 +704,13 @@ class RedisBackend(BaseBackend):
             payload: The job data as a dictionary, expected to contain at least
                      an "id" key.
         """
-        # 1) Remove from the waiting set if present
-        waiting_key = self._waiting_key(queue_name)
-        for member in await self.redis.zrange(waiting_key, 0, -1):
-            try:
-                job = json.loads(member)
-            except Exception:
-                continue
-            if job.get("id") == payload["id"]:
-                await self.redis.zrem(waiting_key, member)
-                break
-
-        # 2) Remove from the delayed set if present
-        delayed_key = self._delayed_key(queue_name)
-        for member in await self.redis.zrange(delayed_key, 0, -1):
-            try:
-                job = json.loads(member)
-            except Exception:
-                continue
-            if job.get("id") == payload["id"]:
-                await self.redis.zrem(delayed_key, member)
-                break
+        job_id = str(payload["id"])
+        await self._remove_waiting_member(queue_name, job_id)
+        await self._remove_delayed_member(queue_name, job_id)
 
         # Remove any in-flight bookkeeping for this job.
-        await self.redis.hdel(self._active_key(queue_name), payload["id"])
-        await self.redis.hdel(self._job_heartbeat_key(queue_name), payload["id"])
+        await self.redis.hdel(self._active_key(queue_name), job_id)
+        await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
 
         # 3) Add to the DLQ Sorted Set
         dlq_key: str = self._dlq_key(queue_name)
@@ -690,7 +722,7 @@ class RedisBackend(BaseBackend):
         await self.redis.zadd(dlq_key, {raw_json: time.time()})
 
         # 4) Persist terminal status in the job store
-        await self.job_store.save(queue_name, payload["id"], {**payload, "status": target_status})
+        await self.job_store.save(queue_name, job_id, {**payload, "status": target_status})
 
     async def ack(self, queue_name: str, job_id: str) -> None:
         """
@@ -1448,18 +1480,8 @@ class RedisBackend(BaseBackend):
 
         key = key_map.get(normalized)
         if key is not None:
-            raw_jobs: list[str] = await self.redis.zrange(key, 0, -1)
             jobs: list[dict[str, Any]] = []
-
-            for raw in raw_jobs:
-                try:
-                    payload = self._json_serializer.to_dict(raw)
-                except Exception:
-                    continue
-
-                job_id = payload.get("id")
-                stored = await self.job_store.load(queue_name, str(job_id)) if job_id is not None else None
-                candidate = stored or payload
+            for candidate in await self._indexed_jobs(queue_name, key):
                 if matches_job_type(candidate, normalized):
                     jobs.append(candidate)
             return jobs
@@ -1519,33 +1541,8 @@ class RedisBackend(BaseBackend):
         Returns:
             True if the job was found and removed from any queue, False otherwise.
         """
-        removed: bool = False
+        removed = await self._remove_job_from_indexes(queue_name, job_id)
         stored = await self.job_store.load(queue_name, job_id)
-        # Define the list of Redis keys for the Sorted Sets to check for the job.
-        keys_to_check: list[str] = [
-            self._waiting_key(queue_name),
-            self._delayed_key(queue_name),
-            self._dlq_key(queue_name),
-        ]
-        # Iterate through each key (representing a queue type).
-        for redis_key in keys_to_check:
-            # Retrieve all members from the current set.
-            raw_jobs: list[str] = await self.redis.zrange(redis_key, 0, -1)
-            # Iterate through the raw job payloads in the set.
-            for raw in raw_jobs:
-                job: dict[str, Any] = json.loads(raw)
-                # Check if the job ID matches the one to remove.
-                if job.get("id") == job_id:
-                    # Atomically remove the job from the set. ZREM returns the number of elements removed.
-                    removed_count: int = await self.redis.zrem(redis_key, raw)
-                    # If the job was successfully removed.
-                    if removed_count > 0:
-                        removed = True
-                        # No need to continue checking other queues or this queue's remaining members.
-                        break
-            # If the job was removed from this queue, we can stop checking others.
-            if removed:
-                break
         active_removed = await self.redis.hdel(self._active_key(queue_name), job_id)
         heartbeat_removed = await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
         if active_removed > 0 or heartbeat_removed > 0:
@@ -1937,24 +1934,8 @@ class RedisBackend(BaseBackend):
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to cancel.
         """
-        removed = False
-
-        # Remove matching jobs from the waiting sorted set
-        wait_key = self._waiting_key(queue_name)
-        raw_jobs = await self.redis.zrange(wait_key, 0, -1)
-        for raw in raw_jobs:
-            job = self._json_serializer.to_dict(raw)
-            if job.get("id") == job_id:
-                await self.redis.zrem(wait_key, raw)
-                removed = True
-
-        delayed_key = self._delayed_key(queue_name)
-        raw_jobs = await self.redis.zrange(delayed_key, 0, -1)
-        for raw in raw_jobs:
-            job = self._json_serializer.to_dict(raw)
-            if job.get("id") == job_id:
-                await self.redis.zrem(delayed_key, raw)
-                removed = True
+        removed = await self._remove_waiting_member(queue_name, job_id)
+        removed = await self._remove_delayed_member(queue_name, job_id) or removed
 
         active_removed = await self.redis.hdel(self._active_key(queue_name), job_id)
         heartbeat_removed = await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
