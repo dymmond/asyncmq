@@ -133,8 +133,14 @@ def get_print_banner(
 
 def run_cmd(fn: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T | None:
     try:
-        return anyio.run(fn, *args, **kwargs)
+        if kwargs:
+
+            async def _call_with_kwargs() -> T:
+                return await fn(*args, **kwargs)
+
+            return anyio.run(_call_with_kwargs)
+        return anyio.run(fn, *args)
     except RuntimeError as e:
         if e.args and "Event loop is closed" in e.args[0]:
-            pass
-        return None
+            return None
+        raise

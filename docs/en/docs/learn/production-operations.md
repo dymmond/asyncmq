@@ -208,6 +208,14 @@ await queue.clean_jobs(grace=86400, limit=1000, state="failed")
 await queue.drain(include_delayed=True)
 ```
 
+The CLI exposes the same queue-admin controls:
+
+```bash
+asyncmq queue clean emails --state completed --grace 3600 --limit 1000
+asyncmq queue drain emails --include-delayed
+asyncmq queue obliterate emails --force
+```
+
 Recommended pattern:
 
 - keep enough completed jobs for recent debugging

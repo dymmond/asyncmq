@@ -15,6 +15,8 @@
 - Public producer APIs now enforce a configurable JSON-encoded job payload size
   guard through `max_job_payload_bytes` to reduce resource-exhaustion risk from
   oversized jobs.
+- Queue administration commands now expose drain, clean, and obliterate
+  operations through the CLI for incident response and controlled maintenance.
 
 ### Fixed
 

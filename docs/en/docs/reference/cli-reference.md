@@ -22,6 +22,9 @@ asyncmq queue list
 asyncmq queue info <queue>
 asyncmq queue pause <queue>
 asyncmq queue resume <queue>
+asyncmq queue drain <queue> [--include-delayed]
+asyncmq queue clean <queue> --state <state> [--grace <seconds>] [--limit <n>]
+asyncmq queue obliterate <queue> --force
 
 asyncmq queue list-delayed <queue>
 asyncmq queue remove-delayed <queue> <job_id>

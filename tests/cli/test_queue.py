@@ -7,12 +7,28 @@ runner = CliRunner()
 
 
 class FakeBackend:
-    queues = {"queue1": [{}], "queue2": [{}]}
-    delayed = {"queue1": [], "queue2": []}
-    dlqs = {"queue1": [], "queue2": []}
+    def __init__(self):
+        self.queues = {"queue1": [{}], "queue2": [{}]}
+        self.delayed = {"queue1": [], "queue2": []}
+        self.dlqs = {"queue1": [], "queue2": []}
+        self.calls = []
 
     async def is_queue_paused(self, queue):
         return False
+
+    async def drain_queue(self, queue, *, include_delayed=False):
+        self.calls.append(("drain", queue, include_delayed))
+        return ["waiting-1", "delayed-1"] if include_delayed else ["waiting-1"]
+
+    async def clean_jobs(self, queue, *, state, grace, limit):
+        self.calls.append(("clean", queue, state, grace, limit))
+        return ["completed-1"]
+
+    async def obliterate_queue(self, queue, *, force=False):
+        self.calls.append(("obliterate", queue, force))
+        if not force:
+            raise RuntimeError("force required")
+        return ["job-1", "job-2"]
 
 
 @pytest.fixture
@@ -20,8 +36,9 @@ def fake_backend():
     from asyncmq.conf import settings
 
     original_backend = settings.backend
-    settings.backend = FakeBackend()
-    yield
+    backend = FakeBackend()
+    settings.backend = backend
+    yield backend
     settings.backend = original_backend
 
 
@@ -42,3 +59,37 @@ def test_queue_info(monkeypatch, fake_backend):
     assert result.exit_code == 0
     assert "Paused" in result.output
     assert "Waiting Jobs" in result.output
+
+
+def test_queue_drain(monkeypatch, fake_backend):
+    result = runner.invoke(app, ["queue", "drain", "queue1", "--include-delayed"])
+
+    assert result.exit_code == 0
+    assert "Drain removed 2 job(s)" in result.output
+    assert ("drain", "queue1", True) in fake_backend.calls
+
+
+def test_queue_clean(monkeypatch, fake_backend):
+    result = runner.invoke(
+        app,
+        ["queue", "clean", "queue1", "--state", "completed", "--grace", "60", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    assert "Clean removed 1 job(s)" in result.output
+    assert ("clean", "queue1", "completed", 60.0, 10) in fake_backend.calls
+
+
+def test_queue_obliterate_requires_force(monkeypatch, fake_backend):
+    result = runner.invoke(app, ["queue", "obliterate", "queue1"])
+
+    assert result.exit_code != 0
+    assert "force required" in str(result.exception)
+
+
+def test_queue_obliterate_with_force(monkeypatch, fake_backend):
+    result = runner.invoke(app, ["queue", "obliterate", "queue1", "--force"])
+
+    assert result.exit_code == 0
+    assert "Obliterate removed 2 job(s)" in result.output
+    assert ("obliterate", "queue1", True) in fake_backend.calls
