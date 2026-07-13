@@ -63,7 +63,7 @@ The job execution path is:
 3. check cancellation
 4. check TTL expiration
 5. check `delay_until`
-6. move to `active` and emit `job:started`
+6. move to `active`, stamp `last_attempt`, and emit `job:started`
 7. optionally record a job heartbeat for stalled detection
 8. execute the handler
 9. on success:

@@ -67,11 +67,12 @@ RabbitMQ metadata stores, and in-memory backends.
 
 When a handler raises an exception:
 
-1. `last_error` and `error_traceback` are stored on the job payload
-2. `retries` is incremented
-3. the worker computes `next_retry_delay()`
-4. the job is re-enqueued into the delayed queue if attempts remain
-5. otherwise the job is marked `failed` and moved to the DLQ
+1. `last_attempt` records when the handler attempt started
+2. `last_error` and `error_traceback` are stored on the job payload
+3. `retries` is incremented
+4. the worker computes `next_retry_delay()`
+5. the job is re-enqueued into the delayed queue if attempts remain
+6. otherwise the job is marked `failed` and moved to the DLQ
 
 Manual retry APIs move failed jobs back to `waiting` and clear terminal result
 and error fields before the next execution attempt.

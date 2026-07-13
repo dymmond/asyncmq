@@ -287,6 +287,7 @@ async def handle_job(
         # 3) Mark active & start event: If the job is ready to be processed
         # Set job status to ACTIVE
         job.status = State.ACTIVE
+        job.last_attempt = time.time()
         # Update the state in the backend
         await backend.update_job_state(queue_name, job.id, job.status)
         # Emit a job:started event

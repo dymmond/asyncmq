@@ -291,6 +291,7 @@ async def test_worker_retry_uses_backend_lifecycle_transition():
     retry_payload = backend.delayed[queue][0][1]
     assert "RuntimeError: retry me" in retry_payload["last_error"]
     assert "RuntimeError: retry me" in retry_payload["error_traceback"]
+    assert isinstance(retry_payload["last_attempt"], float)
     assert (queue, "j-retry") not in backend.active_jobs
 
 
@@ -339,6 +340,7 @@ async def test_worker_failure_uses_backend_lifecycle_transition():
     failed_payload = backend.dlqs[queue][0]
     assert "RuntimeError: fail me" in failed_payload["last_error"]
     assert "RuntimeError: fail me" in failed_payload["error_traceback"]
+    assert isinstance(failed_payload["last_attempt"], float)
     assert (queue, "j-failed") not in backend.active_jobs
 
 
@@ -366,6 +368,7 @@ async def test_worker_success_clears_stale_failure_metadata():
     assert stored["status"] == State.COMPLETED
     assert stored["last_error"] is None
     assert stored["error_traceback"] is None
+    assert isinstance(stored["last_attempt"], float)
 
 
 async def test_worker_renews_job_heartbeat_while_handler_runs():

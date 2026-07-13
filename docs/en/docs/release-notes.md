@@ -43,6 +43,8 @@
 - Dependency flow creation now keeps unresolved children in `waiting-children`
   instead of runnable waiting queues across the built-in backends, and
   dependency resolution promotes children only after the last parent completes.
+- Worker execution now stamps `last_attempt` when a handler attempt starts, so
+  completed, retried, and failed payloads expose the most recent execution time.
 
 ## 0.8.1
 
