@@ -523,12 +523,20 @@ class Worker:
         async def heartbeat_loop() -> None:
             while True:
                 await anyio.sleep(self.heartbeat_interval)
-                await backend.register_worker(
-                    worker_id=self.id,
-                    queue=self.queue.name,
-                    concurrency=self.concurrency,
-                    timestamp=time.time(),
-                )
+                try:
+                    await backend.register_worker(
+                        worker_id=self.id,
+                        queue=self.queue.name,
+                        concurrency=self.concurrency,
+                        timestamp=time.time(),
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to renew worker heartbeat for worker %r on queue %r",
+                        self.id,
+                        self.queue.name,
+                        exc_info=True,
+                    )
 
         try:
             async with anyio.create_task_group() as tg:

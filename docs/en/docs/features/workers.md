@@ -177,6 +177,10 @@ can show:
 - concurrency
 - last heartbeat timestamp
 
+Initial worker registration is a startup requirement. After startup, transient
+worker heartbeat renewal failures are logged and retried without stopping the
+worker loop.
+
 ### Job heartbeats
 
 If `enable_stalled_check=True`, backends record an active-claim timestamp when a

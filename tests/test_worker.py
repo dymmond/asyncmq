@@ -48,6 +48,42 @@ async def test_worker_heartbeat_registration_and_updates():
     assert len(workers) == 0
 
 
+async def test_worker_heartbeat_renewal_failure_does_not_stop_worker():
+    class FlakyWorkerHeartbeatBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.register_calls = 0
+
+        async def register_worker(
+            self,
+            worker_id: str,
+            queue: str,
+            concurrency: int,
+            timestamp: float | None = None,
+        ) -> None:
+            self.register_calls += 1
+            if self.register_calls == 2:
+                raise RuntimeError("temporary worker heartbeat outage")
+            await super().register_worker(worker_id, queue, concurrency, timestamp)
+
+    backend = FlakyWorkerHeartbeatBackend()
+    settings.backend = backend
+    worker = Worker("test_queue_flaky_worker_heartbeat", heartbeat_interval=0.05)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(worker._run_with_scope)
+        with anyio.fail_after(1):
+            while backend.register_calls < 3:
+                await anyio.sleep(0.01)
+
+        workers = await backend.list_workers()
+        assert len(workers) == 1
+        assert workers[0].id == worker.id
+        tg.cancel_scope.cancel()
+
+    assert await backend.list_workers() == []
+
+
 async def test_worker_processes_jobs_end_to_end():
     """
     The worker should pick up jobs from the queue, execute them, and mark them COMPLETED.

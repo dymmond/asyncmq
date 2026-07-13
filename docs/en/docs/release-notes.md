@@ -79,6 +79,8 @@
   `enable_stalled_check=True`.
 - Job heartbeat renewal write failures after the initial active heartbeat are
   now logged and retried without cancelling the running handler.
+- Worker registration heartbeat renewal failures after startup are now logged
+  and retried without stopping the worker loop.
 - Stalled recovery now logs transient scan, individual requeue, and stalled
   event-emission failures without stopping the recovery loop.
 - Stalled recovery now validates active-job release from real dequeued jobs,
