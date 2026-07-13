@@ -175,28 +175,33 @@ async def test_mongodb_atomic_add_flow(mongodb_backend):
 
 async def test_rabbitmq_atomic_add_flow(rabbitmq_backend):
     queue_name = f"rrq-{uuid4().hex}"
-    fp = FlowProducer(backend=rabbitmq_backend)
-    job1 = Job(task_id="t5", args=[], kwargs={}, job_id="id1")
-    job2 = Job(task_id="t5", args=[], kwargs={}, job_id="id2", depends_on=["id1"])
+    try:
+        fp = FlowProducer(backend=rabbitmq_backend)
+        job1 = Job(task_id="t5", args=[], kwargs={}, job_id="id1")
+        job2 = Job(task_id="t5", args=[], kwargs={}, job_id="id2", depends_on=["id1"])
 
-    ids = await fp.add_flow(queue_name, [job1, job2])
-    assert ids == ["id1", "id2"]
+        ids = await fp.add_flow(queue_name, [job1, job2])
+        assert ids == ["id1", "id2"]
 
-    waiting_children = await rabbitmq_backend.list_jobs(queue_name, "waiting-children")
-    assert [job["id"] for job in waiting_children] == ["id2"]
+        waiting_children = await rabbitmq_backend.list_jobs(queue_name, "waiting-children")
+        assert [job["id"] for job in waiting_children] == ["id2"]
 
-    # Children must not be published until the parent resolves.
-    first = await rabbitmq_backend.dequeue(queue_name)
-    assert first and first["payload"]["id"] == "id1"
+        # Children must not be published until the parent resolves.
+        first = await rabbitmq_backend.dequeue(queue_name)
+        assert first and first["payload"]["id"] == "id1"
 
-    second = await rabbitmq_backend.dequeue(queue_name)
-    assert second is None
+        second = await rabbitmq_backend.dequeue(queue_name)
+        assert second is None
 
-    await rabbitmq_backend.complete_active_job(queue_name, {**first["payload"], "status": State.ACTIVE}, "ok")
-    await rabbitmq_backend.resolve_dependency(queue_name, "id1")
-    second = await rabbitmq_backend.dequeue(queue_name)
-    assert second and second["payload"]["id"] == "id2"
-    assert "depends_on" not in second["payload"]
+        await rabbitmq_backend.complete_active_job(queue_name, {**first["payload"], "status": State.ACTIVE}, "ok")
+        await rabbitmq_backend.resolve_dependency(queue_name, "id1")
+        second = await rabbitmq_backend.dequeue(queue_name)
+        assert second and second["payload"]["id"] == "id2"
+        assert "depends_on" not in second["payload"]
+        await rabbitmq_backend.ack(queue_name, second["job_id"])
+    finally:
+        await rabbitmq_backend._connect()
+        await rabbitmq_backend._chan.queue_delete(queue_name, if_unused=False, if_empty=False)
 
 
 async def test_inmemory_flow_blocks_child_until_dependencies_resolve(memory_backend):

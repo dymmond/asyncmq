@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import aio_pika
 import pytest
 import pytest_asyncio
 
@@ -11,6 +12,37 @@ from asyncmq.stores.redis_store import RedisJobStore
 pytestmark = pytest.mark.asyncio
 
 RABBIT_URL = "amqp://guest:guest@localhost/"
+RABBIT_TEST_QUEUES = (
+    "test_q",
+    "test_q.dlq",
+    "test_q_priority_0_9",
+    "test_q_promote_delayed",
+    "test_q_stalled_restart",
+    "test_q_stalled_without_first_heartbeat",
+    "test_list_state",
+    "test_list_state.dlq",
+    "test_filters",
+    "test_filters.dlq",
+    "test_case",
+    "wrong_status",
+)
+
+
+async def delete_rabbitmq_test_queues() -> None:
+    connection = await aio_pika.connect_robust(RABBIT_URL)
+    try:
+        channel = await connection.channel()
+        for queue_name in RABBIT_TEST_QUEUES:
+            await channel.queue_delete(queue_name, if_unused=False, if_empty=False)
+    finally:
+        await connection.close()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_rabbitmq_test_queues():
+    await delete_rabbitmq_test_queues()
+    yield
+    await delete_rabbitmq_test_queues()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -26,15 +58,8 @@ async def redis_store(redis):
 async def backend(redis_store):
     # Create RabbitMQ backend with Redis-based metadata store
     backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
-    # Delete any pre-existing test queues. Purge is not enough after a broker
-    # queue process crashes or when a prior test leaves declaration drift.
-    await backend._connect()
-    await backend._chan.queue_delete("test_q", if_unused=False, if_empty=False)
-    await backend._chan.queue_delete("test_q.dlq", if_unused=False, if_empty=False)
     yield backend
     # Cleanup after test
-    await backend._chan.queue_delete("test_q", if_unused=False, if_empty=False)
-    await backend._chan.queue_delete("test_q.dlq", if_unused=False, if_empty=False)
     await backend.close()
 
 
