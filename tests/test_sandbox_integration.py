@@ -75,8 +75,11 @@ async def backend(request):
     elif name == "mongodb":
         db_name = f"test_asyncmq_{uuid4().hex}"
         b = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=db_name)
-        yield b
-        await b.store.client.drop_database(db_name)
+        try:
+            yield b
+        finally:
+            await b.store.client.drop_database(db_name)
+            b.store.client.close()
     elif name == "postgres":
         # Drop old and install schema
         await install_or_drop_postgres_backend(drop=True)

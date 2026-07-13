@@ -393,14 +393,14 @@ class Settings(BaseSettings):
     Only relevant if `sandbox_enabled` is True. Defaults to 30.0 seconds.
     """
 
-    sandbox_ctx: str | None = "fork"
+    sandbox_ctx: str | None = "spawn"
     """
     Specifies the multiprocessing context method for the sandbox.
 
     Determines how new processes are created for sandboxed jobs. Possible
     values depend on the operating system but commonly include "fork",
     "spawn", or "forkserver". Only relevant if `sandbox_enabled` is True.
-    Defaults to "fork".
+    Defaults to "spawn".
     """
 
     worker_concurrency: int = 1

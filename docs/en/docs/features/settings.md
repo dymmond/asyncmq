@@ -31,6 +31,8 @@ export ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings
 - `enable_stalled_check`: enable heartbeat writes for active jobs.
 - `stalled_check_interval`, `stalled_threshold`: values used by stalled recovery scheduler.
 - `sandbox_enabled`, `sandbox_default_timeout`, `sandbox_ctx`: subprocess sandbox execution.
+  The default sandbox context is `spawn` to avoid unsafe `fork` behavior in
+  multi-threaded runtimes.
 - `heartbeat_ttl`: worker heartbeat freshness window (worker listing/visibility).
 - `tasks`: module package paths for worker autodiscovery.
 - `json_dumps`, `json_loads`: custom JSON serialization hooks.

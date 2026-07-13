@@ -36,7 +36,7 @@ MongoDB fields:
 - `stalled_threshold: float = 30.0`
 - `sandbox_enabled: bool = False`
 - `sandbox_default_timeout: float = 30.0`
-- `sandbox_ctx: str | None = "fork"`
+- `sandbox_ctx: str | None = "spawn"`
 
 ## Serialization and Logging
 

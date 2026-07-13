@@ -123,8 +123,8 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
                       subprocess reports an error during execution.
     """
     settings = asyncmq.monkay.settings
-    # Get the multiprocessing context, defaulting to 'fork' if not specified
-    ctx = mp.get_context(settings.sandbox_ctx or "fork")
+    # Get the multiprocessing context, defaulting to 'spawn' if not specified.
+    ctx = mp.get_context(settings.sandbox_ctx or "spawn")
     # Create a queue for communication between the parent and child processes
     out_q = ctx.Queue()
     # Create a new process targeting _worker_entry with necessary arguments
