@@ -94,6 +94,9 @@
   instead of deprecated `protected_args` access.
 - Sandbox subprocess execution now defaults to the `spawn` multiprocessing
   context to avoid unsafe `fork` behavior in multi-threaded runtimes.
+- Sandbox timeouts now fail closed by default instead of re-running timed-out
+  handlers in the parent worker process; fallback remains available only when
+  callers explicitly opt in.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid

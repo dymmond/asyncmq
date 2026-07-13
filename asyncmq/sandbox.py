@@ -92,7 +92,7 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
         out_q.put(("error", payload))
 
 
-def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: float, fallback: bool = True) -> Any:
+def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: float, fallback: bool = False) -> Any:
     """
     Runs the specified task handler in a sandboxed subprocess with a timeout.
 
@@ -110,7 +110,8 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
         timeout: The maximum number of seconds to wait for the subprocess
                  to complete.
         fallback: If True, execute the task in the current process if the
-                  subprocess times out. Defaults to True.
+                  subprocess times out. Defaults to False so sandbox timeout
+                  isolation fails closed unless a caller explicitly opts in.
 
     Returns:
         The result returned by the task handler function upon successful

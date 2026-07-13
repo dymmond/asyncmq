@@ -228,6 +228,11 @@ If `settings.sandbox_enabled=True`, handlers are executed through
 `asyncmq.sandbox.run_handler` in a worker thread instead of being awaited
 directly in the main runtime path.
 
+Sandbox timeout fallback is disabled by default. When a sandboxed handler
+exceeds `settings.sandbox_default_timeout`, the child process is terminated and
+the worker handles the timeout as a failed attempt instead of running the same
+handler again in the parent worker process.
+
 Use sandboxing when:
 
 - you need execution isolation for untrusted or fragile handlers

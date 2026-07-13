@@ -21,6 +21,12 @@ def boom():
     raise ValueError("explode")
 
 
+@task(queue="test")
+def slow():
+    time.sleep(0.2)
+    return "fallback-executed"
+
+
 def test_success_handler_returns_value():
     task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == add][0]
     result = sandbox.run_handler(task_id, (), {}, timeout=1)
@@ -45,6 +51,24 @@ def test_missing_task_raises_key_error():
     with pytest.raises(RuntimeError) as exc:
         sandbox.run_handler("no_task", (), {}, timeout=1)
     assert "KeyError" in str(exc.value)
+
+
+def test_timeout_does_not_fallback_by_default(monkeypatch):
+    monkeypatch.setattr("asyncmq.conf.settings.sandbox_ctx", "spawn")
+
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == slow][0]
+
+    with pytest.raises(TimeoutError):
+        sandbox.run_handler(task_id, [], {}, timeout=0.05)
+
+
+def test_timeout_fallback_is_explicit_opt_in(monkeypatch):
+    monkeypatch.setattr("asyncmq.conf.settings.sandbox_ctx", "spawn")
+
+    task_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == slow][0]
+
+    result = sandbox.run_handler(task_id, [], {}, timeout=0.05, fallback=True)
+    assert result == "fallback-executed"
 
 
 def test_timeout_raises_timeout_error(monkeypatch):
