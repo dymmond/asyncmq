@@ -10,6 +10,7 @@ from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
+from asyncmq.core.stalled import stalled_recovery_scheduler
 from asyncmq.rate_limiter import RateLimiter
 from asyncmq.workers import Worker, handle_job, process_job
 
@@ -170,6 +171,8 @@ async def run_worker(
             delayed_job_scanner(queue_name, backend, interval=scan_interval),
             repeatable_scheduler(queue_name, repeatables or [], backend=backend, interval=scan_interval),
         ]
+        if monkay.settings.enable_stalled_check:
+            tasks.append(stalled_recovery_scheduler(backend))
 
         # Use asyncio.gather to run all the created tasks concurrently.
         # This function will wait for all tasks to complete (which, for these

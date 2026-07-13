@@ -23,6 +23,9 @@
 - RabbitMQ now applies worker lifecycle transitions through backend-owned paths
   that save metadata before broker acknowledgement and route failures through
   DLQ publishing before acknowledgement.
+- Stalled-job visibility now renews job heartbeats while handlers run, and the
+  normal worker entrypoints start stalled recovery automatically when
+  `enable_stalled_check=True`.
 
 ## 0.8.1
 

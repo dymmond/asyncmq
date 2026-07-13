@@ -189,8 +189,8 @@ operations, not long-term warehouse analytics.
 ### Stalled jobs
 
 1. confirm `enable_stalled_check=True`
-2. confirm `stalled_recovery_scheduler(...)` is actually running
-3. verify long-running handlers refresh heartbeats when needed
+2. confirm workers are running through `run_worker(...)`, `Queue.run()`, or `Worker.run()`
+3. verify long-running handlers are still renewing job heartbeats
 
 ## Retention and Cleanup
 

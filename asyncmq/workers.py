@@ -14,6 +14,7 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
+from asyncmq.core.stalled import stalled_recovery_scheduler
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
@@ -103,6 +104,12 @@ async def _cancel_active_job(backend: Any, queue_name: str, payload: dict[str, A
         return
 
     await backend.ack(queue_name, str(payload["id"]))
+
+
+def _heartbeat_renewal_interval(settings: Any) -> float:
+    threshold = max(float(settings.stalled_threshold), 0.1)
+    check_interval = max(float(settings.stalled_check_interval), 0.1)
+    return max(0.1, min(check_interval, threshold / 3))
 
 
 async def process_job(
@@ -288,6 +295,11 @@ async def handle_job(
         if settings.enable_stalled_check:
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
+        async def heartbeat_renewal_loop() -> None:
+            while True:
+                await anyio.sleep(_heartbeat_renewal_interval(settings))
+                await backend.save_heartbeat(queue_name, job.id, time.time())
+
         # Retrieve task metadata and the handler function from the registry
         try:
             meta = TASK_REGISTRY[job.task_id]
@@ -323,19 +335,27 @@ async def handle_job(
         if await backend.is_job_cancelled(queue_name, job.id):
             raise JobCancelled()
 
-        # 4) Execute task (sandbox vs direct): Run the task, potentially in a sandbox
-        if settings.sandbox_enabled:
-            # If sandboxing is enabled, run the handler in a separate thread
-            # using the sandbox execution function.
-            result = await anyio.to_thread.run_sync(  # noqa
-                cast(Any, sandbox.run_handler),
-                job.task_id,
-                tuple(job.args),  # sandbox expects tuple args
-                job.kwargs,
-                settings.sandbox_default_timeout,
-            )
+        async def execute_handler() -> Any:
+            # Execute task (sandbox vs direct): run the task, potentially in a sandbox.
+            if settings.sandbox_enabled:
+                return await anyio.to_thread.run_sync(  # noqa
+                    cast(Any, sandbox.run_handler),
+                    job.task_id,
+                    tuple(job.args),  # sandbox expects tuple args
+                    job.kwargs,
+                    settings.sandbox_default_timeout,
+                )
+            return await handler(*job.args, **job.kwargs)
+
+        if settings.enable_stalled_check:
+            async with anyio.create_task_group() as heartbeat_tg:
+                heartbeat_tg.start_soon(heartbeat_renewal_loop)
+                try:
+                    result = await execute_handler()
+                finally:
+                    heartbeat_tg.cancel_scope.cancel()
         else:
-            result = await handler(*job.args, **job.kwargs)
+            result = await execute_handler()
 
         # 5) Success path: If the task execution completed without exceptions
         # Set job status to COMPLETED
@@ -446,6 +466,8 @@ class Worker:
             async with anyio.create_task_group() as tg:
                 self._cancel_scope = tg.cancel_scope
                 tg.start_soon(heartbeat_loop)
+                if monkay.settings.enable_stalled_check:
+                    tg.start_soon(stalled_recovery_scheduler, backend)
 
                 # Kick off the real processing loop—
                 # process_job will dequeue and handle jobs until cancelled.

@@ -177,10 +177,14 @@ can show:
 ### Job heartbeats
 
 If `enable_stalled_check=True`, the worker records a heartbeat for the job
-when execution starts.
+when execution starts and renews it while the handler is still running.
 
-Long-running jobs that may exceed `stalled_threshold` should refresh that
-heartbeat explicitly:
+The renewal interval is derived from `stalled_threshold` and
+`stalled_check_interval`, so a healthy long-running async handler should not be
+re-enqueued merely because it ran longer than the visibility window.
+
+Handlers may still refresh explicitly when they hand work to external systems
+and want to report a domain-specific checkpoint:
 
 ```python
 from asyncmq.core.stalled import record_heartbeat
@@ -195,29 +199,20 @@ async def transcode(job_id: str) -> None:
 ```
 
 If you do not refresh heartbeats for very long jobs, the stalled recovery loop
-may treat them as abandoned work.
+can still recover the job when the worker process stops renewing visibility.
 
 ## Stalled Recovery
 
-Setting `enable_stalled_check=True` is only half of the feature.
-
-You must also run the recovery loop:
-
-```python
-from asyncmq.core.stalled import stalled_recovery_scheduler
-
-await stalled_recovery_scheduler()
-```
-
-The recovery scheduler:
+When `enable_stalled_check=True`, `run_worker(...)` and `Worker.run()` start the
+recovery loop alongside normal processing. The recovery scheduler:
 
 - scans for active jobs whose heartbeat is older than `stalled_threshold`
 - re-enqueues them
 - emits `job:stalled`
 
 This is equivalent in purpose to BullMQ's stalled job handling, but AsyncMQ
-keeps the mechanism explicit so you can decide whether to run it in-process or
-as a dedicated operational component.
+also keeps `asyncmq.core.stalled.stalled_recovery_scheduler(...)` available when
+you deliberately want a separate recovery process.
 
 ## Sandbox Execution
 

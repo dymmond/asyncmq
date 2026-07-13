@@ -336,6 +336,55 @@ async def test_worker_failure_uses_backend_lifecycle_transition():
     assert (queue, "j-failed") not in backend.active_jobs
 
 
+async def test_worker_renews_job_heartbeat_while_handler_runs():
+    class HeartbeatBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.heartbeat_times: list[float] = []
+
+        async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
+            self.heartbeat_times.append(timestamp)
+            await super().save_heartbeat(queue_name, job_id, timestamp)
+
+    previous = (
+        settings.enable_stalled_check,
+        settings.stalled_threshold,
+        settings.stalled_check_interval,
+    )
+    settings.enable_stalled_check = True
+    settings.stalled_threshold = 0.3
+    settings.stalled_check_interval = 0.1
+
+    try:
+        backend = HeartbeatBackend()
+        settings.backend = backend
+
+        async def _slow_task() -> str:
+            await anyio.sleep(0.35)
+            return "done"
+
+        TASK_REGISTRY.clear()
+        TASK_REGISTRY["tests._heartbeat_renewal"] = {"func": _slow_task}
+
+        queue = "test_queue_heartbeat_renewal"
+        job = Job(task_id="tests._heartbeat_renewal", args=[], kwargs={}, job_id="j-heartbeat")
+        await backend.enqueue(queue, job.to_dict())
+        payload = await backend.dequeue(queue)
+
+        assert payload is not None
+
+        await handle_job(queue, payload, backend)
+
+        assert len(backend.heartbeat_times) >= 2
+        assert await backend.get_job_state(queue, "j-heartbeat") == State.COMPLETED
+    finally:
+        (
+            settings.enable_stalled_check,
+            settings.stalled_threshold,
+            settings.stalled_check_interval,
+        ) = previous
+
+
 async def test_worker_lifecycle_hooks_invoked_in_order(monkeypatch):
     backend = InMemoryBackend()
     settings.backend = backend

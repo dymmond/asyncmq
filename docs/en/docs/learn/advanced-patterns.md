@@ -39,12 +39,12 @@ class AppSettings(Settings):
 
 ## Stalled Recovery Loop
 
-If `enable_stalled_check=True`, add a dedicated scheduler task/process for recovery:
+If `enable_stalled_check=True`, normal worker entrypoints start stalled recovery
+alongside job processing. Use a dedicated scheduler task/process only when you
+want recovery ownership separated from worker execution:
 
 ```python
 from asyncmq.core.stalled import stalled_recovery_scheduler
 
 await stalled_recovery_scheduler()
 ```
-
-Without this loop, stalled jobs are only tracked, not automatically re-enqueued.

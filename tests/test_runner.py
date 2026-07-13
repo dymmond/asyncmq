@@ -1,10 +1,12 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 import anyio
 import pytest
 
 from asyncmq.backends.memory import InMemoryBackend
+from asyncmq.conf import settings
 from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
@@ -178,6 +180,30 @@ async def test_worker_respects_backoff():
 
     state = await backend.get_job_state("runner", job.id)
     assert state == State.FAILED
+
+
+async def test_run_worker_starts_stalled_recovery_when_enabled(monkeypatch):
+    backend = InMemoryBackend()
+    started = anyio.Event()
+
+    async def fake_stalled_recovery_scheduler(scheduler_backend):
+        assert scheduler_backend is backend
+        started.set()
+        await anyio.sleep_forever()
+
+    monkeypatch.setattr("asyncmq.runners.stalled_recovery_scheduler", fake_stalled_recovery_scheduler)
+
+    previous = settings.enable_stalled_check
+    settings.enable_stalled_check = True
+    try:
+        worker = asyncio.create_task(run_worker("runner", backend=backend))
+        with anyio.fail_after(1.0):
+            await started.wait()
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+    finally:
+        settings.enable_stalled_check = previous
 
 
 async def test_worker_skips_expired_jobs():
