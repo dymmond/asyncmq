@@ -1,5 +1,13 @@
 # Release Notes
 
+## 0.9.0
+
+### Fixed
+
+- Worker dequeue now respects local execution capacity before claiming jobs,
+  preventing a worker process from holding more active jobs than its configured
+  concurrency can execute.
+
 ## 0.8.1
 
 ### Fixed
