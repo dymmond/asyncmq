@@ -4,31 +4,24 @@
 
 ### Added
 
-- Production operations: worker draining, shutdown handling, queue
-  drain/clean/obliterate commands, worker inspection, health probes, and
-  Prometheus metrics.
-- Observability and diagnostics: structured logging, optional OpenTelemetry
-  spans, richer worker visibility, and reproducible competitive benchmarks.
-- Production guidance for delivery semantics, deployment, recovery,
-  monitoring, security defaults, and backend selection.
+- Production operations for worker draining, shutdown, queue cleanup,
+  inspection, health probes, metrics, and tracing.
+- Reproducible competitive benchmarks and production guidance for delivery
+  guarantees, backend selection, deployment, recovery, monitoring, and
+  security.
 
 ### Fixed
 
-- Worker reservation is bounded by execution capacity and rate-limit tokens.
-- Worker idle polling now backs off adaptively to reduce empty dequeue storms.
-- Lifecycle transitions are backend-owned for completion, retry, expiration,
-  cancellation, DLQ, delayed, and cleanup paths.
-- Worker payloads preserve active-claim tokens for stale lifecycle rejection.
+- Worker reservation is bounded by execution capacity, with adaptive idle
+  polling to reduce empty-dequeue pressure.
+- Lifecycle transitions now reject stale claims and cover completion, retry,
+  cancellation, expiration, delayed promotion, cleanup, and DLQ movement.
 - Stalled recovery releases abandoned active jobs while preserving terminal
-  states across persistent backend restarts.
-- Backend behavior is aligned for priority/FIFO ordering, delayed promotion,
-  dependency blocking, cancellation, retry cleanup, pause/resume, and
-  RabbitMQ/MongoDB state handling.
-- Redis waiting queues now index job IDs, keep lifecycle metadata compact, and
-  split/compress large payload fields outside Lua hot paths.
-- Redis dequeue now claims runnable jobs through one backend-owned transition.
-- Competitive benchmarks now bound stalled workers and producer/enqueue phases.
-- Competitive benchmark tasks use matching payload-byte counter updates.
+  states after persistent backend restarts.
+- Backend semantics are aligned for priority/FIFO ordering, delayed jobs,
+  dependency blocking, pause/resume, retries, cleanup, and restart handling.
+- Redis scalability improves with ID-indexed waiting queues, compact lifecycle
+  metadata, and compressed large payload storage.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
 
