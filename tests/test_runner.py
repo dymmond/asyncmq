@@ -333,3 +333,47 @@ async def test_registers_worker():
     # Clean up
     worker.cancel()
     await asyncio.gather(worker, return_exceptions=True)
+
+
+async def test_run_worker_drain_event_exits_after_inflight_job_finishes():
+    backend = InMemoryBackend()
+    started = anyio.Event()
+    release = anyio.Event()
+    drain_event = anyio.Event()
+
+    @task(queue="runner")
+    async def drainable_task():
+        started.set()
+        await release.wait()
+        return "done"
+
+    job1 = Job(task_id=get_task_id(drainable_task), args=[], kwargs={}, job_id="j1")
+    job2 = Job(task_id=get_task_id(drainable_task), args=[], kwargs={}, job_id="j2")
+    await backend.enqueue("runner", job1.to_dict())
+    await backend.enqueue("runner", job2.to_dict())
+
+    async def run_draining_worker() -> None:
+        await run_worker(
+            "runner",
+            backend=backend,
+            concurrency=1,
+            rate_limit=None,
+            rate_interval=1.0,
+            repeatables=None,
+            drain_event=drain_event,
+        )
+
+    with anyio.fail_after(2.0):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_draining_worker)
+            await started.wait()
+            drain_event.set()
+            await anyio.sleep(0.05)
+
+            assert await backend.get_job_state("runner", "j2") == State.WAITING
+
+            release.set()
+
+    assert await backend.get_job_state("runner", "j1") == State.COMPLETED
+    assert await backend.get_job_state("runner", "j2") == State.WAITING
+    assert await backend.list_workers() == []

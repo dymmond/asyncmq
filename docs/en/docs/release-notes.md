@@ -7,6 +7,9 @@
 - Benchmark planning now exposes a canonical workload matrix, measurement
   policy, and competitor availability check for Celery, Dramatiq, Arq, RQ, and
   Huey before performance results are recorded.
+- Workers now expose cooperative drain controls so application-owned shutdown
+  paths can stop claiming new jobs, let in-flight jobs finish, deregister, and
+  run shutdown hooks before process termination.
 
 ### Fixed
 

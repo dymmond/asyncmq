@@ -199,6 +199,97 @@ async def test_worker_does_not_prefetch_beyond_concurrency():
     assert waiting >= 4
 
 
+async def test_process_job_drain_stops_claiming_new_jobs_after_inflight_finishes():
+    backend = InMemoryBackend()
+    settings.backend = backend
+    started = anyio.Event()
+    release = anyio.Event()
+    drain_event = anyio.Event()
+
+    async def _drained_task() -> str:
+        started.set()
+        await release.wait()
+        return "done"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._drained_task"] = {"func": _drained_task}
+
+    queue = "test_queue_process_drain"
+    first = Job(task_id="tests._drained_task", args=[], kwargs={}, job_id="j1")
+    second = Job(task_id="tests._drained_task", args=[], kwargs={}, job_id="j2")
+    await backend.enqueue(queue, first.to_dict())
+    await backend.enqueue(queue, second.to_dict())
+
+    async def run_processor() -> None:
+        await process_job(
+            queue,
+            anyio.CapacityLimiter(1),
+            None,
+            backend,
+            drain_event=drain_event,
+        )
+
+    with anyio.fail_after(2.0):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_processor)
+            await started.wait()
+            drain_event.set()
+            await anyio.sleep(0.05)
+
+            assert await backend.get_job_state(queue, "j2") == State.WAITING
+
+            release.set()
+
+    assert await backend.get_job_state(queue, "j1") == State.COMPLETED
+    assert await backend.get_job_state(queue, "j2") == State.WAITING
+
+
+async def test_worker_drain_deregisters_after_inflight_job_finishes():
+    backend = InMemoryBackend()
+    settings.backend = backend
+    started = anyio.Event()
+    release = anyio.Event()
+    drained = anyio.Event()
+
+    async def _drained_task() -> str:
+        started.set()
+        await release.wait()
+        return "done"
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._worker_drained_task"] = {"func": _drained_task}
+
+    queue = "test_queue_worker_drain"
+    first = Job(task_id="tests._worker_drained_task", args=[], kwargs={}, job_id="j1")
+    second = Job(task_id="tests._worker_drained_task", args=[], kwargs={}, job_id="j2")
+    await backend.enqueue(queue, first.to_dict())
+    await backend.enqueue(queue, second.to_dict())
+
+    worker = Worker(queue, heartbeat_interval=0.05)
+    worker.concurrency = 1
+
+    async def drain_worker() -> None:
+        await worker.drain()
+        drained.set()
+
+    with anyio.fail_after(2.0):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(worker._run_with_scope)
+            await started.wait()
+            tg.start_soon(drain_worker)
+            await anyio.sleep(0.05)
+
+            assert not drained.is_set()
+            assert await backend.get_job_state(queue, "j2") == State.WAITING
+
+            release.set()
+            await drained.wait()
+
+    assert await backend.get_job_state(queue, "j1") == State.COMPLETED
+    assert await backend.get_job_state(queue, "j2") == State.WAITING
+    assert await backend.list_workers() == []
+
+
 async def test_worker_success_uses_backend_lifecycle_transition():
     class LifecycleBackend(InMemoryBackend):
         def __init__(self) -> None:

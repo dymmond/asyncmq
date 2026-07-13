@@ -225,6 +225,15 @@ Before deploying worker changes:
 3. confirm retry/backoff changes are acceptable for in-flight jobs
 4. confirm repeatable schedules will not duplicate work after restart
 
+For rolling worker restarts, prefer this order:
+
+1. pause the queue only when you need a queue-wide intake stop
+2. signal each worker process to drain so it stops claiming new jobs
+3. let in-flight jobs finish within the deployment drain window
+4. terminate any process that exceeds the drain window and rely on stalled
+   recovery/idempotent handlers for interrupted work
+5. start the replacement workers and confirm heartbeat freshness
+
 If a deploy changes task semantics in a non-backward-compatible way, drain or
 migrate queued jobs explicitly rather than hoping the old payload shape still
 works.

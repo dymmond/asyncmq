@@ -117,6 +117,8 @@ async def process_job(
     limiter: CapacityLimiter,
     rate_limiter: RateLimiter | None = None,
     backend: BaseBackend | None = None,
+    *,
+    drain_event: anyio.Event | None = None,
 ) -> None:
     """
     Continuously processes jobs from a specified queue, respecting concurrency
@@ -134,6 +136,9 @@ async def process_job(
                       at which jobs are processed. Defaults to None.
         backend: An optional BaseBackend instance to interact with the queue
                  storage. Defaults to the backend specified in monkay.settings.
+        drain_event: Optional event used for cooperative worker draining. Once
+                     set, the loop stops claiming new jobs and returns after
+                     already-started job tasks finish.
     """
     # Use the provided backend or the one from settings
     settings = asyncmq.monkay.settings
@@ -142,6 +147,9 @@ async def process_job(
     # Create a task group to manage concurrent job handling tasks
     async with anyio.create_task_group() as tg:
         while True:
+            if drain_event is not None and drain_event.is_set():
+                return
+
             # Pause support: Check if the queue is currently paused
             if await backend.is_queue_paused(queue_name):
                 # If paused, wait for a bit before checking again
@@ -154,6 +162,9 @@ async def process_job(
             await limiter.acquire_on_behalf_of(borrower)
             acquired = True
             try:
+                if drain_event is not None and drain_event.is_set():
+                    return
+
                 # Attempt to dequeue only after capacity is available. This
                 # prevents workers from hiding more jobs than they can execute.
                 raw_job = await backend.dequeue(queue_name)
@@ -428,11 +439,17 @@ class Worker:
         self.queue = queue if not isinstance(queue, str) else Queue(queue)
         self.id = str(uuid.uuid4())
         self._cancel_scope: anyio.CancelScope | None = None
+        self._drain_event: anyio.Event | None = None
+        self._stopped_event: anyio.Event | None = None
         self.concurrency = self._settings.worker_concurrency
         self.heartbeat_interval = heartbeat_interval or self._settings.heartbeat_ttl
 
     async def _run_with_scope(self) -> None:
         backend = asyncmq.monkay.settings.backend
+        drain_event = anyio.Event()
+        stopped_event = anyio.Event()
+        self._drain_event = drain_event
+        self._stopped_event = stopped_event
 
         if monkay.settings.tasks:
             # Trigger the auto discover tasks
@@ -468,32 +485,43 @@ class Worker:
         try:
             async with anyio.create_task_group() as tg:
                 self._cancel_scope = tg.cancel_scope
+
+                async def processor_loop() -> None:
+                    await process_job(
+                        self.queue.name,
+                        CapacityLimiter(self.concurrency),
+                        None,
+                        backend,
+                        drain_event=drain_event,
+                    )
+                    if drain_event.is_set():
+                        tg.cancel_scope.cancel()
+
                 tg.start_soon(heartbeat_loop)
                 if monkay.settings.enable_stalled_check:
                     tg.start_soon(stalled_recovery_scheduler, backend)
 
                 # Kick off the real processing loop—
                 # process_job will dequeue and handle jobs until cancelled.
-                tg.start_soon(
-                    process_job,
-                    self.queue.name,
-                    CapacityLimiter(self.concurrency),
-                    None,
-                    backend,
-                )
+                tg.start_soon(processor_loop)
 
                 # Keep this task group alive until cancellation.
                 await anyio.sleep(float("inf"))
         finally:
             self._cancel_scope = None
-            await backend.deregister_worker(self.id)
-            # Run the hooks on shutdown
-            await run_hooks_safely(
-                monkay.settings.worker_on_shutdown,
-                backend=backend,
-                worker_id=self.id,
-                queue=self.queue.name,
-            )
+            self._drain_event = None
+            try:
+                await backend.deregister_worker(self.id)
+                # Run the hooks on shutdown
+                await run_hooks_safely(
+                    monkay.settings.worker_on_shutdown,
+                    backend=backend,
+                    worker_id=self.id,
+                    queue=self.queue.name,
+                )
+            finally:
+                stopped_event.set()
+                self._stopped_event = None
 
     def start(self) -> None:
         """Blocking entrypoint."""
@@ -507,3 +535,18 @@ class Worker:
         """Cancel if running under start()."""
         if self._cancel_scope:
             self._cancel_scope.cancel()
+
+    async def drain(self) -> None:
+        """
+        Stop claiming new jobs and wait for this worker run to finish.
+
+        Draining is cooperative: already-running jobs are allowed to finish,
+        then the worker deregisters and runs shutdown hooks. If the worker is
+        not currently running, this method is a no-op.
+        """
+        drain_event = self._drain_event
+        stopped_event = self._stopped_event
+        if drain_event is None or stopped_event is None:
+            return
+        drain_event.set()
+        await stopped_event.wait()

@@ -281,6 +281,10 @@ AsyncMQ uses cooperative cancellation:
 - `queue.start()` blocks until interrupted
 - `await queue.run()` runs until cancelled
 - `Worker.stop()` cancels a running `Worker.start()` loop
+- `await Worker.drain()` stops claiming new jobs, lets in-flight jobs finish,
+  then deregisters the worker and runs shutdown hooks
+- `run_worker(..., drain_event=event)` exposes the same cooperative drain path
+  for application-owned orchestration
 
 On shutdown, AsyncMQ attempts to:
 
@@ -292,6 +296,12 @@ Operational recommendation:
 - stop claiming new work first
 - allow a drain window for in-flight jobs when possible
 - keep handlers idempotent so interrupted work can be retried safely
+
+Draining is local to the running worker process. For remote workers managed by
+Kubernetes, systemd, or another process supervisor, send the drain signal inside
+the process first when your application can do that, then terminate the process
+after the drain window expires. Queue-level pause remains the distributed way to
+stop all workers from claiming new jobs for a queue.
 
 ## Production Example
 
