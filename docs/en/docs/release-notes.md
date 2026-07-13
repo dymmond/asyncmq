@@ -43,6 +43,8 @@
 - CLI output now escapes queue, job, and worker identifiers before rendering
   them with Rich, so untrusted names display literally instead of as markup.
 - Structured JSON logging now preserves `stack_info=True` output on log records.
+- OpenTelemetry job spans now avoid duplicate exception events by making
+  AsyncMQ's explicit job error marker the single exception-recording path.
 - Worker dequeue now respects local execution capacity before claiming jobs,
   preventing a worker process from holding more active jobs than its configured
   concurrency can execute. Full workers leave unreserved waiting jobs available

@@ -39,10 +39,19 @@ class FakeTracer:
         self,
         name: str,
         attributes: dict[str, bool | int | float | str],
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
     ) -> Iterator[FakeSpan]:
         span = FakeSpan(name, attributes)
         self.spans.append(span)
-        yield span
+        try:
+            yield span
+        except BaseException as exc:
+            if record_exception:
+                span.record_exception(exc)
+            if set_status_on_exception:
+                span.set_attribute("otel.status_code", "ERROR")
+            raise
 
 
 class FakeTrace:
@@ -125,3 +134,4 @@ async def test_worker_job_tracing_records_execution_exception(monkeypatch: pytes
     assert span.attributes["asyncmq.job.error_type"] == "ValueError"
     assert len(span.exceptions) == 1
     assert str(span.exceptions[0]) == "boom"
+    assert "otel.status_code" not in span.attributes

@@ -68,6 +68,8 @@ def job_execution_span(
     with trace.get_tracer(tracer_name).start_as_current_span(
         f"{span_prefix}.{task_name}",
         attributes=attributes,
+        record_exception=False,
+        set_status_on_exception=False,
     ) as span:
         yield span
 
