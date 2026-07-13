@@ -57,6 +57,9 @@ RabbitMQ:
 - stalled recovery publishes a tokenized replacement delivery when the original
   broker delivery is still owned by another connection, and stale broker
   redeliveries are acknowledged and ignored after recovery
+- queue draining follows the shared backend contract by removing queued
+  metadata, purging ready broker messages, honoring `include_delayed`, and
+  returning removed job ids
 - due delayed jobs are promoted by the backend without deleting delayed
   metadata before broker publish; broker publish and metadata update are still
   not a single distributed transaction

@@ -1191,17 +1191,26 @@ class RabbitMQBackend(BaseBackend):
         # Ultimate fallback
         return {"waiting": waiting_fallback, "delayed": delayed, "failed": failed, "message_count": waiting_fallback}
 
-    async def drain_queue(self, queue_name: str) -> None:
+    async def drain_queue(self, queue_name: str, *, include_delayed: bool = False) -> list[str]:
         """
-        Drains (purges) all messages from a specific RabbitMQ queue.
+        Remove queued jobs that have not started executing.
 
-        This operation permanently removes all unacknowledged messages from the queue.
+        RabbitMQ stores broker deliveries and job metadata separately. Draining
+        removes matching metadata through the base implementation and purges
+        ready broker messages from the AMQP queue. Active/unacknowledged
+        deliveries are not removed.
 
         Args:
             queue_name: The name of the queue to drain.
+            include_delayed: Whether delayed jobs should also be removed.
+
+        Returns:
+            The identifiers of removed jobs.
         """
+        removed = await super().drain_queue(queue_name, include_delayed=include_delayed)
         q = await self._ensure_queue(queue_name)
         await q.purge()  # Purge all messages from the queue.
+        return removed
 
     async def create_lock(self, key: str, ttl: int) -> Any:
         """

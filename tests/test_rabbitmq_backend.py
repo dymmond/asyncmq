@@ -231,9 +231,23 @@ async def test_queue_stats_and_drain(backend):
     assert stats["message_count"] >= 3
     assert {"waiting", "delayed", "failed"} <= set(stats)
 
-    await backend.drain_queue("test_q")
+    removed = await backend.drain_queue("test_q")
+    assert set(removed) == {"s0", "s1", "s2"}
     stats2 = await backend.queue_stats("test_q")
     assert stats2["message_count"] == 0
+    assert await backend.list_jobs("test_q", State.WAITING) == []
+
+
+async def test_drain_queue_include_delayed_removes_delayed_metadata(backend):
+    await backend.enqueue_delayed("test_q", {"id": "delayed-drain", "task": "later"}, run_at=time.time() + 60)
+
+    assert await backend.drain_queue("test_q") == []
+    assert [item.job_id for item in await backend.list_delayed("test_q")] == ["delayed-drain"]
+
+    removed = await backend.drain_queue("test_q", include_delayed=True)
+
+    assert removed == ["delayed-drain"]
+    assert await backend.list_delayed("test_q") == []
 
 
 async def test_ack_does_not_force_completed_state(backend):

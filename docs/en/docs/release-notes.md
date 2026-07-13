@@ -113,6 +113,8 @@
 - Worker dequeue now waits for both local execution capacity and configured
   rate-limit tokens before claiming a job, keeping rate-limited backlog visible
   to other workers.
+- RabbitMQ queue draining now follows the shared backend contract, including
+  delayed-job removal when requested and returning removed job identifiers.
 - In-memory waiting queues now avoid full-list sorting on every unique enqueue
   and use constant-time dequeue from the hot path while preserving priority and
   FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid
