@@ -473,6 +473,13 @@ class RedisBackend(BaseBackend):
             job_id = str(payload["id"])
             stored = await self.job_store.load(queue_name, job_id)
             candidate = stored or payload
+            if await self.is_job_cancelled(queue_name, job_id):
+                cancelled_payload = {**candidate, "status": "cancelled", "delay_until": None}
+                cancelled_payload.pop("result", None)
+                await self.job_store.save(queue_name, job_id, cancelled_payload)
+                await self.redis.hdel(self._active_key(queue_name), job_id)
+                await self.redis.hdel(self._job_heartbeat_key(queue_name), job_id)
+                continue
             if has_pending_dependencies(candidate):
                 await self.job_store.save(queue_name, job_id, {**candidate, "status": State.WAITING})
                 continue

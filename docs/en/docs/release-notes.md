@@ -72,6 +72,9 @@
 - Redis cancellation now marks canonical job payloads as cancelled and lifecycle
   scripts preserve that marker instead of allowing late completion, retry,
   expiration, or failure transitions to overwrite it.
+- Redis dequeue now suppresses stale waiting members for cancelled jobs,
+  preserving cancelled canonical state when a cancelled job remains in the
+  waiting sorted set after a race or partial cleanup.
 - PostgreSQL cancellation now records the cancellation, removes matching
   waiting or delayed rows, marks active rows as cancelled, and prevents late
   lifecycle writes from overwriting cancellation.

@@ -27,8 +27,9 @@ Redis:
 - worker lifecycle transitions use Redis-side scripts for active-job
   completion, retry/defer, expiration, cancellation, and DLQ routing
 - cancellation markers are stored in Redis and respected by lifecycle scripts
-  so late completions cannot overwrite cancelled jobs; removal clears markers
-  even when only cancellation state remains
+  so late completions cannot overwrite cancelled jobs; dequeue also suppresses
+  stale cancelled waiting members, and removal clears markers even when only
+  cancellation state remains
 
 Postgres:
 

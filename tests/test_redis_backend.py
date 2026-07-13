@@ -135,6 +135,29 @@ async def test_cancelled_waiting_job_is_not_listed_as_redis_waiting(redis):
     assert all(item["id"] != job.id for item in waiting)
 
 
+async def test_dequeue_skips_stale_cancelled_redis_waiting_member(redis):
+    backend = RedisBackend(redis_url_or_client=redis)
+    queue = "redis-cancel-stale-waiting"
+    job = Job(task_id="redis.cancel.stale", args=[], kwargs={}, job_id="j-cancel-stale")
+
+    await backend.enqueue(queue, job.to_dict())
+    raw_waiting = await redis.zrange(backend._waiting_key(queue), 0, -1, withscores=True)
+
+    assert len(raw_waiting) == 1
+
+    raw_member, score = raw_waiting[0]
+
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+
+    await redis.zadd(backend._waiting_key(queue), {raw_member: score})
+
+    assert await backend.dequeue(queue) is None
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    assert not await redis.zrange(backend._waiting_key(queue), 0, -1)
+    assert not await redis.hexists(backend._active_key(queue), job.id)
+
+
 async def test_retry_active_job_moves_redis_job_to_delayed_atomically(redis):
     backend = RedisBackend(redis_url_or_client=redis)
     queue = "redis-lifecycle-retry"
