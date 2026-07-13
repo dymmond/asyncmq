@@ -150,6 +150,13 @@ class PostgresBackend(BaseBackend):
                     """
                 )
 
+    async def health_check(self) -> None:
+        await self.connect()
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL connection pool is not initialized.")
+        async with self.pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue for

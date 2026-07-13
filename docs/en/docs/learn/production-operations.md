@@ -30,7 +30,7 @@ For Docker and Kubernetes examples, see [Deployment](deployment.md).
 For dashboard deployments, wire platform probes to:
 
 - `/health` for process liveness
-- `/ready` for backend reachability and inspection readiness
+- `/ready` for lightweight backend reachability
 
 ## Queue Design
 

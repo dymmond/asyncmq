@@ -300,6 +300,9 @@ class RedisBackend(BaseBackend):
         self._lifecycle_script: AsyncScript = self.redis.register_script(LIFECYCLE_SCRIPT)
         self._reenqueue_stalled_script: AsyncScript = self.redis.register_script(REENQUEUE_STALLED_SCRIPT)
 
+    async def health_check(self) -> None:
+        await self.redis.ping()
+
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         key = self._delayed_key(queue_name)
         now = time.time()

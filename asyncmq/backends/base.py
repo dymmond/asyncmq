@@ -971,6 +971,16 @@ class BaseBackend(ABC):
 
         return removed_ids
 
+    async def health_check(self) -> None:
+        """
+        Performs a lightweight backend reachability check.
+
+        Backends with external services should override this with a cheap ping
+        or single-row query. The default is a no-op for in-process/custom
+        backends where construction itself is sufficient.
+        """
+        return None
+
     @abstractmethod
     async def queue_stats(self, queue_name: str) -> dict[str, int]: ...
 

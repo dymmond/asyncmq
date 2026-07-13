@@ -123,9 +123,9 @@ If backend inspection fails, the endpoint returns `503` and emits
 {"status": "ok", "service": "asyncmq-dashboard"}
 ```
 
-`GET /ready` checks backend queue and worker inspection. It returns `200` with
-`status: "ok"` when the backend is reachable and `503` with `status: "error"`
-when backend inspection raises.
+`GET /ready` runs the backend's lightweight reachability check without
+enumerating queues or workers. It returns `200` with `status: "ok"` when the
+backend is reachable and `503` with `status: "error"` when the check raises.
 
 ## SSE Events
 

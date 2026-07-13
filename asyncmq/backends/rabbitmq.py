@@ -97,6 +97,12 @@ class RabbitMQBackend(BaseBackend):
         # Set the quality of service for the channel, controlling prefetch count.
         await self._chan.set_qos(prefetch_count=self.prefetch_count)
 
+    async def health_check(self) -> None:
+        await self._connect()
+        state_health = getattr(self._state, "health_check", None)
+        if callable(state_health):
+            await state_health()
+
     async def _ensure_queue(self, queue_name: str, *, track: bool = True) -> aio_pika.abc.AbstractQueue:
         await self._connect()
         if queue_name not in self._queues:

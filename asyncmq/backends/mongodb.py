@@ -74,6 +74,7 @@ class MongoDBBackend(BaseBackend):
         self._queue_controls = self.store.db["queue_controls"]
         self._cancelled_jobs = self.store.db["cancelled_jobs"]
         self._locks: dict[str, anyio.Lock] = {}
+        self._connected = False
 
     async def connect(self) -> None:
         """
@@ -85,6 +86,8 @@ class MongoDBBackend(BaseBackend):
         MongoDB store.
         """
         # Call the connect method of the underlying MongoDBStore to establish the connection.
+        if self._connected:
+            return
         await self.store.connect()
         await self._queue_controls.create_index("queue_name", unique=True, background=False)
         await self.store.collection.create_index(
@@ -96,6 +99,11 @@ class MongoDBBackend(BaseBackend):
             background=False,
         )
         await self._cancelled_jobs.create_index([("queue_name", 1), ("job_id", 1)], unique=True, background=False)
+        self._connected = True
+
+    async def health_check(self) -> None:
+        await self.connect()
+        await self.store.db.command("ping")
 
     async def _mark_job_cancelled(self, queue_name: str, job_id: str) -> None:
         now = time.time()

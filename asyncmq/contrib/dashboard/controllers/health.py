@@ -19,8 +19,9 @@ class ReadinessController(Controller):
         backend: Any = monkay.settings.backend
         backend_name = backend.__class__.__name__
         try:
-            queues = await backend.list_queues()
-            workers = await backend.list_workers() if hasattr(backend, "list_workers") else []
+            health_check = getattr(backend, "health_check", None)
+            if callable(health_check):
+                await health_check()
         except Exception as exc:
             return JSONResponse(
                 {
@@ -35,7 +36,5 @@ class ReadinessController(Controller):
             {
                 "status": "ok",
                 "backend": backend_name,
-                "queues": len(queues),
-                "workers": len(workers),
             }
         )

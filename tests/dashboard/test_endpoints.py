@@ -13,8 +13,25 @@ config = DashboardConfig()
 
 
 class BrokenBackend:
+    async def health_check(self):
+        raise RuntimeError("backend unavailable")
+
     async def list_queues(self):
         raise RuntimeError("backend unavailable")
+
+
+class ExpensiveInspectionBackend:
+    def __init__(self):
+        self.health_checks = 0
+
+    async def health_check(self):
+        self.health_checks += 1
+
+    async def list_queues(self):
+        raise AssertionError("readiness must not enumerate queues")
+
+    async def list_workers(self):
+        raise AssertionError("readiness must not enumerate workers")
 
 
 @pytest.fixture(scope="package")
@@ -83,6 +100,20 @@ def test_ready_endpoint_reports_backend_reachability(client):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["backend"] == "RedisBackend"
+
+
+def test_ready_endpoint_uses_lightweight_backend_health_check(client):
+    backend = ExpensiveInspectionBackend()
+    settings.backend = backend
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "backend": "ExpensiveInspectionBackend",
+    }
+    assert backend.health_checks == 1
 
 
 def test_ready_endpoint_reports_backend_failure(client):
