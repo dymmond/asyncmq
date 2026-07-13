@@ -91,6 +91,7 @@ nav:
   - reference/index.md
   - reference/settings-reference.md
   - reference/cli-reference.md
+  - reference/delivery-semantics.md
   - reference/backend-capabilities.md
   - reference/bullmq-migration.md
   - reference/bullmq-parity.md

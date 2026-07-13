@@ -220,6 +220,8 @@ them out. That keeps forward compatibility with newer runtime metadata.
 - Keep job arguments small; store large blobs externally and pass references.
 - Make handlers idempotent because retries, retries after restarts, and manual
   replays are normal.
+- Review [Delivery Semantics](../reference/delivery-semantics.md) before
+  making business guarantees based on queue behavior.
 - Use explicit `max_retries` and bounded backoff for external systems.
 - Use TTL for work that becomes harmful when stale.
 - Use queue inspection APIs to clean completed and failed jobs instead of

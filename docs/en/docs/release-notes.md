@@ -17,6 +17,9 @@
   oversized jobs.
 - Queue administration commands now expose drain, clean, and obliterate
   operations through the CLI for incident response and controlled maintenance.
+- Delivery semantics are now documented in one reference page covering
+  at-least-once behavior, duplicate delivery, visibility recovery, ordering,
+  cancellation, expiration, and backend caveats.
 
 ### Fixed
 

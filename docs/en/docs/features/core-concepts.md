@@ -74,6 +74,9 @@ alongside processing when that setting is enabled. The lower-level
 `asyncmq.core.stalled.stalled_recovery_scheduler(...)` remains available for
 explicit recovery processes.
 
+For the full delivery contract, including duplicate delivery, ordering, and
+visibility timeout limits, see [Delivery Semantics](../reference/delivery-semantics.md).
+
 ## Where to Go Next
 
 - [Tasks](tasks.md)
