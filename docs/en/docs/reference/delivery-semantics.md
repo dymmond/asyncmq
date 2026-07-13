@@ -51,6 +51,8 @@ Important limits:
 - `RedisBackend` atomically re-checks canonical active state before requeueing
   a stalled snapshot, so recovery does not overwrite jobs that already reached
   a terminal state.
+- `PostgresBackend` conditionally updates still-active rows during stalled
+  recovery, preserving terminal rows if the stalled snapshot is stale.
 - `RabbitMQBackend` publishes tokenized replacement deliveries during stalled
   recovery and acknowledges stale broker redeliveries whose token no longer
   matches metadata state.

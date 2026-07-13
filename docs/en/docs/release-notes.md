@@ -63,6 +63,9 @@
 - Redis stalled recovery now atomically re-checks canonical active state before
   requeueing, so stale recovery snapshots cannot overwrite jobs that already
   reached a terminal state.
+- PostgreSQL stalled recovery now conditionally moves only still-active job rows
+  back to waiting, preserving completed or otherwise terminal rows when recovery
+  uses an older stalled snapshot.
 - PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
   first and FIFO order within the same priority.
 - Delayed-job scanning now delegates due-job promotion to backend-owned

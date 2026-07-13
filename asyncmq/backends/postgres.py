@@ -1411,12 +1411,51 @@ class PostgresBackend(BaseBackend):
             job_data: The dictionary containing the job's data, including its current
                       state and payload. This dictionary is modified in-place.
         """
-        # Reset the job status to WAITING so the enqueue method correctly processes it
-        job_data["status"] = State.WAITING
+        await self.connect()
+        retry_payload = dict(job_data)
+        job_id = str(retry_payload["id"])
+        expected_active_since = retry_payload.get("active_since")
+        retry_payload["status"] = State.WAITING
+        retry_payload.pop("heartbeat", None)
+        retry_payload.pop("active_since", None)
+        retry_payload.pop("updated_at", None)
+        payload_json = self._json_serializer.to_json(retry_payload)
 
-        # Call the internal enqueue method to place the job back in the queue
-        # Note: The `enqueue` method is assumed to exist elsewhere in this class.
-        await self.enqueue(queue_name, job_data)
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    UPDATE {self._settings.postgres_jobs_table_name} AS jobs
+                    SET status = $3,
+                        data = $4,
+                        delay_until = NULL,
+                        updated_at = now()
+                    WHERE jobs.queue_name = $1
+                      AND jobs.job_id = $2
+                      AND jobs.status = $5
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                          WHERE cancelled.queue_name = jobs.queue_name
+                            AND cancelled.job_id = jobs.job_id
+                      )
+                      AND (
+                          $6::double precision IS NULL
+                          OR abs(
+                              COALESCE(
+                                  (jobs.data ->> 'active_since')::double precision,
+                                  EXTRACT(EPOCH FROM jobs.updated_at)
+                              ) - $6::double precision
+                          ) <= 0.000001
+                      )
+                    """,
+                    queue_name,
+                    job_id,
+                    State.WAITING,
+                    payload_json,
+                    State.ACTIVE,
+                    expected_active_since,
+                )
 
     async def register_worker(
         self,

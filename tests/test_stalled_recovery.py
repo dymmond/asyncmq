@@ -334,6 +334,40 @@ async def test_postgres_stalled_recovery_survives_backend_restart():
         await install_or_drop_postgres_backend(drop=True)
 
 
+async def test_postgres_stalled_recovery_does_not_requeue_completed_snapshot():
+    queue = "postgres-stalled-completed-race"
+    job_id = "postgres-stalled-completed"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    await install_or_drop_postgres_backend(drop=True)
+    await install_or_drop_postgres_backend()
+    producer = PostgresBackend()
+    recovery = PostgresBackend()
+    try:
+        await producer.connect()
+        await recovery.connect()
+        await producer.enqueue(queue, payload)
+        active = await producer.dequeue(queue)
+        assert active is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+        await producer.complete_active_job(queue, active, {"ok": True})
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.COMPLETED
+        assert await recovery.get_job_result(queue, job_id) == {"ok": True}
+        recovered = await recovery.dequeue(queue)
+        assert recovered is None
+    finally:
+        await producer.close()
+        await recovery.close()
+        await install_or_drop_postgres_backend(drop=True)
+
+
 async def test_mongodb_stalled_recovery_survives_backend_restart():
     queue = "restart-mongo"
     job_id = "mongo-restart"
