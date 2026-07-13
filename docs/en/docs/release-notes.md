@@ -81,6 +81,8 @@
 - RabbitMQ cancellation now updates canonical payload metadata, removes ready
   broker deliveries, suppresses cancelled deliveries during dequeue, and
   preserves cancellation when active owners finish late.
+- InMemory cancellation now marks canonical in-process payload state as
+  cancelled and prevents late lifecycle writes from overwriting cancellation.
 - Dependency flow creation now keeps unresolved children in `waiting-children`
   instead of runnable waiting queues across the built-in backends, and
   dependency resolution promotes children only after the last parent completes.

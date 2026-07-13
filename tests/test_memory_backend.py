@@ -44,6 +44,38 @@ async def test_job_state_tracking():
     assert state == State.ACTIVE
 
 
+async def test_cancelled_waiting_job_is_not_listed_as_memory_waiting():
+    backend = InMemoryBackend()
+    queue = "memory-cancel-waiting"
+    job = Job(task_id="memory.cancel.waiting", args=[], kwargs={}, job_id="memory-cancel-waiting")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    assert await backend.cancel_job(queue, job.id) is True
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    waiting = await backend.list_jobs(queue, State.WAITING)
+    assert all(item["id"] != job.id for item in waiting)
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_memory_marker():
+    backend = InMemoryBackend()
+    queue = "memory-cancel-active"
+    job = Job(task_id="memory.cancel.active", args=[], kwargs={}, job_id="memory-cancel-active")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await backend.is_job_cancelled(queue, job.id) is True
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    assert await backend.get_job_result(queue, job.id) is None
+
+
 async def test_save_and_get_job_result():
     backend = InMemoryBackend()
     job = Job(task_id="result.test", args=[], kwargs={})

@@ -164,6 +164,9 @@ class InMemoryBackend(BaseBackend):
             while queue:
                 job = queue.pop()
                 job_id = str(job["id"])
+                if job_id in self.cancelled.get(queue_name, set()):
+                    self._mark_cancelled_locked(queue_name, job_id, job)
+                    continue
                 stored = self.job_payloads.get((queue_name, job_id), job)
                 if has_pending_dependencies(stored):
                     continue
@@ -260,10 +263,25 @@ class InMemoryBackend(BaseBackend):
         self.job_payloads[(queue_name, job_id)] = stored
         return stored
 
+    def _mark_cancelled_locked(self, queue_name: str, job_id: str, payload: dict[str, Any] | None = None) -> None:
+        stored = dict(self.job_payloads.get((queue_name, job_id), payload or {"id": job_id}))
+        stored["id"] = job_id
+        stored["status"] = "cancelled"
+        stored["updated_at"] = time.time()
+        stored.pop("result", None)
+        self.cancelled.setdefault(queue_name, set()).add(job_id)
+        self.job_states[(queue_name, job_id)] = "cancelled"
+        self.job_payloads[(queue_name, job_id)] = stored
+        self.job_results.pop((queue_name, job_id), None)
+
     async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
             self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(
                 queue_name,
@@ -284,6 +302,10 @@ class InMemoryBackend(BaseBackend):
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
             self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(
                 queue_name,
@@ -303,6 +325,10 @@ class InMemoryBackend(BaseBackend):
         job_id = str(payload["id"])
         now = time.time()
         async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
             self._remove_active_membership_locked(queue_name, job_id)
             stored = self._store_lifecycle_payload_locked(queue_name, payload, status, now)
             self.dlqs.setdefault(queue_name, []).append(stored)
@@ -310,8 +336,8 @@ class InMemoryBackend(BaseBackend):
     async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
         job_id = str(payload["id"])
         async with self.lock:
-            self.active_jobs.pop((queue_name, job_id), None)
-            self.heartbeats.pop((queue_name, job_id), None)
+            self._remove_active_membership_locked(queue_name, job_id)
+            self._mark_cancelled_locked(queue_name, job_id, payload)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -518,7 +544,7 @@ class InMemoryBackend(BaseBackend):
             removed = self.active_jobs.pop((queue_name, job_id), None) is not None or removed
             self.heartbeats.pop((queue_name, job_id), None)
             # record cancellation
-            self.cancelled.setdefault(queue_name, set()).add(job_id)
+            self._mark_cancelled_locked(queue_name, job_id)
             return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
@@ -1047,6 +1073,7 @@ class InMemoryBackend(BaseBackend):
                 self.active_jobs.pop(key, None)
                 self.heartbeats.pop(key, None)
                 self.job_payloads.pop(key, None)
+                self.cancelled.get(queue_name, set()).discard(job_id)
                 self.deps_pending.pop(key, None)
                 self.deps_children.pop(key, None)
                 for children in self.deps_children.values():

@@ -16,6 +16,8 @@ In-memory:
 
 - best for tests/local development
 - no cross-process durability
+- cancellation updates canonical in-process state and late lifecycle writes do
+  not overwrite cancellation
 
 Redis:
 

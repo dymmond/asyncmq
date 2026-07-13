@@ -20,6 +20,7 @@ All built-in backends implement `BaseBackend` methods used by:
 - no durable storage across process restarts
 - queue pause/resume is process-local
 - lock implementation is in-process only
+- cancellation state is process-local and suppresses late lifecycle writes
 - repeatable schedules are process-local by design
 - deduplication and scheduler ownership coordinate only inside one process
 

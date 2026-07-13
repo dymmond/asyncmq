@@ -77,10 +77,9 @@ Cancellation is cooperative.
 
 For waiting and delayed jobs, backends remove or mark the job so workers should
 not start it. For active jobs, workers check cancellation before execution and
-again immediately before invoking the handler; Redis, PostgreSQL, MongoDB, and
-RabbitMQ also guard late lifecycle writes from overwriting a durable
-cancellation marker. AsyncMQ cannot forcibly interrupt arbitrary user code that
-is already executing outside the sandbox.
+again immediately before invoking the handler; all built-in backends also guard
+late lifecycle writes from overwriting cancellation. AsyncMQ cannot forcibly
+interrupt arbitrary user code that is already executing outside the sandbox.
 
 ## Expiration
 
