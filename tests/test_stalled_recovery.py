@@ -236,6 +236,29 @@ async def test_fetch_stalled_jobs_recovers_active_claim_without_first_heartbeat(
     assert recovered["id"] == job_id
 
 
+async def test_memory_stalled_recovery_does_not_requeue_completed_snapshot():
+    backend = InMemoryBackend()
+    queue = "memory-stalled-completed-race"
+    job_id = "memory-stalled-completed"
+    payload = {"id": job_id, "task": "tx", "args": [], "kwargs": {}, "priority": 0}
+
+    await backend.enqueue(queue, payload)
+    active = await backend.dequeue(queue)
+    assert active is not None
+    old = time.time() - 10
+    await backend.save_heartbeat(queue, job_id, old)
+
+    stalled = await backend.fetch_stalled_jobs(old + 1)
+    entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+    await backend.complete_active_job(queue, active, {"ok": True})
+    await backend.reenqueue_stalled(queue, entry["job_data"])
+
+    assert await backend.get_job_state(queue, job_id) == State.COMPLETED
+    assert await backend.get_job_result(queue, job_id) == {"ok": True}
+    assert await backend.dequeue(queue) is None
+
+
 async def test_redis_stalled_recovery_survives_backend_restart():
     queue = "restart-redis"
     job_id = "redis-restart"

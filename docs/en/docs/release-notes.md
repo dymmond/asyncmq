@@ -72,6 +72,9 @@
 - RabbitMQ stalled recovery now re-checks current metadata status, active-claim
   timestamp, cancellation, removal, and delivery token before publishing a
   replacement delivery from an older stalled snapshot.
+- In-memory stalled recovery now re-checks the current active payload before
+  moving a stalled snapshot back to waiting, preserving terminal in-process
+  state.
 - PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
   first and FIFO order within the same priority.
 - Delayed-job scanning now delegates due-job promotion to backend-owned

@@ -47,7 +47,8 @@ back to runnable work.
 Important limits:
 
 - `InMemoryBackend` stalled recovery is process-local and does not survive
-  process restart.
+  process restart, but it still re-checks current active state before moving a
+  stalled snapshot back to waiting.
 - `RedisBackend` atomically re-checks canonical active state before requeueing
   a stalled snapshot, so recovery does not overwrite jobs that already reached
   a terminal state.

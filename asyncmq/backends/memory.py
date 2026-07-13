@@ -1173,9 +1173,22 @@ class InMemoryBackend(BaseBackend):
         # and self.heartbeats.
         async with self.lock:
             job_id = str(job_data["id"])
-            retry_payload = dict(job_data)
+            if job_id in self.cancelled.get(queue_name, set()):
+                return
+            current_payload = self.active_jobs.get((queue_name, job_id)) or self.job_payloads.get((queue_name, job_id))
+            if not current_payload or current_payload.get("status") != State.ACTIVE:
+                return
+            expected_active_since = job_data.get("active_since")
+            current_active_since = current_payload.get("active_since")
+            if isinstance(expected_active_since, (int, float)):
+                if not isinstance(current_active_since, (int, float)):
+                    return
+                if abs(float(current_active_since) - float(expected_active_since)) > 0.000001:
+                    return
+            retry_payload = dict(current_payload)
             retry_payload.pop("status", None)
             retry_payload.pop("heartbeat", None)
+            retry_payload.pop("active_since", None)
             retry_payload.pop("updated_at", None)
             self.queues[queue_name] = [
                 queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id

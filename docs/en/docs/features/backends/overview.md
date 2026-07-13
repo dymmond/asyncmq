@@ -18,6 +18,8 @@ In-memory:
 - no cross-process durability
 - cancellation updates canonical in-process state and late lifecycle writes do
   not overwrite cancellation
+- stalled recovery re-checks current active in-process state before moving
+  stalled snapshots back to waiting
 
 Redis:
 
