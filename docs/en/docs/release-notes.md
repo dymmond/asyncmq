@@ -4,207 +4,43 @@
 
 ### Added
 
-- Benchmark planning now exposes a canonical workload matrix, measurement
-  policy, and competitor availability check for Celery, Dramatiq, Arq, RQ, and
-  Huey before performance results are recorded.
-- Workers now expose cooperative drain controls so application-owned shutdown
-  paths can stop claiming new jobs, let in-flight jobs finish, deregister, and
-  run shutdown hooks before process termination.
-- `asyncmq worker start` now requests cooperative drain on SIGINT and SIGTERM.
-- Dashboard deployments now expose `/metrics/prometheus` with scrapeable queue,
-  worker, and readiness gauges for Prometheus-compatible monitoring.
-- Public producer APIs now enforce a configurable JSON-encoded job payload size
-  guard through `max_job_payload_bytes` to reduce resource-exhaustion risk from
-  oversized jobs.
-- Queue administration commands now expose drain, clean, and obliterate
-  operations through the CLI for incident response and controlled maintenance.
-- Delivery semantics are now documented in one reference page covering
-  at-least-once behavior, duplicate delivery, visibility recovery, ordering,
-  cancellation, expiration, and backend caveats.
-- Deployment guidance now covers process separation, Docker images, Kubernetes
-  probes, rolling worker restarts, backend readiness, and recovery expectations.
-- Benchmark tooling now includes a parameterized AsyncMQ in-memory load runner
-  that emits JSON throughput, latency, CPU, and max RSS measurements for local
-  regression checks.
-- The AsyncMQ load benchmark runner now supports warmup jobs, repeated measured
-  samples, and median/P95/P99/min/max summary statistics.
-- Worker execution can now emit optional OpenTelemetry spans with queue, task,
-  retry, priority, status, and exception attributes when tracing is enabled.
-- Dashboard authentication now includes an authorization gate for admin users
-  and optional role allowlists.
-- Built-in logging can now emit JSON records through `structured_logging=True`.
-- Worker CLI operations now include single-worker inspection by worker ID.
+- Added production operations surfaces: cooperative worker draining, SIGINT/SIGTERM
+  drain handling, queue drain/clean/obliterate CLI commands, single-worker
+  inspection, liveness/readiness probes, and Prometheus metrics.
+- Added observability and diagnostics options: structured JSON logging,
+  optional OpenTelemetry job spans, richer worker visibility, and benchmark
+  tooling with warmups, repeated samples, and summary statistics.
+- Added safety and deployment guidance: payload-size limits, dashboard admin
+  authorization, explicit CORS/same-origin controls, delivery-semantics docs,
+  Docker/Kubernetes deployment notes, and benchmark planning against Celery,
+  Dramatiq, Arq, RQ, and Huey.
 
 ### Fixed
 
-- Dashboard authorization now fails closed for unsupported admin and role claim
-  shapes, so object or list admin claims and object role claims do not grant
-  dashboard access.
-- Dashboard same-origin enforcement now rejects authenticated unsafe requests
-  when the `Origin` header is missing as well as when it is cross-origin.
-- CLI output now escapes queue, job, and worker identifiers before rendering
-  them with Rich, so untrusted names display literally instead of as markup.
-- Structured JSON logging now preserves `stack_info=True` output on log records.
-- OpenTelemetry job spans now avoid duplicate exception events by making
-  AsyncMQ's explicit job error marker the single exception-recording path.
-- Lifecycle event listener failures are now logged without changing job
-  execution or lifecycle outcomes.
-- Dashboard readiness now uses backend lightweight health checks instead of
-  enumerating queues and workers.
-- Production documentation now clarifies backend-specific same-priority
-  ordering, RabbitMQ broker ordering, process-local pause limitations, and
-  dashboard route prefixes.
-- Delivery semantics now explicitly describe killed-worker stalled recovery
-  behavior and the threshold delay before active claims become releasable.
-- Worker dequeue now respects local execution capacity before claiming jobs,
-  preventing a worker process from holding more active jobs than its configured
-  concurrency can execute. Full workers leave unreserved waiting jobs available
-  to other workers instead of hiding backlog in local reservations.
-- Worker completion, retry, expiration, cancellation, and terminal-failure paths
-  now route through backend-owned lifecycle transitions so backends can make
-  state, result, acknowledgement, delay, and DLQ updates atomic for their
-  storage technology.
-- Redis now applies worker lifecycle transitions through server-side scripts,
-  keeping active ownership, heartbeat cleanup, canonical job payloads, delayed
-  placement, and DLQ placement in one Redis execution.
-- PostgreSQL now applies worker lifecycle transitions through database
-  transactions, preventing retry/defer paths from being removed by
-  acknowledgement cleanup and preserving terminal job rows for inspection.
-- MongoDB now applies worker lifecycle transitions through backend-owned
-  document updates that keep completion, retry/defer, expiration, failure, and
-  local runtime mirrors aligned.
-- RabbitMQ now applies worker lifecycle transitions through backend-owned paths
-  that save metadata before broker acknowledgement and route failures through
-  DLQ publishing before acknowledgement.
-- Stalled-job visibility now renews job heartbeats while handlers run, and the
-  normal worker entrypoints start stalled recovery automatically when
-  `enable_stalled_check=True`.
-- Job heartbeat renewal write failures after the initial active heartbeat are
-  now logged and retried without cancelling the running handler.
-- Worker registration heartbeat renewal failures after startup are now logged
-  and retried without stopping the worker loop.
-- `run_worker(...)` now refreshes worker registration heartbeats periodically so
-  long-running workers remain visible until shutdown.
-- Stalled recovery now logs transient scan, individual requeue, and stalled
-  event-emission failures without stopping the recovery loop.
-- Stalled recovery now validates active-job release from real dequeued jobs,
-  including local RabbitMQ in-flight delivery acknowledgement during recovery.
-- Redis stalled recovery now atomically re-checks canonical active state before
-  requeueing, so stale recovery snapshots cannot overwrite jobs that already
-  reached a terminal state.
-- Redis stalled recovery now re-enters recovered jobs through the same
-  priority/FIFO waiting-score allocator as ordinary enqueue.
-- Redis active lifecycle transitions now require the current active claim before
-  completing, retrying, deferring, failing, or expiring a job, preventing stale
-  worker completions from clearing recovered active claims.
-- Redis dependency resolution now keeps delayed children in delayed storage until
-  their scheduled time, updating both canonical and delayed payload metadata
-  instead of making them runnable as soon as the last parent completes.
-- PostgreSQL stalled recovery now conditionally moves only still-active job rows
-  back to waiting, preserving completed or otherwise terminal rows when recovery
-  uses an older stalled snapshot.
-- MongoDB stalled recovery now conditionally moves only still-active persisted
-  job documents back to waiting before updating local mirrors, preserving
-  terminal documents when recovery uses an older stalled snapshot.
-- RabbitMQ stalled recovery now re-checks current metadata status, active-claim
-  timestamp, cancellation, removal, and delivery token before publishing a
-  replacement delivery from an older stalled snapshot.
-- In-memory stalled recovery now re-checks the current active payload before
-  moving a stalled snapshot back to waiting, preserving terminal in-process
-  state.
-- PostgreSQL, MongoDB, and RabbitMQ waiting-job dequeue now respects priority
-  first and FIFO order within the same priority.
-- Delayed-job scanning now delegates due-job promotion to backend-owned
-  transitions instead of removing delayed jobs and re-enqueueing them from the
-  scanner loop.
-- Delayed-job scanning now logs transient backend promotion failures and keeps
-  retrying on later scans instead of stopping the scanner loop.
-- Repeatable scheduling now logs transient local enqueue and backend
-  repeatable-store failures without stopping the scheduler loop.
-- Retry and DLQ payloads now retain `last_error` and `error_traceback` so
-  operators can inspect the failure cause after the worker lifecycle transition.
-- Manual retry operations now requeue clean `waiting` payloads across backends,
-  clearing stale result and failure fields before the next execution attempt.
-- Redis cancellation now marks canonical job payloads as cancelled and lifecycle
-  scripts preserve that marker instead of allowing late completion, retry,
-  expiration, or failure transitions to overwrite it.
-- Redis dequeue now suppresses stale waiting members for cancelled jobs,
-  preserving cancelled canonical state when a cancelled job remains in the
-  waiting sorted set after a race or partial cleanup.
-- PostgreSQL cancellation now records the cancellation, removes matching
-  waiting or delayed rows, marks active rows as cancelled, and prevents late
-  lifecycle writes from overwriting cancellation.
-- PostgreSQL dequeue now removes and excludes stale waiting rows that have a
-  durable cancellation marker before creating an active job claim.
-- PostgreSQL job removal now clears cancellation markers even when cancellation
-  had already removed the runnable job row.
-- Redis and MongoDB job removal now also clear cancellation markers when
-  cancellation exists without a runnable queue member or job document.
-- MongoDB cancellation markers are now persisted in MongoDB and checked during
-  dequeue and lifecycle transitions, so separate backend instances no longer
-  claim cancelled jobs or overwrite cancellation with late completion.
-- RabbitMQ cancellation now updates canonical payload metadata, removes ready
-  broker deliveries, suppresses cancelled deliveries during dequeue, and
-  preserves cancellation when active owners finish late.
-- InMemory cancellation now marks canonical in-process payload state as
-  cancelled and prevents late lifecycle writes from overwriting cancellation.
-- Dependency flow creation now keeps unresolved children in `waiting-children`
-  instead of runnable waiting queues across the built-in backends, and
-  dependency resolution promotes children only after the last parent completes.
-- Worker execution now stamps `last_attempt` when a handler attempt starts, so
-  completed, retried, and failed payloads expose the most recent execution time.
-- MongoDB now persists active-job heartbeat timestamps in job documents and
-  indexes active heartbeat scans, allowing a separate recovery process to
-  release stale active jobs after the original worker process exits.
-- RabbitMQ stalled recovery now discovers queues from persisted metadata after
-  backend restart and avoids publishing a duplicate recovery message when
-  RabbitMQ broker redelivery already owns the unacknowledged delivery.
-- Dashboard CORS is now opt-in by explicit origin allowlist, with
-  wildcard-plus-credentials configurations rejected during admin app startup.
-- Authenticated dashboard mutation requests now enforce same-origin `Origin`
-  checks by default to reduce CSRF exposure on queue and job operations.
-- `JWTAuthBackend` now rejects missing or shorter-than-32-byte HMAC secrets at
-  startup instead of accepting weak HS* signing keys.
-- Dashboard deployments now expose `/health` for liveness and `/ready` for
-  backend reachability/readiness checks.
-- CLI group callbacks now use Click's forward-compatible subcommand detection
-  instead of deprecated `protected_args` access.
-- Sandbox subprocess execution now defaults to the `spawn` multiprocessing
-  context to avoid unsafe `fork` behavior in multi-threaded runtimes.
-- Sandbox timeouts now fail closed by default instead of re-running timed-out
-  handlers in the parent worker process; fallback remains available only when
-  callers explicitly opt in.
-- PostgreSQL, MongoDB, and RabbitMQ queue pause/resume state is now persisted in
-  backend storage so separate worker and admin processes observe the same queue
-  control state during restarts and rolling operations.
-- MongoDB waiting dequeue and delayed-job promotion now use MongoDB document
-  state transitions, allowing separate producer and worker backend instances to
-  share immediate and delayed jobs instead of relying on process-local mirrors.
-- RabbitMQ stalled recovery now publishes tokenized replacement deliveries when
-  the original broker delivery is still held by another connection, while stale
-  broker redeliveries are acknowledged and ignored after recovery.
-- Active job claims now record claim timestamps across built-in backends, so
-  stalled recovery can release jobs that were reserved by a worker that exited
-  before writing its first heartbeat.
-- Worker dequeue now waits for both local execution capacity and configured
-  rate-limit tokens before claiming a job, keeping rate-limited backlog visible
-  to other workers.
-- RabbitMQ queue draining now follows the shared backend contract, including
-  delayed-job removal when requested and returning removed job identifiers.
-- RabbitMQ failed-job retry now removes the matching ready DLQ broker delivery
-  before publishing the retry to the main queue.
-- RabbitMQ job removal now clears matching ready broker deliveries from the
-  main queue and DLQ, and acknowledges locally owned active deliveries.
-- RabbitMQ removed-job markers and per-publish delivery tokens now prevent
-  removed active jobs from being resurrected by stale broker redelivery while
-  preserving explicit job-id reuse.
-- Queue cleanup now removes jobs through backend removal paths so legacy
-  `clean(...)` operations keep queue membership, broker deliveries, and
-  inspection metadata aligned.
-- In-memory waiting queues now avoid full-list sorting on every unique enqueue
-  and use constant-time dequeue from the hot path while preserving priority and
-  FIFO ordering. Active completion, retry/defer, and DLQ transitions also avoid
-  scanning waiting and delayed queues when the job is already owned by a worker.
+- Worker reservation now respects local execution capacity and rate-limit
+  tokens before dequeueing, so workers no longer hide more runnable work than
+  they can execute.
+- Completion, retry, expiration, cancellation, DLQ, delayed, and cleanup paths
+  now use backend-owned lifecycle transitions for Redis, PostgreSQL, MongoDB,
+  RabbitMQ, and in-memory storage.
+- Stalled recovery now records active claim timestamps, renews long-running job
+  heartbeats, retries transient recovery-loop failures, preserves terminal
+  states, and releases abandoned jobs across persistent backends.
+- Backend behavior was aligned for priority/FIFO dequeue, delayed promotion,
+  dependency blocking, cancellation markers, manual retry payload cleanup,
+  queue pause/resume persistence, RabbitMQ delivery tokens, and MongoDB
+  cross-process waiting/delayed state.
+- Worker and scheduler loops now tolerate transient heartbeat, delayed-scan,
+  repeatable-schedule, and lifecycle-event listener failures without stopping
+  unrelated job processing.
+- Dashboard and CLI hardening now fail closed for unsafe auth claims, missing
+  unsafe-request origins, weak JWT secrets, unsafe CORS defaults, Rich markup
+  injection, and expensive readiness probes.
+- Sandbox execution now defaults to safer process spawning and fails closed on
+  timeout unless fallback is explicitly enabled.
+- Documentation now describes delivery guarantees, backend caveats, production
+  deployment, recovery behavior, monitoring, benchmark methodology, and
+  operational runbooks more explicitly.
 
 ## 0.8.1
 
