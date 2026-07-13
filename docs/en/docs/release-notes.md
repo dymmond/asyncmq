@@ -30,6 +30,7 @@
 - Dashboard authentication now includes an authorization gate for admin users
   and optional role allowlists.
 - Built-in logging can now emit JSON records through `structured_logging=True`.
+- Worker CLI operations now include single-worker inspection by worker ID.
 
 ### Fixed
 

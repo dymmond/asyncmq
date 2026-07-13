@@ -69,6 +69,7 @@ def _print_worker_help() -> None:
     # Add example commands.
     text.append("  asyncmq worker start myqueue --concurrency 2\n")
     text.append("  asyncmq worker start myqueue --concurrency 5\n")
+    text.append("  asyncmq worker inspect worker-123\n")
     # Print the text within a Rich Panel with a specific title and border style.
     console.print(Panel(text, title="Worker CLI", border_style="cyan"))
 
@@ -155,6 +156,33 @@ def list_workers() -> None:
     console.print(table)
 
 
+@click.command("inspect")
+@click.argument("worker_id")
+def inspect_worker(worker_id: str) -> None:
+    """
+    Inspect a single registered worker by ID.
+
+    Args:
+        worker_id: The unique identifier of the worker to inspect.
+    """
+    get_print_banner(WORKERS_LOGO, title="AsyncMQ Inspect Worker")
+    backend = asyncmq.monkay.settings.backend
+    workers = run_cmd(backend.list_workers) or []
+    worker = next((w for w in workers if str(w.id) == worker_id), None)
+    if worker is None:
+        console.print(f"[red]Worker '{worker_id}' was not found.[/red]")
+        raise RuntimeError(f"Worker '{worker_id}' was not found.")
+
+    table = Table(title=f"Worker {worker_id}")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("Worker ID", str(worker.id))
+    table.add_row("Queue", str(worker.queue))
+    table.add_row("Concurrency", str(worker.concurrency))
+    table.add_row("Last Heartbeat", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(worker.heartbeat)))
+    console.print(table)
+
+
 @click.command("register")
 @click.argument("worker_id")
 @click.argument("queue")
@@ -209,6 +237,7 @@ def deregister_worker(worker_id: str) -> None:
 
 worker_cli.add_command(start_worker)
 worker_cli.add_command(list_workers)
+worker_cli.add_command(inspect_worker)
 worker_cli.add_command(register_worker)
 worker_cli.add_command(deregister_worker)
 worker_app = worker_cli.cli

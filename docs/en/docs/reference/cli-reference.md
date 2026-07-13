@@ -49,6 +49,7 @@ asyncmq job cancel <queue> <job_id>
 ```bash
 asyncmq worker start <queue> --concurrency <n>
 asyncmq worker list
+asyncmq worker inspect <worker_id>
 asyncmq worker register <worker_id> <queue> --concurrency <n>
 asyncmq worker deregister <worker_id>
 ```
