@@ -64,7 +64,7 @@ class MongoDBBackend(BaseBackend):
         self.paused: set[str] = set()
         # Repeatable definitions are stored durably in MongoDB using status="repeatable".
         self.repeatables: dict[str, dict[str, dict[str, Any]]] = {}
-        # In-memory cancelled-job sets: queue_name -> set(job_id). Stores IDs of cancelled jobs.
+        # Process-local cache of durably cancelled jobs: queue_name -> set(job_id).
         self.cancelled: dict[str, set[str]] = {}
         # An anyio Lock used to synchronize access to the in-memory data structures.
         self.lock: anyio.Lock = anyio.Lock()
@@ -72,6 +72,7 @@ class MongoDBBackend(BaseBackend):
         self.heartbeats: dict[tuple[str, str], float] = {}
         self._workers = self.store.db["worker_heartbeats"]
         self._queue_controls = self.store.db["queue_controls"]
+        self._cancelled_jobs = self.store.db["cancelled_jobs"]
         self._locks: dict[str, anyio.Lock] = {}
 
     async def connect(self) -> None:
@@ -93,6 +94,29 @@ class MongoDBBackend(BaseBackend):
         await self.store.collection.create_index(
             [("queue_name", 1), ("status", 1), ("delay_until", 1)],
             background=False,
+        )
+        await self._cancelled_jobs.create_index([("queue_name", 1), ("job_id", 1)], unique=True, background=False)
+
+    async def _mark_job_cancelled(self, queue_name: str, job_id: str) -> None:
+        now = time.time()
+        await self._cancelled_jobs.update_one(
+            {"queue_name": queue_name, "job_id": job_id},
+            {"$set": {"queue_name": queue_name, "job_id": job_id, "cancelled_at": now}},
+            upsert=True,
+        )
+
+    async def _clear_job_cancelled(self, queue_name: str, job_id: str) -> None:
+        await self._cancelled_jobs.delete_one({"queue_name": queue_name, "job_id": job_id})
+
+    async def _is_job_durably_cancelled(self, queue_name: str, job_id: str) -> bool:
+        marker = await self._cancelled_jobs.find_one({"queue_name": queue_name, "job_id": job_id}, {"_id": 1})
+        return marker is not None
+
+    async def _persist_cancelled_job_state(self, queue_name: str, job_id: str) -> None:
+        now = time.time()
+        await self.store.collection.update_one(
+            {"queue_name": queue_name, "job_id": job_id},
+            {"$set": {"status": "cancelled", "cancelled_at": now, "updated_at": now}},
         )
 
     async def pop_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
@@ -199,16 +223,33 @@ class MongoDBBackend(BaseBackend):
             sort=[("priority", 1), ("created_at", 1), ("job_id", 1)],
             return_document=ReturnDocument.AFTER,
         )
-        if claimed is None:
-            return None
-
-        claimed.pop("_id", None)
-        job = dict(claimed)
-        async with self.lock:
-            self.queues[queue_name] = [
-                queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != str(job.get("id"))
-            ]
-        return job
+        while claimed is not None:
+            claimed.pop("_id", None)
+            job = dict(claimed)
+            job_id = str(job.get("id") or job.get("job_id"))
+            async with self.lock:
+                self.queues[queue_name] = [
+                    queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
+                ]
+            if await self.is_job_cancelled(queue_name, job_id):
+                await self.cancel_active_job(queue_name, job)
+                claimed = await self.store.collection.find_one_and_update(
+                    {
+                        "queue_name": queue_name,
+                        "status": State.WAITING,
+                        "$or": [
+                            {"depends_on": {"$exists": False}},
+                            {"depends_on": None},
+                            {"depends_on": []},
+                        ],
+                    },
+                    {"$set": {"status": State.ACTIVE, "active_since": active_since, "updated_at": active_since}},
+                    sort=[("priority", 1), ("created_at", 1), ("job_id", 1)],
+                    return_document=ReturnDocument.AFTER,
+                )
+                continue
+            return job
+        return None
 
     async def move_to_dlq(self, queue_name: str, payload: dict[str, Any]) -> None:
         """
@@ -271,14 +312,16 @@ class MongoDBBackend(BaseBackend):
         stored["queue_name"] = queue_name
         stored["job_id"] = job_id
         await self.store.collection.replace_one(
-            {"queue_name": queue_name, "job_id": job_id},
+            {"queue_name": queue_name, "job_id": job_id, "status": {"$ne": "cancelled"}},
             stored,
-            upsert=True,
         )
         return stored
 
     async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
         job_id = str(payload["id"])
+        if await self.is_job_cancelled(queue_name, job_id):
+            await self.cancel_active_job(queue_name, payload)
+            return
         stored = {**payload, "status": State.COMPLETED, "result": result, "delay_until": None}
         async with self.lock:
             self._remove_job_memberships_locked(queue_name, job_id)
@@ -292,6 +335,9 @@ class MongoDBBackend(BaseBackend):
 
     async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         job_id = str(payload["id"])
+        if await self.is_job_cancelled(queue_name, job_id):
+            await self.cancel_active_job(queue_name, payload)
+            return
         stored = {**payload, "status": State.DELAYED, "delay_until": run_at}
         async with self.lock:
             self._remove_job_memberships_locked(queue_name, job_id)
@@ -303,6 +349,9 @@ class MongoDBBackend(BaseBackend):
         if target_status not in {State.FAILED, State.EXPIRED}:
             target_status = State.FAILED
         job_id = str(payload["id"])
+        if await self.is_job_cancelled(queue_name, job_id):
+            await self.cancel_active_job(queue_name, payload)
+            return
         stored = {**payload, "status": target_status, "delay_until": None}
         async with self.lock:
             self._remove_job_memberships_locked(queue_name, job_id)
@@ -310,6 +359,9 @@ class MongoDBBackend(BaseBackend):
 
     async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
         job_id = str(payload["id"])
+        if await self.is_job_cancelled(queue_name, job_id):
+            await self.cancel_active_job(queue_name, payload)
+            return
         stored = {**payload, "status": State.EXPIRED, "delay_until": None}
         async with self.lock:
             self._remove_job_memberships_locked(queue_name, job_id)
@@ -317,8 +369,12 @@ class MongoDBBackend(BaseBackend):
 
     async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
         job_id = str(payload["id"])
+        await self.connect()
+        await self._mark_job_cancelled(queue_name, job_id)
         async with self.lock:
             self._remove_job_memberships_locked(queue_name, job_id)
+            self.cancelled.setdefault(queue_name, set()).add(job_id)
+            await self._persist_cancelled_job_state(queue_name, job_id)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -1186,61 +1242,58 @@ class MongoDBBackend(BaseBackend):
 
     async def cancel_job(self, queue_name: str, job_id: str) -> bool:
         """
-        Asynchronously cancels a job, removing it from the in-memory waiting
-        and delayed queues and marking it as cancelled in memory.
+        Cancel a job durably so every MongoDB backend instance can observe it.
 
-        This method removes the job with the matching ID from the in-memory
-        waiting queue list and the in-memory delayed queue list. It also adds
-        the job ID to the in-memory set of cancelled jobs so that workers can
-        check this set and skip or stop processing the job if it was in-flight.
-        Access to the in-memory queues and cancelled set is synchronized using
-        the internal lock.
+        The cancellation marker is stored in MongoDB, and runnable waiting,
+        delayed, or active job documents are moved to ``cancelled`` status so
+        other processes cannot claim them as executable work.
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to cancel.
         """
-        # Acquire the lock to ensure exclusive access to in-memory queues and cancelled set.
+        await self.connect()
+        await self._mark_job_cancelled(queue_name, job_id)
+        now = time.time()
+        result = await self.store.collection.update_one(
+            {
+                "queue_name": queue_name,
+                "job_id": job_id,
+                "status": {"$in": [State.WAITING, State.DELAYED, State.ACTIVE]},
+            },
+            {"$set": {"status": "cancelled", "cancelled_at": now, "updated_at": now}},
+        )
+
         async with self.lock:
-            removed = False
-            # Filter the in-memory waiting queue list, keeping jobs whose ID does not match.
-            # Use .get() with default [] for safety.
+            removed = result.matched_count > 0
             waiting_before = len(self.queues.get(queue_name, []))
             self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
             if len(self.queues[queue_name]) < waiting_before:
                 removed = True
-            # Filter the in-memory delayed queue list, keeping jobs whose ID does not match.
-            # Use .get() with default [] for safety.
             delayed_before = len(self.delayed.get(queue_name, []))
             self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]
             if len(self.delayed[queue_name]) < delayed_before:
                 removed = True
-            # Add the job ID to the in-memory set of cancelled jobs.
-            # setdefault ensures the set exists even if this is the first cancelled job for this queue.
             self.cancelled.setdefault(queue_name, set()).add(job_id)
             self.heartbeats.pop((queue_name, job_id), None)
             return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
         """
-        Asynchronously checks if a specific job has been marked as cancelled in memory.
-
-        This method checks if the job ID is present in the in-memory set of
-        cancelled jobs for the given queue name. Access to the in-memory cancelled
-        set is synchronized using the internal lock.
+        Check whether a job has been marked as cancelled.
 
         Args:
             queue_name: The name of the queue the job belongs to.
             job_id: The unique identifier of the job to check.
 
         Returns:
-            True if the job ID is found in the in-memory cancelled set for the
-            specified queue, False otherwise.
+            True if the job ID is found in the durable cancellation marker
+            collection or local cache for the specified queue, False otherwise.
         """
-        # Acquire the lock to ensure exclusive access to the in-memory cancelled set.
+        await self.connect()
+        if await self._is_job_durably_cancelled(queue_name, job_id):
+            return True
         async with self.lock:
-            # Check if the job ID is present in the in-memory set of cancelled jobs
-            # for the specified queue. Use .get() with default set() for safety.
             return job_id in self.cancelled.get(queue_name, set())
 
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
@@ -1382,6 +1435,7 @@ class MongoDBBackend(BaseBackend):
         if not existing:
             return False
         await self.store.delete(queue_name, job_id)
+        await self._clear_job_cancelled(queue_name, job_id)
         async with self.lock:
             self.queues[queue_name] = [j for j in self.queues.get(queue_name, []) if j.get("id") != job_id]
             self.delayed[queue_name] = [(ts, j) for ts, j in self.delayed.get(queue_name, []) if j.get("id") != job_id]

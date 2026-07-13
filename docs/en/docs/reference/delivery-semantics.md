@@ -95,7 +95,8 @@ contract, but their fault domains differ:
 
 - Redis uses Redis data structures and scripts for lifecycle transitions.
 - PostgreSQL uses database transactions for lifecycle transitions.
-- MongoDB persists job documents and active heartbeats for restart recovery.
+- MongoDB persists job documents, active heartbeats, and cancellation markers
+  for cross-process recovery and cancellation checks.
 - RabbitMQ uses RabbitMQ for broker delivery and a metadata store for job state.
 - InMemory is for local development, tests, and demos; it is not durable.
 

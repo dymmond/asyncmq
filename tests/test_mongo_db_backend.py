@@ -50,6 +50,40 @@ async def test_dequeue_reads_waiting_jobs_across_backend_instances(backend):
         observer.store.client.close()
 
 
+async def test_cancel_job_is_visible_across_backend_instances(backend):
+    queue = "mongo-cross-instance-cancel"
+    job_id = "mongo-cancel-waiting"
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, {"id": job_id, "task_id": "task1", "args": [], "kwargs": {}})
+
+        assert await backend.cancel_job(queue, job_id) is True
+
+        assert await observer.is_job_cancelled(queue, job_id) is True
+        assert await observer.dequeue(queue) is None
+    finally:
+        observer.store.client.close()
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_marker(backend):
+    queue = "mongo-cross-instance-active-cancel"
+    job_id = "mongo-cancel-active"
+    admin = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, {"id": job_id, "task_id": "task1", "args": [], "kwargs": {}})
+        claimed = await backend.dequeue(queue)
+        assert claimed is not None
+
+        assert await admin.cancel_job(queue, job_id) is True
+        assert await backend.is_job_cancelled(queue, job_id) is True
+
+        await backend.complete_active_job(queue, claimed, {"ok": True})
+
+        assert await admin.get_job_state(queue, job_id) == "cancelled"
+    finally:
+        admin.store.client.close()
+
+
 async def test_dequeue_respects_priority_then_fifo(backend):
     queue = "mongo-priority"
     low = Job(task_id="mongo.priority.low", args=[], kwargs={}, job_id="mongo-low", priority=10)

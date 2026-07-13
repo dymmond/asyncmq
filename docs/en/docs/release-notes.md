@@ -72,6 +72,9 @@
 - PostgreSQL cancellation now records the cancellation and removes matching
   waiting or delayed rows in one transaction so cancelled jobs no longer remain
   inspectable as eligible work.
+- MongoDB cancellation markers are now persisted in MongoDB and checked during
+  dequeue and lifecycle transitions, so separate backend instances no longer
+  claim cancelled jobs or overwrite cancellation with late completion.
 - Dependency flow creation now keeps unresolved children in `waiting-children`
   instead of runnable waiting queues across the built-in backends, and
   dependency resolution promotes children only after the last parent completes.

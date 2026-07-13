@@ -43,6 +43,8 @@ MongoDB:
 - due delayed jobs are promoted to waiting through MongoDB document updates
 - worker lifecycle transitions update the MongoDB job document and local runtime
   mirrors through one backend-owned path
+- cancellation markers are stored in MongoDB so separate backend instances stop
+  claiming cancelled waiting, delayed, or active jobs
 
 RabbitMQ:
 
