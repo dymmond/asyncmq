@@ -374,6 +374,74 @@ async def test_run_worker_starts_stalled_recovery_when_enabled(monkeypatch):
         settings.enable_stalled_check = previous
 
 
+async def test_run_worker_renews_worker_heartbeat():
+    backend = InMemoryBackend()
+    previous_heartbeat_ttl = settings.heartbeat_ttl
+    settings.heartbeat_ttl = 0.05
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
+
+    try:
+        with anyio.fail_after(1.0):
+            while not await backend.list_workers():
+                await anyio.sleep(0.01)
+
+        initial = (await backend.list_workers())[0].heartbeat
+
+        with anyio.fail_after(1.0):
+            while True:
+                current = (await backend.list_workers())[0].heartbeat
+                if current > initial:
+                    break
+                await anyio.sleep(0.01)
+    finally:
+        settings.heartbeat_ttl = previous_heartbeat_ttl
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+    assert await backend.list_workers() == []
+
+
+async def test_run_worker_heartbeat_renewal_failure_does_not_stop_worker():
+    class FlakyWorkerHeartbeatBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.register_calls = 0
+
+        async def register_worker(
+            self,
+            worker_id: str,
+            queue: str,
+            concurrency: int,
+            timestamp: float,
+        ) -> None:
+            self.register_calls += 1
+            if self.register_calls == 2:
+                raise RuntimeError("temporary worker heartbeat outage")
+            await super().register_worker(worker_id, queue, concurrency, timestamp)
+
+    backend = FlakyWorkerHeartbeatBackend()
+    previous_heartbeat_ttl = settings.heartbeat_ttl
+    settings.heartbeat_ttl = 0.05
+    worker = asyncio.create_task(run_worker("runner", backend=backend))
+
+    try:
+        with anyio.fail_after(1.0):
+            while backend.register_calls < 3:
+                await anyio.sleep(0.01)
+
+        workers = await backend.list_workers()
+        assert len(workers) == 1
+        assert workers[0].queue == "runner"
+    finally:
+        settings.heartbeat_ttl = previous_heartbeat_ttl
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+
+    assert await backend.list_workers() == []
+
+
 async def test_worker_skips_expired_jobs():
     backend = InMemoryBackend()
     job = Job(task_id=get_task_id(hello), args=[], kwargs={}, ttl=0.1)

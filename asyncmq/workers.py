@@ -117,6 +117,11 @@ def _heartbeat_renewal_interval(settings: Any) -> float:
     return max(0.1, min(check_interval, threshold / 3))
 
 
+def _worker_heartbeat_interval(settings: Any) -> float:
+    ttl = max(float(settings.heartbeat_ttl), 0.01)
+    return max(ttl / 3, 0.01)
+
+
 async def _save_job_heartbeat_safely(
     backend: BaseBackend,
     queue_name: str,
@@ -490,7 +495,9 @@ class Worker:
         self._drain_event: anyio.Event | None = None
         self._stopped_event: anyio.Event | None = None
         self.concurrency = self._settings.worker_concurrency
-        self.heartbeat_interval = heartbeat_interval or self._settings.heartbeat_ttl
+        self.heartbeat_interval = (
+            heartbeat_interval if heartbeat_interval is not None else _worker_heartbeat_interval(self._settings)
+        )
 
     async def _run_with_scope(self) -> None:
         backend = asyncmq.monkay.settings.backend

@@ -81,6 +81,8 @@
   now logged and retried without cancelling the running handler.
 - Worker registration heartbeat renewal failures after startup are now logged
   and retried without stopping the worker loop.
+- `run_worker(...)` now refreshes worker registration heartbeats periodically so
+  long-running workers remain visible until shutdown.
 - Stalled recovery now logs transient scan, individual requeue, and stalled
   event-emission failures without stopping the recovery loop.
 - Stalled recovery now validates active-job release from real dequeued jobs,

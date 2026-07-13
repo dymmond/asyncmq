@@ -11,8 +11,9 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
 from asyncmq.core.stalled import stalled_recovery_scheduler
+from asyncmq.logging import logger
 from asyncmq.rate_limiter import RateLimiter
-from asyncmq.workers import Worker, handle_job, process_job
+from asyncmq.workers import Worker, _worker_heartbeat_interval, handle_job, process_job
 
 
 async def worker_loop(queue_name: str, backend: BaseBackend | None = None) -> None:
@@ -180,8 +181,28 @@ async def run_worker(
             if drain_event is not None and drain_event.is_set():
                 worker_scope.cancel()
 
+        async def heartbeat_loop() -> None:
+            heartbeat_interval = _worker_heartbeat_interval(monkay.settings)
+            while True:
+                await anyio.sleep(heartbeat_interval)
+                try:
+                    await backend.register_worker(
+                        worker_id,
+                        queue_name,
+                        concurrency,
+                        time.time(),
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to renew worker heartbeat for worker %r on queue %r",
+                        worker_id,
+                        queue_name,
+                        exc_info=True,
+                    )
+
         with anyio.CancelScope() as worker_scope:
             async with anyio.create_task_group() as tg:
+                tg.start_soon(heartbeat_loop)
                 tg.start_soon(processor_loop)
                 tg.start_soon(delayed_job_scanner, queue_name, backend, scan_interval)
                 tg.start_soon(

@@ -179,7 +179,9 @@ can show:
 
 Initial worker registration is a startup requirement. After startup, transient
 worker heartbeat renewal failures are logged and retried without stopping the
-worker loop.
+worker loop. `Queue.run()`, `run_worker(...)`, and `Worker.run()` refresh worker
+heartbeats before the `heartbeat_ttl` freshness window expires unless a custom
+`Worker(..., heartbeat_interval=...)` is supplied.
 
 ### Job heartbeats
 
