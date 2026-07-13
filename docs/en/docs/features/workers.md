@@ -86,6 +86,9 @@ failure are owned by the backend interface. Backends with transactional storage
 can implement those transitions atomically for their storage technology, while
 workers use the same lifecycle API across backends.
 
+Lifecycle event listeners are best-effort observers. Listener failures are
+logged and do not change job execution, retry, or terminal state decisions.
+
 ## Concurrency
 
 Concurrency is enforced per worker process through an `anyio.CapacityLimiter`.

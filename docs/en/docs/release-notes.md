@@ -47,6 +47,8 @@
 - Structured JSON logging now preserves `stack_info=True` output on log records.
 - OpenTelemetry job spans now avoid duplicate exception events by making
   AsyncMQ's explicit job error marker the single exception-recording path.
+- Lifecycle event listener failures are now logged without changing job
+  execution or lifecycle outcomes.
 - Dashboard readiness now uses backend lightweight health checks instead of
   enumerating queues and workers.
 - Production documentation now clarifies backend-specific same-priority

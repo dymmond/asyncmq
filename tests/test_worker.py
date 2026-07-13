@@ -6,6 +6,7 @@ import pytest
 from asyncmq.backends.memory import InMemoryBackend
 from asyncmq.conf import settings
 from asyncmq.core.enums import State
+from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
 from asyncmq.workers import Worker, handle_job, process_job
@@ -131,6 +132,44 @@ async def test_worker_processes_jobs_end_to_end():
     # Ensure queue is empty-ish and worker is deregistered
     workers = await backend.list_workers()
     assert workers == []
+
+
+async def test_started_event_listener_failure_does_not_fail_job():
+    backend = InMemoryBackend()
+    queue = "test_queue_event_listener_failure"
+    ran: list[str] = []
+
+    async def _task() -> str:
+        ran.append("handler")
+        return "ok"
+
+    def _bad_listener(data: dict[str, Any]) -> None:
+        raise RuntimeError(f"listener failed for {data['id']}")
+
+    TASK_REGISTRY.clear()
+    TASK_REGISTRY["tests._event_listener_task"] = {"func": _task}
+    event_emitter._listeners.clear()
+    event_emitter.on("job:started", _bad_listener)
+
+    try:
+        job = Job(
+            task_id="tests._event_listener_task",
+            args=[],
+            kwargs={},
+            job_id="event-listener-failure",
+            max_retries=0,
+        )
+        await backend.enqueue(queue, job.to_dict())
+        raw = await backend.dequeue(queue)
+        assert raw is not None
+
+        await handle_job(queue, raw, backend)
+
+        assert ran == ["handler"]
+        assert await backend.get_job_state(queue, job.id) == State.COMPLETED
+        assert await backend.get_job_result(queue, job.id) == "ok"
+    finally:
+        event_emitter._listeners.clear()
 
 
 async def test_worker_respects_concurrency_limit():

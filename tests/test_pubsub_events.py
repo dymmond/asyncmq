@@ -31,6 +31,24 @@ async def test_multiple_event_listeners():
     assert b == [5]
 
 
+async def test_listener_failure_does_not_stop_other_listeners():
+    emitter = EventEmitter()
+    calls = []
+
+    def bad_listener(data):
+        raise RuntimeError(f"boom:{data['val']}")
+
+    def good_listener(data):
+        calls.append(data["val"])
+
+    emitter.on("done", bad_listener)
+    emitter.on("done", good_listener)
+
+    await emitter.emit("done", {"val": 5})
+
+    assert calls == [5]
+
+
 async def test_event_emit_no_listeners():
     emitter = EventEmitter()
     await emitter.emit("unknown", {"x": 1})  # Should not crash
