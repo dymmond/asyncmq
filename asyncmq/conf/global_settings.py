@@ -418,6 +418,23 @@ class Settings(BaseSettings):
     depending on the worker implementation and job types. Defaults to 1.
     """
 
+    worker_idle_poll_interval: float = 0.05
+    """
+    Initial sleep interval (in seconds) after a worker finds no runnable job.
+
+    Workers reset to this value as soon as they successfully claim a job.
+    Defaults to 0.05 seconds.
+    """
+
+    worker_idle_poll_max_interval: float = 2.0
+    """
+    Maximum adaptive idle sleep interval (in seconds) for empty worker polls.
+
+    This prevents large idle worker fleets from hammering backends with empty
+    dequeue attempts while preserving low-latency wakeups under normal load.
+    Defaults to 2.0 seconds.
+    """
+
     scan_interval: float = 1.0
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.

@@ -15,6 +15,7 @@
 ### Fixed
 
 - Worker reservation is bounded by execution capacity and rate-limit tokens.
+- Worker idle polling now backs off adaptively to reduce empty dequeue storms.
 - Lifecycle transitions are backend-owned for completion, retry, expiration,
   cancellation, DLQ, delayed, and cleanup paths.
 - Worker payloads preserve active-claim tokens for stale lifecycle rejection.

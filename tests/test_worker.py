@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 
 import anyio
@@ -9,9 +10,24 @@ from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.jobs import Job
 from asyncmq.tasks import TASK_REGISTRY
-from asyncmq.workers import Worker, handle_job, process_job
+from asyncmq.workers import (
+    Worker,
+    _next_worker_idle_sleep,
+    _worker_idle_poll_interval,
+    handle_job,
+    process_job,
+)
 
 pytestmark = pytest.mark.anyio
+
+
+def test_worker_idle_backoff_is_bounded_and_configurable():
+    worker_settings = SimpleNamespace(worker_idle_poll_interval=0.05, worker_idle_poll_max_interval=0.2)
+
+    assert _worker_idle_poll_interval(worker_settings) == 0.05
+    assert _next_worker_idle_sleep(0.05, worker_settings) == 0.1
+    assert _next_worker_idle_sleep(0.1, worker_settings) == 0.2
+    assert _next_worker_idle_sleep(0.2, worker_settings) == 0.2
 
 
 async def test_worker_heartbeat_registration_and_updates():

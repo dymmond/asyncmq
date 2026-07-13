@@ -109,6 +109,7 @@ not a substitute for broker-backed measurements.
 ## Primary Levers
 
 - `worker_concurrency` / `--concurrency`
+- `worker_idle_poll_interval` / `worker_idle_poll_max_interval`
 - `rate_limit` + `rate_interval` on queues/runners
 - `scan_interval` for delayed/repeatable loops
 - backend-specific connection pooling options
@@ -117,6 +118,8 @@ not a substitute for broker-backed measurements.
 
 - I/O-heavy tasks: increase concurrency gradually.
 - CPU-heavy tasks: keep concurrency lower or use sandbox/process isolation.
+- Large idle fleets should use adaptive idle polling defaults to avoid empty
+  dequeue storms while producers are filling a queue.
 
 ## Scan Interval Tradeoff
 
@@ -139,8 +142,9 @@ Track at least:
 
 - Redis: monitor latency, memory, and key cardinality. Ready queues index job
   IDs, runnable jobs are claimed with one Redis-side transition, and
-  state/result changes use compact metadata. Large `args`/`kwargs` fields are
-  split from the Lua-readable metadata and compressed when beneficial.
+  workers back off empty polls to reduce idle-fleet pressure. State/result
+  changes use compact metadata. Large `args`/`kwargs` fields are split from
+  Lua-readable metadata and compressed when beneficial.
 - Postgres: monitor locks, table/index bloat, and connection pool saturation.
 - MongoDB: monitor write/read latency and collection/index growth.
 - RabbitMQ: monitor queue depth, unacked messages, and broker flow control.

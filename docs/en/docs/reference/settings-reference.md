@@ -8,6 +8,8 @@ Main settings class: `asyncmq.conf.global_settings.Settings`.
 - `logging_level: str = "INFO"`
 - `structured_logging: bool = False`
 - `worker_concurrency: int = 1`
+- `worker_idle_poll_interval: float = 0.05`
+- `worker_idle_poll_max_interval: float = 2.0`
 - `scan_interval: float = 1.0`
 - `heartbeat_ttl: int = 30`
 - `max_job_payload_bytes: int | None = 1_048_576`

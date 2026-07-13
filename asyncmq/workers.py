@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+import random
 import time
 import traceback
 import uuid
@@ -122,6 +123,15 @@ def _worker_heartbeat_interval(settings: Any) -> float:
     return max(ttl / 3, 0.01)
 
 
+def _worker_idle_poll_interval(settings: Any) -> float:
+    return max(float(getattr(settings, "worker_idle_poll_interval", 0.05)), 0.001)
+
+
+def _next_worker_idle_sleep(current: float, settings: Any) -> float:
+    maximum = max(float(getattr(settings, "worker_idle_poll_max_interval", 0.5)), _worker_idle_poll_interval(settings))
+    return min(max(current * 2, _worker_idle_poll_interval(settings)), maximum)
+
+
 async def _save_job_heartbeat_safely(
     backend: BaseBackend,
     queue_name: str,
@@ -176,6 +186,7 @@ async def process_job(
 
     # Create a task group to manage concurrent job handling tasks
     async with anyio.create_task_group() as tg:
+        idle_sleep = _worker_idle_poll_interval(settings)
         while True:
             if drain_event is not None and drain_event.is_set():
                 return
@@ -211,10 +222,13 @@ async def process_job(
                     if rate_acquired and rate_limiter:
                         rate_limiter.refund_latest()
                         rate_acquired = False
-                    # If no job is available, wait briefly to avoid busy-looping.
-                    await anyio.sleep(0.1)
+                    # Back off empty polls to avoid a thundering herd of idle
+                    # workers hammering the backend during burst enqueue.
+                    await anyio.sleep(idle_sleep + random.uniform(0, idle_sleep * 0.1))
+                    idle_sleep = _next_worker_idle_sleep(idle_sleep, settings)
                     continue  # Skip to the next iteration
 
+                idle_sleep = _worker_idle_poll_interval(settings)
                 # If a job is dequeued, start a new task in the task group to handle it.
                 # The _run_with_limits function owns the capacity token after handoff.
                 tg.start_soon(
