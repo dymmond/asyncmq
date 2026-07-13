@@ -6,6 +6,7 @@ Main settings class: `asyncmq.conf.global_settings.Settings`.
 
 - `debug: bool = False`
 - `logging_level: str = "INFO"`
+- `structured_logging: bool = False`
 - `worker_concurrency: int = 1`
 - `scan_interval: float = 1.0`
 - `heartbeat_ttl: int = 30`

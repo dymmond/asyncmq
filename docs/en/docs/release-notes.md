@@ -29,6 +29,7 @@
   retry, priority, status, and exception attributes when tracing is enabled.
 - Dashboard authentication now includes an authorization gate for admin users
   and optional role allowlists.
+- Built-in logging can now emit JSON records through `structured_logging=True`.
 
 ### Fixed
 

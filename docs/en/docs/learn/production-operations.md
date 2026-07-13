@@ -171,6 +171,7 @@ Practical surfaces:
 - [Queue inspection APIs](../features/queues.md#inspection-and-admin-apis)
 - [CLI reference](../reference/cli-reference.md)
 - `/metrics/prometheus` for Prometheus-compatible scrape metrics
+- `structured_logging=True` for JSON log ingestion
 - optional OpenTelemetry worker spans with queue, job id, task, priority,
   retry count, completion status, and exception type attributes
 

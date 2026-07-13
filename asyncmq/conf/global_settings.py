@@ -258,6 +258,13 @@ class Settings(BaseSettings):
     logging output. Defaults to "INFO".
     """
 
+    structured_logging: bool = False
+    """
+    Emits JSON-formatted logs from the built-in logging configuration.
+
+    Defaults to False to preserve the existing console format.
+    """
+
     _backend: BaseBackend | None = None
 
     version: str = __version__
@@ -576,7 +583,7 @@ class Settings(BaseSettings):
         from asyncmq.core.utils.logging import StandardLoggingConfig
 
         # Returns a logging configuration object with the specified level.
-        return StandardLoggingConfig(level=self.logging_level)
+        return StandardLoggingConfig(level=self.logging_level, structured=self.structured_logging)
 
     @property
     def json_serializer(self) -> "JSONSerializer":
