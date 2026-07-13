@@ -146,6 +146,29 @@ async def test_cancel_job_marks_active_postgres_row_cancelled(backend):
     assert all(item["job_data"]["id"] != job.id for item in stalled)
 
 
+async def test_dequeue_removes_stale_cancelled_postgres_waiting_row(backend):
+    queue = "postgres-cancel-stale-waiting"
+    job = Job(task_id="postgres.cancel.stale", args=[], kwargs={}, job_id="pg-cancel-stale")
+    await backend.enqueue(queue, job.to_dict())
+
+    async with backend.pool.acquire() as conn:
+        await conn.execute(
+            f"""
+            INSERT INTO {backend._settings.postgres_cancelled_jobs_table_name}
+              (queue_name, job_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+            """,
+            queue,
+            job.id,
+        )
+
+    assert await backend.is_job_cancelled(queue, job.id) is True
+
+    assert await backend.dequeue(queue) is None
+    assert await backend.get_job(queue, job.id) is None
+
+
 async def test_retry_active_job_keeps_postgres_delayed_row(backend):
     queue = "postgres-lifecycle-retry"
     job = Job(task_id="postgres.lifecycle.retry", args=[], kwargs={}, job_id="pg-retry")

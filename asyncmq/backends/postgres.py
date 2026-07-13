@@ -211,6 +211,21 @@ class PostgresBackend(BaseBackend):
         # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name} AS jobs
+                    WHERE jobs.queue_name = $1
+                      AND jobs.status = $2
+                      AND EXISTS (
+                          SELECT 1
+                          FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                          WHERE cancelled.queue_name = jobs.queue_name
+                            AND cancelled.job_id = jobs.job_id
+                      )
+                    """,
+                    queue_name,
+                    State.WAITING,
+                )
                 # Select the oldest WAITING job for the given queue, lock it,
                 # update its status to ACTIVE, and return its data.
                 row: Record | None = await conn.fetchrow(
@@ -221,18 +236,24 @@ class PostgresBackend(BaseBackend):
                         data = data || jsonb_build_object('status', $3::text, 'active_since', $4::double precision),
                         updated_at = now()
                     WHERE id = (
-                        SELECT id FROM {self._settings.postgres_jobs_table_name}
-                        WHERE queue_name = $1
-                          AND status = $2
+                        SELECT jobs.id FROM {self._settings.postgres_jobs_table_name} AS jobs
+                        WHERE jobs.queue_name = $1
+                          AND jobs.status = $2
                           AND COALESCE(
                               CASE
-                                  WHEN jsonb_typeof(data -> 'depends_on') = 'array'
-                                  THEN jsonb_array_length(data -> 'depends_on')
+                                  WHEN jsonb_typeof(jobs.data -> 'depends_on') = 'array'
+                                  THEN jsonb_array_length(jobs.data -> 'depends_on')
                                   ELSE 0
                               END,
                               0
                           ) = 0
-                        ORDER BY COALESCE((data ->> 'priority')::int, 5) ASC, created_at ASC
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                              WHERE cancelled.queue_name = jobs.queue_name
+                                AND cancelled.job_id = jobs.job_id
+                          )
+                        ORDER BY COALESCE((jobs.data ->> 'priority')::int, 5) ASC, jobs.created_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                     )

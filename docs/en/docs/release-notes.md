@@ -78,6 +78,8 @@
 - PostgreSQL cancellation now records the cancellation, removes matching
   waiting or delayed rows, marks active rows as cancelled, and prevents late
   lifecycle writes from overwriting cancellation.
+- PostgreSQL dequeue now removes and excludes stale waiting rows that have a
+  durable cancellation marker before creating an active job claim.
 - PostgreSQL job removal now clears cancellation markers even when cancellation
   had already removed the runnable job row.
 - Redis and MongoDB job removal now also clear cancellation markers when

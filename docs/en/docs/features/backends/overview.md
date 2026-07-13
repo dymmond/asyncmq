@@ -41,8 +41,9 @@ Postgres:
   retry/defer rows are preserved and terminal states remain inspectable
 - cancellation markers are stored in PostgreSQL; waiting and delayed rows are
   removed, active rows are marked cancelled, and late lifecycle writes do not
-  overwrite cancellation; removing a cancelled job also clears its cancellation
-  marker
+  overwrite cancellation; dequeue removes and excludes stale cancelled waiting
+  rows before creating active claims, and removing a cancelled job also clears
+  its cancellation marker
 
 MongoDB:
 
