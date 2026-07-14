@@ -78,7 +78,7 @@ class QueueController(DashboardMixin, TemplateController):
                 "title": "Queues",
                 "queues": queues,
                 "active_page": "queues",
-                "page_header": "Overview",
+                "page_header": "Queues",
             }
         )
         return await self.render_template(request, context=context)

@@ -136,3 +136,28 @@ def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
     assert "cdn.tailwindcss.com" not in response.text
     assert "unpkg.com" not in response.text
     assert "tailwind.config" not in response.text
+
+
+def test_modern_dashboard_shell_renders_component_navigation(client: TestClient):
+    """Render the shared operations shell with desktop and mobile navigation."""
+    response = client.get("/queues")
+
+    assert response.status_code == 200
+    assert 'class="amq-shell"' in response.text
+    assert 'class="amq-sidebar"' in response.text
+    assert 'class="amq-mobile-nav"' in response.text
+    assert 'aria-current="page"' in response.text
+    assert '<h1 class="amq-page-title">Queues</h1>' in response.text
+    assert "/static/css/asyncmq.css" in response.text
+    assert "Operations Console" in response.text
+
+
+def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
+    """Ensure live overview table updates do not interpolate runtime values as HTML."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "appendTextCell(tr, j.id, 'amq-mono')" in response.text
+    assert "badgeForState(j.state)" in response.text
+    assert "${j.id}" not in response.text
+    assert "${q.name}" not in response.text

@@ -106,6 +106,7 @@ testing = [
     "pytest-codspeed>=4.3.0",
     "structlog>=25.3.0",
     "uvicorn>=0.34.2",
+    "playwright>=1.49.0",
     "httpx",
     "pyjwt",
     "ipdb",

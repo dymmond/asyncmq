@@ -9,6 +9,8 @@
 - Reproducible competitive benchmarks and production guidance for delivery
   guarantees, backend selection, deployment, recovery, monitoring, and
   security.
+- Dashboard assets are now locally vendored, CSP-friendly, and styled through a
+  reusable operations-console shell with responsive navigation.
 
 ### Fixed
 

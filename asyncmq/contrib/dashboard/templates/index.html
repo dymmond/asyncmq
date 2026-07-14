@@ -1,110 +1,113 @@
 {% extends "layout.html" %}
+{% from "shared/components.html" import stat_card, status_badge, empty_state %}
 {% block content %}
-  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
-
-  <!-- Summary Cards + Pie -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Queues</h2>
-      <div id="total-queues" class="mt-2 text-3xl font-bold text-gray-900">{{ total_queues }}</div>
-    </div>
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Jobs</h2>
-      <div id="total-jobs" class="mt-2 text-3xl font-bold text-gray-900">{{ total_jobs }}</div>
-    </div>
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Workers</h2>
-      <div id="total-workers" class="mt-2 text-3xl font-bold text-gray-900">{{ total_workers }}</div>
-    </div>
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6 flex flex-col items-center justify-center">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Job Distribution</h2>
-      <div class="w-full h-48 mt-4">
-        <canvas id="jobdist-chart" class="w-full h-full"></canvas>
+  <div class="amq-page">
+    <section class="amq-overview-hero" aria-label="Runtime summary">
+      <div class="amq-stat-grid amq-stat-grid--three">
+        {{ stat_card("Total queues", total_queues, "total-queues", "accent") }}
+        {{ stat_card("Total jobs", total_jobs, "total-jobs", "neutral") }}
+        {{ stat_card("Total workers", total_workers, "total-workers", "success") }}
       </div>
-    </div>
-  </div>
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Job Distribution</h2>
+          <span class="amq-card-meta">Live</span>
+        </div>
+        <div class="amq-chart-panel">
+          <canvas id="jobdist-chart" class="w-full h-full"></canvas>
+        </div>
+      </article>
+    </section>
 
-  <!-- Charts Row -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6">
-      <h2 class="text-lg font-semibold mb-4">Throughput Over Time</h2>
-      <div class="h-64"><canvas id="overview-line-chart" class="w-full h-full"></canvas></div>
-    </div>
-    <div class="bg-white ring-1 ring-gray-200 shadow p-6">
-      <h2 class="text-lg font-semibold mb-4">Waiting Jobs Per Queue</h2>
-      <div class="h-64"><canvas id="queue-bar-chart" class="w-full h-full"></canvas></div>
-    </div>
-  </div>
+    <section class="amq-grid-2">
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Throughput Over Time</h2>
+          <span class="amq-card-meta">Last 20 samples</span>
+        </div>
+        <div class="amq-card-body amq-chart-panel">
+          <canvas id="overview-line-chart" class="w-full h-full"></canvas>
+        </div>
+      </article>
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Waiting Jobs Per Queue</h2>
+          <span class="amq-card-meta">Backend counts</span>
+        </div>
+        <div class="amq-card-body amq-chart-panel">
+          <canvas id="queue-bar-chart" class="w-full h-full"></canvas>
+        </div>
+      </article>
+    </section>
 
-  <!-- Latest 10 Jobs Table -->
-  <div class="bg-white ring-1 ring-gray-200 shadow rounded-lg overflow-x-auto mb-8">
-    <div class="p-6">
-      <h2 class="text-xl font-semibold mb-4">Latest 10 Jobs</h2>
-      <table class="min-w-full table-auto divide-y divide-gray-200">
-        <thead class="bg-gray-50">
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Latest Jobs</h2>
+          <p class="amq-card-meta">Most recent backend-visible jobs</p>
+        </div>
+        <a href="{{ url_prefix }}/queues" class="amq-button">Open Queues</a>
+      </div>
+      <table class="amq-table">
+        <thead>
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">ID</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Queue</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">State</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Time</th>
+            <th>ID</th>
+            <th>Queue</th>
+            <th>State</th>
+            <th>Time</th>
           </tr>
         </thead>
-        <tbody id="latest-jobs-body" class="bg-white divide-y divide-gray-200">
+        <tbody id="latest-jobs-body">
           {% for job in latest_jobs %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ job.id }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ job.queue }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm">
-              <span class="px-2 inline-flex text-xs font-semibold rounded
-                {% if job.state == 'completed' %}
-                  bg-green-100 text-green-800
-                {% elif job.state == 'failed' %}
-                  bg-red-100 text-red-800
-                {% elif job.state == 'active' %}
-                  bg-yellow-100 text-yellow-800
-                {% else %}
-                  bg-gray-100 text-gray-800
-                {% endif %}">
-                {{ job.state | capitalize }}
-              </span>
+          <tr>
+            <td class="amq-mono">{{ job.id }}</td>
+            <td>{{ job.queue }}</td>
+            <td>
+              {{ status_badge(job.state) }}
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ job.time }}</td>
+            <td>{{ job.time }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="4" class="px-6 py-8 text-center text-gray-500 italic">No recent jobs.</td>
+            <td colspan="4">
+              {{ empty_state("No recent jobs") }}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-    </div>
-  </div>
+    </section>
 
-  <!-- Recently Active Queues Table -->
-  <div class="bg-white ring-1 ring-gray-200 shadow rounded-lg overflow-x-auto mb-8">
-    <div class="p-6">
-      <h2 class="text-xl font-semibold mb-4">Recently Active Queues</h2>
-      <table class="min-w-full table-auto divide-y divide-gray-200">
-        <thead class="bg-gray-50">
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Recently Active Queues</h2>
+          <p class="amq-card-meta">Queue activity reported by AsyncMQ</p>
+        </div>
+      </div>
+      <table class="amq-table">
+        <thead>
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Queue</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Last Activity</th>
+            <th>Queue</th>
+            <th>Last Activity</th>
           </tr>
         </thead>
-        <tbody id="latest-queues-body" class="bg-white divide-y divide-gray-200">
+        <tbody id="latest-queues-body">
           {% for q in latest_queues %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ q.name }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ q.time }}</td>
+          <tr>
+            <td class="amq-mono">{{ q.name }}</td>
+            <td>{{ q.time }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="2" class="px-6 py-8 text-center text-gray-500 italic">No queues found.</td>
+            <td colspan="2">
+              {{ empty_state("No queues found") }}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-    </div>
+    </section>
   </div>
 
   <!-- Chart.js & SSE Script -->
@@ -159,6 +162,32 @@
       barChart.update();
     });
 
+    function appendTextCell(row, value, className) {
+      const cell = document.createElement('td');
+      if (className) {
+        cell.className = className;
+      }
+      cell.textContent = value ?? '';
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function badgeForState(state) {
+      const value = String(state || 'unknown');
+      const normalized = value.toLowerCase();
+      const badge = document.createElement('span');
+      badge.className = 'amq-badge amq-badge--neutral';
+      if (['completed', 'success', 'running'].includes(normalized)) {
+        badge.className = 'amq-badge amq-badge--success';
+      } else if (['failed', 'failure', 'error'].includes(normalized)) {
+        badge.className = 'amq-badge amq-badge--danger';
+      } else if (['active', 'paused', 'delayed', 'retrying'].includes(normalized)) {
+        badge.className = 'amq-badge amq-badge--warning';
+      }
+      badge.textContent = value.charAt(0).toUpperCase() + value.slice(1);
+      return badge;
+    }
+
     // Latest 10 Jobs table
     source.addEventListener('latest_jobs', e => {
       const jobs = JSON.parse(e.data);
@@ -166,13 +195,12 @@
       tbody.innerHTML = '';
       jobs.forEach(j => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-100';
-        tr.innerHTML = `
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${j.id}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.queue}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.state}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${j.time}</td>
-        `;
+        appendTextCell(tr, j.id, 'amq-mono');
+        appendTextCell(tr, j.queue);
+        const stateCell = document.createElement('td');
+        stateCell.appendChild(badgeForState(j.state));
+        tr.appendChild(stateCell);
+        appendTextCell(tr, j.time);
         tbody.appendChild(tr);
       });
     });
@@ -184,11 +212,8 @@
       tbody.innerHTML = '';
       qs.forEach(q => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-100';
-        tr.innerHTML = `
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${q.name}</td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${q.time}</td>
-        `;
+        appendTextCell(tr, q.name, 'amq-mono');
+        appendTextCell(tr, q.time);
         tbody.appendChild(tr);
       });
     });

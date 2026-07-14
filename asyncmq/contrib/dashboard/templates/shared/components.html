@@ -1,0 +1,86 @@
+{% macro icon(name, class_name="amq-icon") -%}
+  <svg class="{{ class_name }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {% if name == "dashboard" %}
+      <path d="M3 12l9-8 9 8"/>
+      <path d="M5 10.5V20h14v-9.5"/>
+      <path d="M10 20v-6h4v6"/>
+    {% elif name == "queues" %}
+      <path d="M4 7h16"/>
+      <path d="M4 12h16"/>
+      <path d="M4 17h16"/>
+      <path d="M7 4v16"/>
+    {% elif name == "metrics" %}
+      <path d="M4 19V5"/>
+      <path d="M4 19h16"/>
+      <path d="M8 15l3-4 3 2 4-7"/>
+    {% elif name == "audit" %}
+      <path d="M8 4h8l3 3v13H5V4h3z"/>
+      <path d="M15 4v4h4"/>
+      <path d="M8 12h8"/>
+      <path d="M8 16h6"/>
+    {% elif name == "workers" %}
+      <path d="M8 7a4 4 0 118 0"/>
+      <path d="M4 21a8 8 0 0116 0"/>
+      <path d="M17 11l3 3 3-3"/>
+    {% elif name == "logout" %}
+      <path d="M10 5H5v14h5"/>
+      <path d="M14 8l4 4-4 4"/>
+      <path d="M18 12H8"/>
+    {% elif name == "menu" %}
+      <path d="M4 7h16"/>
+      <path d="M4 12h16"/>
+      <path d="M4 17h16"/>
+    {% elif name == "external" %}
+      <path d="M14 4h6v6"/>
+      <path d="M20 4l-9 9"/>
+      <path d="M20 14v6H4V4h6"/>
+    {% else %}
+      <circle cx="12" cy="12" r="8"/>
+      <path d="M12 8v4l3 2"/>
+    {% endif %}
+  </svg>
+{%- endmacro %}
+
+{% macro nav_link(href, label, active=False, icon_name="dashboard") -%}
+  <a href="{{ href }}" class="amq-nav-link{% if active %} is-active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+    {{ icon(icon_name) }}
+    <span>{{ label }}</span>
+  </a>
+{%- endmacro %}
+
+{% macro stat_card(label, value, id=None, tone="neutral", detail=None) -%}
+  <article class="amq-stat-card amq-stat-card--{{ tone }}">
+    <div class="amq-stat-label">{{ label }}</div>
+    {% if id %}
+      <div id="{{ id }}" class="amq-stat-value">{{ value }}</div>
+    {% else %}
+      <div class="amq-stat-value">{{ value }}</div>
+    {% endif %}
+    {% if detail %}
+      <div class="amq-stat-detail">{{ detail }}</div>
+    {% endif %}
+  </article>
+{%- endmacro %}
+
+{% macro status_badge(status, label=None) -%}
+  {% set state = (status|string)|lower %}
+  {% if state in ["completed", "success", "running", "healthy", "ok"] %}
+    {% set tone = "success" %}
+  {% elif state in ["failed", "failure", "error", "dead", "removed"] %}
+    {% set tone = "danger" %}
+  {% elif state in ["active", "warning", "paused", "delayed", "retrying"] %}
+    {% set tone = "warning" %}
+  {% else %}
+    {% set tone = "neutral" %}
+  {% endif %}
+  <span class="amq-badge amq-badge--{{ tone }}">{{ label or status|capitalize }}</span>
+{%- endmacro %}
+
+{% macro empty_state(title, body=None) -%}
+  <div class="amq-empty">
+    <strong>{{ title }}</strong>
+    {% if body %}
+      <span>{{ body }}</span>
+    {% endif %}
+  </div>
+{%- endmacro %}

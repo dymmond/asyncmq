@@ -1,76 +1,68 @@
 {% extends "layout.html" %}
+{% from "shared/components.html" import empty_state, stat_card %}
 {% block content %}
-  <!-- Header & Page-Size Selector -->
-  <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-    <h1 class="text-3xl font-bold text-gray-900">{{ page_header }}</h1>
-    <form method="get" class="flex items-center space-x-2">
-      <label for="size" class="text-sm font-medium text-gray-700">Show</label>
-      <select id="size" name="size" data-auto-submit
-              class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
-        {% for s in page_sizes %}
-          <option value="{{ s }}" {% if s == size %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}
-      </select>
-      <span class="text-sm text-gray-700">per page</span>
-      <input type="hidden" name="page" value="1">
-    </form>
-  </div>
+  <div class="amq-page">
+    <section class="amq-stat-grid" aria-label="Worker summary">
+      {{ stat_card("Workers", total, None, "success") }}
+      {{ stat_card("Page size", size, None, "neutral") }}
+    </section>
 
-  <!-- Workers Table -->
-  <div class="bg-white shadow overflow-hidden sm:rounded-lg">
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Worker Registry</h2>
+          <p class="amq-card-meta">Runtime-reported workers and heartbeat timestamps</p>
+        </div>
+        <form method="get" class="amq-actions">
+          <label for="size" class="amq-card-meta">Rows</label>
+          <select id="size" name="size" data-auto-submit class="amq-select">
+            {% for s in page_sizes %}
+              <option value="{{ s }}" {% if s == size %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="page" value="1">
+        </form>
+      </div>
+
+      <table class="amq-table">
+        <thead>
         <tr>
-          <th scope="col"
-              class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            ID
-          </th>
-          <th scope="col"
-              class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Queue
-          </th>
-          <th scope="col"
-              class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Concurrency
-          </th>
-          <th scope="col"
-              class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Last Heartbeat
-          </th>
+          <th scope="col">ID</th>
+          <th scope="col">Queue</th>
+          <th scope="col">Concurrency</th>
+          <th scope="col">Last Heartbeat</th>
         </tr>
       </thead>
-      <tbody class="bg-white divide-y divide-gray-200">
+      <tbody>
         {% for w in workers %}
-        <tr class="hover:bg-gray-50">
-          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+        <tr>
+          <td class="amq-mono">
             {{ w.id }}
           </td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          <td>
             {{ w.queue }}
           </td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          <td>
             {{ w.concurrency }}
           </td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          <td>
             {{ w.heartbeat }}
           </td>
         </tr>
         {% endfor %}
         {% if workers|length == 0 %}
         <tr>
-          <td colspan="4"
-              class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 italic text-center">
-            No workers found.
+          <td colspan="4">
+            {{ empty_state("No workers found") }}
           </td>
         </tr>
         {% endif %}
       </tbody>
     </table>
-  </div>
+    </section>
 
-  <!-- Pagination & Summary -->
-  <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-    <p class="text-sm text-gray-700 mb-4 sm:mb-0">
+    <div class="amq-pagination">
+    <p class="amq-card-meta">
       {% if total > 0 %}
       Showing
       <span class="font-medium">{{ (page - 1) * size + 1 }}</span>
@@ -83,35 +75,37 @@
       No results found
       {% endif %}
     </p>
-    <nav class="inline-flex -space-x-px">
+    <nav class="amq-pagination-nav" aria-label="Worker pages">
       {% if page and page > 1 %}
       <a href="?page={{ page - 1 }}&size={{ size }}"
-         class="px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+         class="amq-pagination-link">
         Previous
       </a>
       {% else %}
-      <span class="px-3 py-2 rounded-l-md border border-gray-300 bg-gray-100 text-sm font-medium text-gray-400 cursor-not-allowed">
+      <span class="amq-pagination-link" aria-disabled="true">
         Previous
       </span>
       {% endif %}
 
       {% for p in range(1, total_pages + 1) %}
       <a href="?page={{ p }}&size={{ size }}"
-         class="px-3 py-2 border-t border-b border-gray-300 bg-white text-sm font-medium {% if p == page %}text-indigo-600{% else %}text-gray-500 hover:bg-gray-50{% endif %}">
+         class="amq-pagination-link"
+         {% if p == page %}aria-current="page"{% endif %}>
         {{ p }}
       </a>
       {% endfor %}
 
       {% if page and page < total_pages %}
       <a href="?page={{ page + 1 }}&size={{ size }}"
-         class="px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+         class="amq-pagination-link">
         Next
       </a>
       {% else %}
-      <span class="px-3 py-2 rounded-r-md border border-gray-300 bg-gray-100 text-sm font-medium text-gray-400 cursor-not-allowed">
+      <span class="amq-pagination-link" aria-disabled="true">
         Next
       </span>
       {% endif %}
     </nav>
+    </div>
   </div>
 {% endblock %}
