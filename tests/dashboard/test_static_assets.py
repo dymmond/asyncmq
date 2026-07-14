@@ -31,6 +31,10 @@ class AssetBackend:
         """Return no workers so worker pages render deterministically."""
         return []
 
+    async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+        """Return no jobs so job-like pages render deterministically."""
+        return []
+
 
 def verify_user(username: str, password: str) -> User | None:
     """Verify the fixed test credentials for the bundled login template."""
@@ -175,7 +179,16 @@ def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: T
     """Keep primary operator pages compatible with strict CSP."""
     inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
 
-    for path in ("/", "/queues", "/queues/critical-email", "/metrics", "/audit", "/events/history", "/workers"):
+    for path in (
+        "/",
+        "/queues",
+        "/queues/critical-email",
+        "/queues/critical-email/dlq",
+        "/metrics",
+        "/audit",
+        "/events/history",
+        "/workers",
+    ):
         response = client.get(path)
 
         assert response.status_code == 200

@@ -438,16 +438,74 @@ def test_repeatables_remove_uses_backend_remove_api(client, app, fake_backend):
 
 
 def test_dlq_list(client, app):
+    settings.backend = FakeBackend()
     response = client.get(url(app, "dlq", name="emails"))
 
     assert response.status_code == 200
     assert b"emails" in response.content
+    assert "<title>AsyncMQ | DLQ emails</title>" in response.text
     assert "data-asyncmq-dlq" in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
     assert "data-dlq-select-all" in response.text
+    assert 'class="amq-job-grid amq-dlq-grid"' in response.text
+    assert 'class="amq-confirm"' in response.text
+    assert "Open Diagnostics" in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
     assert "retry-btn-dlq" not in response.text
     assert "remove-btn-dlq" not in response.text
     assert "fetch(" not in response.text
     assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", response.text, re.IGNORECASE) is None
+
+
+def test_dlq_list_uses_backend_inspection_contract(client, app):
+    class InspectDLQBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int, str]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("dashboard should consume inspect_jobs when available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size, sort))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": "dlq-inspect-1",
+                        "task_id": "send-secret",
+                        "kwargs": {"password": "secret-token"},
+                        "last_error": "RuntimeError: failed",
+                        "created_at": self._now,
+                    }
+                ],
+                total=25,
+                page=2,
+                size=size,
+                total_pages=2,
+            )
+
+    backend = InspectDLQBackend()
+    settings.backend = backend
+
+    response = client.get(url(app, "dlq", name="emails") + "?page=2&size=999")
+
+    assert response.status_code == 200
+    assert "dlq-inspect-1" in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
+    assert backend.inspect_calls == [("emails", "failed", 2, 20, "newest")]
 
 
 @pytest.mark.parametrize("action, data", [("retry", {"job_id": "f1"}), ("delete", {"job_id": "f2"})])
@@ -455,6 +513,16 @@ def test_dlq_actions_post(client, app, action, data):
     response = client.post(url(app, "dlq", **{"name": "emails"}), data={"action": action, **data})
 
     assert response.status_code in (200, 302, 303)
+
+
+def test_dlq_actions_clamp_invalid_pagination_form_values(client, app):
+    response = client.post(
+        url(app, "dlq", **{"name": "emails"}),
+        data={"action": "retry", "job_id": "f1", "page": "not-a-page", "size": "999"},
+    )
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
 
 
 def test_workers_page(client, app):

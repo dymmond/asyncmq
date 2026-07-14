@@ -920,6 +920,61 @@ a.btn {
   border-radius: var(--amq-radius);
 }
 
+.amq-bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  background: var(--amq-surface);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+  box-shadow: var(--amq-shadow);
+}
+
+.amq-checkbox,
+.amq-dlq-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--amq-ink-soft);
+  font-size: .84rem;
+  font-weight: 740;
+}
+
+.amq-checkbox input,
+.amq-dlq-select input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--amq-green);
+}
+
+.amq-dlq-card {
+  align-content: start;
+}
+
+.amq-dlq-card .amq-diagnostic-section {
+  margin-top: 2px;
+}
+
+.amq-dlq-card .amq-pre {
+  max-height: 260px;
+}
+
+.amq-dlq-error {
+  margin: 0;
+  padding: 11px 12px;
+  color: #7f1d1d;
+  font-size: .84rem;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  background: #fff7f7;
+  border: 1px solid #f2c3bf;
+  border-radius: var(--amq-radius);
+}
+
 .amq-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, .6fr);
@@ -1130,6 +1185,7 @@ a.btn {
 
 .amq-confirm {
   display: grid;
+  align-self: flex-start;
   gap: 10px;
 }
 

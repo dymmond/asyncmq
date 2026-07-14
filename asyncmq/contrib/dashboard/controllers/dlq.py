@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from typing import Any
 
 from lilya.datastructures import FormData
@@ -13,10 +12,13 @@ from asyncmq import monkay
 from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.redaction import to_pretty_json
 from asyncmq.contrib.dashboard.urls import dashboard_path_for
+from asyncmq.core.inspection import JobInspectionPage, extract_job_task, inspect_job_page
 
 RawJobData = dict[str, Any]
 FormattedJob = dict[str, Any]
+DLQ_PAGE_SIZES: tuple[int, ...] = (20, 50, 100)
 
 
 class DLQController(DashboardMixin, TemplateController):
@@ -36,10 +38,15 @@ class DLQController(DashboardMixin, TemplateController):
     def _get_pagination_params(self, request: Request) -> tuple[int, int]:
         """Extracts and validates pagination parameters (page and size)."""
         try:
-            page: int = int(request.query_params.get("page", 1))
+            page: int = max(1, int(request.query_params.get("page", 1)))
+        except ValueError:
+            page = 1
+        try:
             size: int = int(request.query_params.get("size", 20))
         except ValueError:
-            page, size = 1, 20
+            size = 20
+        if size not in DLQ_PAGE_SIZES:
+            size = 20
         return page, size
 
     def _format_job_timestamp(self, raw_job: RawJobData) -> str:
@@ -54,37 +61,62 @@ class DLQController(DashboardMixin, TemplateController):
             created = "N/A"
         return created
 
-    async def _fetch_and_format_jobs(self, queue: str, page: int, size: int) -> tuple[list[FormattedJob], int, int]:
-        """
-        Fetches all failed jobs for the queue, handles slicing, and formats them for the template.
+    def _format_job_data(self, raw_job: RawJobData) -> FormattedJob:
+        """Format one runtime-owned failed job for safe operator display."""
+        return {
+            "id": raw_job.get("id") or raw_job.get("job_id") or "n/a",
+            "task_id": extract_job_task(raw_job) or "n/a",
+            "error": raw_job.get("last_error") or raw_job.get("error") or raw_job.get("failure_reason") or "",
+            "args_json": to_pretty_json(raw_job.get("args", [])),
+            "kwargs_json": to_pretty_json(raw_job.get("kwargs", {})),
+            "payload_json": to_pretty_json(raw_job),
+            "created": self._format_job_timestamp(raw_job),
+        }
 
-        Returns: (list of formatted jobs, Total job count, Total page count)
+    async def _fetch_and_format_jobs(
+        self,
+        queue: str,
+        page: int,
+        size: int,
+    ) -> tuple[list[FormattedJob], int, int, int]:
+        """
+        Fetch failed jobs through the backend inspection contract and format them.
+
+        Returns: (formatted jobs, total job count, total page count, current page).
         """
         backend = monkay.settings.backend
 
-        # Fetch all failed jobs (Backend must support this)
-        all_jobs: list[RawJobData] = await backend.list_jobs(queue, "failed")
-        total: int = len(all_jobs)
-        total_pages: int = (total + size - 1) // size
-
-        # Apply pagination slice
-        start: int = (page - 1) * size
-        end: int = start + size
-        page_jobs: list[RawJobData] = all_jobs[start:end]
-
-        formatted_jobs: list[FormattedJob] = []
-        for raw in page_jobs:
-            created_at: str = self._format_job_timestamp(raw)
-            formatted_jobs.append(
-                {
-                    "id": raw.get("id"),
-                    "args": json.dumps(raw.get("args", [])),
-                    "kwargs": json.dumps(raw.get("kwargs", {})),
-                    "created": created_at,
-                }
+        inspect_jobs = getattr(backend, "inspect_jobs", None)
+        if callable(inspect_jobs):
+            try:
+                inspected: JobInspectionPage = await inspect_jobs(
+                    queue,
+                    "failed",
+                    page=page,
+                    size=size,
+                    sort="newest",
+                )
+            except Exception:
+                inspected = JobInspectionPage(jobs=[], total=0, page=1, size=size, total_pages=1)
+        else:
+            try:
+                all_jobs: list[RawJobData] = await backend.list_jobs(queue, "failed")
+            except Exception:
+                all_jobs = []
+            inspected = inspect_job_page(
+                all_jobs,
+                page=page,
+                size=size,
+                sort="newest",
             )
 
-        return formatted_jobs, total, total_pages
+        page_jobs = list(inspected.jobs)
+        total = int(inspected.total)
+        total_pages = max(1, int(inspected.total_pages))
+        page = min(max(1, int(inspected.page)), total_pages)
+        formatted_jobs = [self._format_job_data(raw) for raw in page_jobs]
+
+        return formatted_jobs, total, total_pages, page
 
     async def _build_context(
         self,
@@ -100,6 +132,7 @@ class DLQController(DashboardMixin, TemplateController):
         context: dict[str, Any] = await super().get_context_data(request)
         context.update(
             {
+                "title": f"DLQ {queue}",
                 "page_header": f"DLQ {queue}",
                 "queue": queue,
                 "jobs": jobs,
@@ -107,6 +140,8 @@ class DLQController(DashboardMixin, TemplateController):
                 "size": size,
                 "total": total,
                 "total_pages": total_pages,
+                "page_sizes": DLQ_PAGE_SIZES,
+                "active_page": "queues",
             }
         )
         return context
@@ -121,7 +156,7 @@ class DLQController(DashboardMixin, TemplateController):
         page, size = self._get_pagination_params(request)
 
         # 2. Fetch and format jobs
-        jobs, total, total_pages = await self._fetch_and_format_jobs(queue, page, size)
+        jobs, total, total_pages, page = await self._fetch_and_format_jobs(queue, page, size)
 
         # 3. Build context and render
         context = await self._build_context(request, queue, jobs, page, size, total, total_pages)
@@ -139,7 +174,16 @@ class DLQController(DashboardMixin, TemplateController):
         canonical_action = "remove" if action == "delete" else action
 
         # Page is retrieved to redirect the user back to the correct page after the action
-        page: int = int(form.get("page", 1))
+        try:
+            page: int = max(1, int(form.get("page", 1)))
+        except ValueError:
+            page = 1
+        try:
+            size: int = int(form.get("size", 20))
+        except ValueError:
+            size = 20
+        if size not in DLQ_PAGE_SIZES:
+            size = 20
 
         try:
             # 1. Safely extract job IDs regardless of single/multi-select form structure
@@ -196,4 +240,4 @@ class DLQController(DashboardMixin, TemplateController):
             )
 
         # 4. Redirect back to the original page
-        return RedirectResponse(f"{self.get_return_url(request, name=queue)}?page={page}", status_code=303)
+        return RedirectResponse(f"{self.get_return_url(request, name=queue)}?page={page}&size={size}", status_code=303)
