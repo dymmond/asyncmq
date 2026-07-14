@@ -48,6 +48,7 @@ SENSITIVE_KEY_PARTS: tuple[str, ...] = (
 )
 MAX_DISPLAY_STRING_LENGTH = 4000
 MAX_REDACTION_DEPTH = 8
+MAX_TRACEBACK_FRAMES = 50
 TRACEBACK_FRAME_MARKERS: tuple[str, ...] = ('File "', "  File ")
 
 
@@ -104,11 +105,57 @@ def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
     return "Unknown"
 
 
+def extract_traceback_frames(traceback_text: str | None) -> list[dict[str, str]]:
+    """Extract Python traceback frame summaries from runtime-owned traceback text."""
+    if not traceback_text:
+        return []
+
+    lines = traceback_text.splitlines()
+    frames: list[dict[str, str]] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith('File "'):
+            continue
+
+        try:
+            path_and_rest = stripped[len('File "') :]
+            path, rest = path_and_rest.split('", line ', 1)
+            line_number, function = rest.split(", in ", 1)
+        except ValueError:
+            continue
+
+        source = ""
+        if index + 1 < len(lines):
+            candidate = lines[index + 1]
+            if candidate.startswith("    "):
+                source = candidate.strip()
+
+        frames.append(
+            {
+                "path": path,
+                "line": line_number.strip(),
+                "function": function.strip(),
+                "source": source,
+            }
+        )
+        if len(frames) >= MAX_TRACEBACK_FRAMES:
+            break
+
+    return frames
+
+
 def count_traceback_frames(traceback_text: str | None) -> int:
     """Count Python-style stack frames in a traceback string."""
     if not traceback_text:
         return 0
     return sum(1 for line in traceback_text.splitlines() if line.lstrip().startswith(TRACEBACK_FRAME_MARKERS))
+
+
+def traceback_frame_limit_reached(traceback_text: str | None, frames: list[dict[str, str]]) -> bool:
+    """Return whether traceback frame extraction stopped at the display limit."""
+    if not traceback_text:
+        return False
+    return count_traceback_frames(traceback_text) > len(frames)
 
 
 class QueueJobController(DashboardMixin, TemplateController):
@@ -528,6 +575,7 @@ class JobDetailController(DashboardMixin, TemplateController):
         traceback_text = self._extract_traceback(job)
         error_message = job.get("last_error") or job.get("error") or job.get("exception")
         exception_type = infer_exception_type(error_message, traceback_text)
+        traceback_frames = extract_traceback_frames(traceback_text)
         traceback_frame_count = count_traceback_frames(traceback_text)
         diagnostic_bundle = self._build_diagnostics_bundle(
             job=job,
@@ -563,6 +611,8 @@ class JobDetailController(DashboardMixin, TemplateController):
                 "error_message": error_message,
                 "exception_type": exception_type,
                 "traceback_frame_count": traceback_frame_count,
+                "traceback_frames": traceback_frames,
+                "traceback_frames_truncated": traceback_frame_limit_reached(traceback_text, traceback_frames),
                 "traceback_text": traceback_text,
                 "diagnostics_json": self._to_pretty_json(diagnostic_bundle),
                 "execution_worker": diagnostic_bundle["worker"] or "-",

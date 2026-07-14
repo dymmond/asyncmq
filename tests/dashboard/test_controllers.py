@@ -46,7 +46,12 @@ class FakeBackend:
                     "args": ["a"],
                     "kwargs": {"x": 1, "api_token": "secret-token"},
                     "last_error": "ValueError: welcome failed",
-                    "error_traceback": "Traceback (most recent call last):\nValueError: welcome failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        "  File \"tasks/welcome.py\", line 10, in send_welcome\n"
+                        "    raise ValueError(\"welcome failed\")\n"
+                        "ValueError: welcome failed"
+                    ),
                     "created_at": self._now - 60,
                 },
                 {
@@ -55,7 +60,14 @@ class FakeBackend:
                     "args": [],
                     "kwargs": {"password": "secret-token"},
                     "last_error": "RuntimeError: reminder failed",
-                    "error_traceback": "Traceback (most recent call last):\nRuntimeError: reminder failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        "  File \"asyncmq/workers.py\", line 418, in process_job\n"
+                        "    await task(*job.args, **job.kwargs)\n"
+                        "  File \"tasks/reminder.py\", line 22, in send_reminder\n"
+                        "    raise RuntimeError(\"reminder failed\")\n"
+                        "RuntimeError: reminder failed"
+                    ),
                     "created_at": self._now - 30,
                 },
             ],
@@ -350,6 +362,10 @@ def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(clien
     assert b"Exception" in response.content
     assert b"RuntimeError" in response.content
     assert b"Frames" in response.content
+    assert b"Stack frames" in response.content
+    assert b"asyncmq/workers.py" in response.content
+    assert b"Line 418 in process_job" in response.content
+    assert b"tasks/reminder.py" in response.content
     assert b"Redacted diagnostic bundle" in response.content
     assert b"Traceback (most recent call last)" in response.content
     assert b"[redacted]" in response.content

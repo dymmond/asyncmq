@@ -109,8 +109,32 @@
               {% endif %}
 
               {% if traceback_text %}
-                <details open class="amq-diagnostic-section">
-                  <summary>Formatted traceback</summary>
+                {% if traceback_frames %}
+                  <details open class="amq-diagnostic-section">
+                    <summary>Stack frames</summary>
+                    <ol class="amq-stack-list">
+                      {% for frame in traceback_frames %}
+                        <li class="amq-stack-frame">
+                          <div class="amq-stack-frame-header">
+                            <span class="amq-stack-index">{{ loop.index }}</span>
+                            <div class="amq-stack-location">
+                              <strong class="amq-mono">{{ frame.path }}</strong>
+                              <span class="amq-card-meta">Line {{ frame.line }} in {{ frame.function }}</span>
+                            </div>
+                          </div>
+                          {% if frame.source %}
+                            <pre class="amq-stack-source">{{ frame.source }}</pre>
+                          {% endif %}
+                        </li>
+                      {% endfor %}
+                    </ol>
+                    {% if traceback_frames_truncated %}
+                      <p class="amq-card-meta">Additional frames are available in the raw traceback.</p>
+                    {% endif %}
+                  </details>
+                {% endif %}
+                <details {% if not traceback_frames %}open{% endif %} class="amq-diagnostic-section">
+                  <summary>Raw traceback</summary>
                   <pre class="amq-pre amq-traceback">{{ traceback_text }}</pre>
                 </details>
               {% endif %}

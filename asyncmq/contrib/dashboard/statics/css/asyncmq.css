@@ -836,6 +836,68 @@ a.btn {
   color: var(--amq-muted);
 }
 
+.amq-stack-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.amq-stack-frame {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  background: #fffafa;
+  border: 1px solid #f2c3bf;
+  border-radius: var(--amq-radius);
+}
+
+.amq-stack-frame-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.amq-stack-index {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #7f1d1d;
+  font-size: .78rem;
+  font-weight: 800;
+  background: #feeceb;
+  border: 1px solid #f2c3bf;
+  border-radius: 999px;
+}
+
+.amq-stack-location {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.amq-stack-location strong {
+  color: var(--amq-ink);
+  overflow-wrap: anywhere;
+}
+
+.amq-stack-source {
+  margin: 0;
+  padding: 9px 10px;
+  color: #7f1d1d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: .82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #fff;
+  border: 1px solid #f6d5d2;
+  border-radius: 7px;
+}
+
 .amq-audit-table {
   min-width: 960px;
 }
