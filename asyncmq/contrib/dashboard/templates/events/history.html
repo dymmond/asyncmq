@@ -61,6 +61,7 @@
           <h2 class="amq-card-title">Runtime Event Evidence</h2>
           <p class="amq-card-meta">Newest first · local process history · bounded to {{ limit }} rows</p>
         </div>
+        <span class="amq-scope-pill">{{ retention_note }}</span>
       </div>
       <table class="amq-table amq-event-table">
         <thead>
@@ -88,7 +89,18 @@
               <td>
                 <details class="amq-diagnostic-section amq-event-details">
                   <summary>Data</summary>
-                  <pre class="amq-pre">{{ event.data_json }}</pre>
+                  <div class="amq-event-data-tools">
+                    <button type="button"
+                            class="amq-button"
+                            x-data="asyncmqClipboard"
+                            x-on:click="copy"
+                            x-text="label"
+                            data-clipboard-label="Copy data"
+                            data-clipboard-target="{{ event.data_id }}">
+                      Copy data
+                    </button>
+                  </div>
+                  <pre id="{{ event.data_id }}" class="amq-pre">{{ event.data_json }}</pre>
                 </details>
               </td>
             </tr>

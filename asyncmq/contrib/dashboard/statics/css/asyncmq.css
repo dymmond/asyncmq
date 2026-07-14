@@ -1253,8 +1253,26 @@ a.btn {
   white-space: nowrap;
 }
 
+.amq-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 7px 10px;
+  color: var(--amq-muted);
+  font-size: .76rem;
+  font-weight: 760;
+  background: #f5f7ee;
+  border: 1px solid var(--amq-border);
+  border-radius: 999px;
+}
+
 .amq-event-details .amq-pre {
   max-height: 260px;
+}
+
+.amq-event-data-tools {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .amq-metrics-table {

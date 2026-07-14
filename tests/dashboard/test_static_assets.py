@@ -237,6 +237,8 @@ def test_operator_controls_keep_visible_focus_and_table_scopes(client: TestClien
     assert ".amq-diagnostic-section summary:focus-visible" in css
     assert ".amq-root-cause" in css
     assert ".amq-exception-chain" in css
+    assert ".amq-scope-pill" in css
+    assert ".amq-event-data-tools" in css
     assert "asyncmqClipboard" in js
     assert "navigator.clipboard" in js
     assert css.count("box-shadow: 0 0 0 3px rgba(203, 220, 56, .42)") >= 6

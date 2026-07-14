@@ -101,6 +101,8 @@ class RuntimeEventController(DashboardMixin, TemplateController):
             q=q_raw or None,
         )
         rows = [format_runtime_event(record) for record in records]
+        for index, row in enumerate(rows, start=1):
+            row["data_id"] = f"runtime-event-data-{index}"
 
         context: dict[str, Any] = await super().get_context_data(request)
         context.update(
@@ -115,6 +117,7 @@ class RuntimeEventController(DashboardMixin, TemplateController):
                 "selected_query": q_raw,
                 "limit": limit,
                 "event_summary": build_event_summary(rows),
+                "retention_note": "Local process history, not durable log storage",
             }
         )
         return await self.render_template(request, context=context)

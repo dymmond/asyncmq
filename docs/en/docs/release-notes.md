@@ -30,6 +30,8 @@
   console.
 - Dashboard failed-job diagnostics now expose root cause, exception chain, and
   copyable redacted evidence.
+- Dashboard runtime events now label local retention scope and expose copyable
+  redacted row data.
 
 ### Fixed
 

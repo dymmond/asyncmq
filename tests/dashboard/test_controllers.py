@@ -763,10 +763,13 @@ def test_runtime_events_page_uses_event_history_and_redacts_sensitive_values(cli
 
     assert response.status_code == 200
     assert "Runtime Event Evidence" in response.text
+    assert "Local process history, not durable log storage" in response.text
     assert "job:failed" in response.text
     assert "emails" in response.text
     assert "event-1" in response.text
     assert "send-welcome" in response.text
+    assert "Copy data" in response.text
+    assert 'data-clipboard-target="runtime-event-data-1"' in response.text
     assert "[redacted]" in response.text
     assert "secret-token" not in response.text
 
