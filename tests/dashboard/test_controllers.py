@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import Any
 
@@ -411,6 +412,12 @@ def test_dlq_list(client, app):
 
     assert response.status_code == 200
     assert b"emails" in response.content
+    assert 'data-asyncmq-dlq' in response.text
+    assert 'data-dlq-select-all' in response.text
+    assert "retry-btn-dlq" not in response.text
+    assert "remove-btn-dlq" not in response.text
+    assert "fetch(" not in response.text
+    assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", response.text, re.IGNORECASE) is None
 
 
 @pytest.mark.parametrize("action, data", [("retry", {"job_id": "f1"}), ("delete", {"job_id": "f2"})])

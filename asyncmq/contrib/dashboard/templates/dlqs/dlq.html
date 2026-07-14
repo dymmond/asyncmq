@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+<div data-asyncmq-dlq>
   <!-- Page header -->
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-3xl font-semibold">Dead-Letter Queue: {{ queue }}</h1>
@@ -18,7 +19,7 @@
     <div class="flex items-center justify-between mb-4">
       <!-- Select All checkbox -->
       <label class="inline-flex items-center space-x-2">
-        <input type="checkbox" id="select-all-dlq" class="form-checkbox h-5 w-5 text-indigo-600">
+        <input type="checkbox" id="select-all-dlq" data-dlq-select-all class="form-checkbox h-5 w-5 text-indigo-600">
         <span class="text-sm text-gray-700">Select All</span>
       </label>
 
@@ -51,19 +52,6 @@
             <div class="mt-2">Args: {{ job.args }}</div>
             <div>Kwargs: {{ job.kwargs }}</div>
           </div>
-          <!-- Row-level Retry/Delete (optional—you can keep or remove these) -->
-          <div class="px-4 py-3 border-t bg-white flex justify-end space-x-2">
-            <button
-              type="button"
-              class="retry-btn-dlq px-3 py-1 bg-green-500 text-white hover:bg-green-600 rounded text-sm"
-              data-job-id="{{ job.id }}"
-            >Retry</button>
-            <button
-              type="button"
-              class="remove-btn-dlq px-3 py-1 bg-red-500 text-white hover:bg-red-600 rounded text-sm"
-              data-job-id="{{ job.id }}"
-            >Delete</button>
-          </div>
         </div>
       {% else %}
         <div class="col-span-full text-center text-gray-500 py-12 italic">
@@ -90,69 +78,5 @@
       </a>
     {% endif %}
   </nav>
-
-  <!-- Select-All script -->
-  <script>
-    document.getElementById('select-all-dlq')?.addEventListener('change', function(e) {
-      document.querySelectorAll('input.select-dlq').forEach(cb => {
-        cb.checked = e.target.checked;
-      });
-    });
-  </script>
-
-  <!-- Row-level AJAX + Toaster (optional) -->
-  <script>
-    function showToast(msg, type='success') {
-      const c = document.getElementById('toaster');
-      if (!c) return;
-      const t = document.createElement('div');
-      t.textContent = msg;
-      t.style.cssText = `
-        pointer-events:auto;
-        padding:0.5rem 1rem;
-        border-radius:0.25rem;
-        color:white;
-        font-size:0.875rem;
-        margin-bottom:0.5rem;
-        background:${ type==='success' ? '#22c55e' : '#ef4444' };
-      `;
-      c.append(t);
-      setTimeout(() => t.remove(), 3000);
-    }
-
-    (function(){
-      const prefix = window.location.pathname.replace(/\/dlq\/?$/, '/dlq');
-      async function doAction(id, action) {
-        try {
-          const res = await fetch(`${prefix}/${id}/${action}`, {
-            method:'POST',
-            headers:{Accept:'application/json'}
-          });
-          const j = await res.json();
-          if (!j.ok) {
-            showToast(`${action} failed: ${j.error}`, 'error');
-            return;
-          }
-          showToast(`${action.charAt(0).toUpperCase()+action.slice(1)} ${id}`, 'success');
-          const btn = document.querySelector(`button.${action}-btn-dlq[data-job-id="${id}"]`);
-          btn?.closest('.job-card')?.remove();
-        } catch(e) {
-          showToast(`Error: ${e.message}`, 'error');
-        }
-      }
-
-      document.querySelectorAll('.retry-btn-dlq').forEach(b =>
-        b.addEventListener('click', e => {
-          e.preventDefault();
-          doAction(b.dataset.jobId, 'retry');
-        })
-      );
-      document.querySelectorAll('.remove-btn-dlq').forEach(b =>
-        b.addEventListener('click', e => {
-          e.preventDefault();
-          doAction(b.dataset.jobId, 'remove');
-        })
-      );
-    })();
-  </script>
+</div>
 {% endblock %}

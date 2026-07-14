@@ -169,10 +169,10 @@ def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
 
 
 def test_primary_live_pages_do_not_render_inline_scripts(client: TestClient):
-    """Keep overview and queue live updates compatible with strict CSP."""
+    """Keep primary live pages compatible with strict CSP."""
     inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
 
-    for path in ("/", "/queues", "/queues/critical-email"):
+    for path in ("/", "/queues", "/queues/critical-email", "/metrics"):
         response = client.get(path)
 
         assert response.status_code == 200
@@ -192,3 +192,18 @@ def test_queue_pages_use_packaged_live_update_components(client: TestClient):
     assert 'data-queue-name="critical-email"' in queue_detail.text
     assert "setupQueueListLive" in js
     assert "setupQueueDetailLive" in js
+
+
+def test_metrics_page_uses_packaged_live_update_components(client: TestClient):
+    """Render metrics live-update hooks as CSP-safe data consumed by packaged JS."""
+    response = client.get("/metrics")
+    js = package_static_root().joinpath("js/asyncmq.js").read_text()
+
+    assert response.status_code == 200
+    assert 'data-asyncmq-metrics' in response.text
+    assert 'data-history-url="/asyncmq/metrics/history?limit=60"' in response.text
+    assert '<template id="metrics-history-data">' in response.text
+    assert "const initialHistory" not in response.text
+    assert "innerHTML" not in response.text
+    assert "setupMetricsLive" in js
+    assert "appendTextCell(row, metric.throughput" in js

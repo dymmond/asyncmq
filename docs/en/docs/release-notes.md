@@ -32,6 +32,8 @@
   mounted paths and trusted reverse proxies.
 - Dashboard overview and queue live updates now run from packaged JavaScript
   instead of inline scripts.
+- Dashboard metrics and DLQ controls now avoid inline scripts and unsupported
+  row-level AJAX routes.
 
 ## 0.8.1
 

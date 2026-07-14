@@ -370,10 +370,260 @@
     });
   }
 
+  function readJsonTemplate(id, fallback) {
+    const template = document.getElementById(id);
+    if (!template) {
+      return fallback;
+    }
+    try {
+      return JSON.parse(template.textContent || "");
+    } catch (error) {
+      console.warn("AsyncMQ JSON data parse error", error);
+      return fallback;
+    }
+  }
+
+  function normalizeMetricTime(row) {
+    if (row.time) {
+      return new Date(row.time).toLocaleTimeString();
+    }
+    if (row.timestamp) {
+      return new Date(row.timestamp * 1000).toLocaleTimeString();
+    }
+    return "N/A";
+  }
+
+  function setupMetricsLive(root) {
+    const maxPoints = 60;
+    const metricsCtx = chartCanvas("metrics-chart");
+    const metricsData = {
+      labels: [],
+      datasets: [
+        { label: "Throughput", data: [], borderColor: "rgba(59,130,246,0.8)", fill: false },
+        { label: "Retries", data: [], borderColor: "rgba(234,179,8,0.8)", fill: false },
+        { label: "Failures", data: [], borderColor: "rgba(239,68,68,0.8)", fill: false },
+      ],
+    };
+    const metricsChart = metricsCtx
+      ? new Chart(metricsCtx, {
+          type: "line",
+          data: metricsData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { x: { display: true }, y: { beginAtZero: true } },
+            animation: { duration: 0 },
+          },
+        })
+      : null;
+
+    const stateCtx = chartCanvas("state-chart");
+    const stateData = {
+      labels: ["Waiting", "Active", "Delayed", "Completed", "Failed"],
+      datasets: [
+        {
+          label: "Jobs",
+          data: [0, 0, 0, 0, 0],
+          backgroundColor: [
+            "rgba(59,130,246,0.7)",
+            "rgba(16,185,129,0.7)",
+            "rgba(245,158,11,0.7)",
+            "rgba(99,102,241,0.7)",
+            "rgba(239,68,68,0.7)",
+          ],
+        },
+      ],
+    };
+    const stateChart = stateCtx
+      ? new Chart(stateCtx, {
+          type: "bar",
+          data: stateData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } },
+            animation: { duration: 0 },
+          },
+        })
+      : null;
+
+    function setCards(row) {
+      if (!row) {
+        return;
+      }
+      setTextById("throughput", row.throughput ?? 0);
+      setTextById("avg-duration", row.avg_duration ?? "-");
+      setTextById("retries", row.retries ?? 0);
+      setTextById("failures", row.failures ?? 0);
+      setTextById("waiting-count", row.waiting ?? 0);
+      setTextById("active-count", row.active ?? 0);
+      setTextById("total-queues", row.total_queues ?? 0);
+      setTextById("total-workers", row.total_workers ?? 0);
+    }
+
+    function setStateChart(row) {
+      if (!row || !stateChart) {
+        return;
+      }
+      stateData.datasets[0].data = [
+        row.waiting ?? 0,
+        row.active ?? 0,
+        row.delayed ?? 0,
+        row.completed ?? 0,
+        row.failed ?? 0,
+      ];
+      stateChart.update();
+    }
+
+    function setMetricsChart(rows) {
+      if (!metricsChart) {
+        return;
+      }
+      const ordered = rows.slice().reverse();
+      metricsData.labels = ordered.map(normalizeMetricTime).slice(-maxPoints);
+      metricsData.datasets[0].data = ordered.map((row) => row.throughput ?? 0).slice(-maxPoints);
+      metricsData.datasets[1].data = ordered.map((row) => row.retries ?? 0).slice(-maxPoints);
+      metricsData.datasets[2].data = ordered.map((row) => row.failures ?? 0).slice(-maxPoints);
+      metricsChart.update();
+    }
+
+    function setHistoryTable(rows) {
+      const tbody = document.getElementById("metrics-history-body");
+      if (!tbody) {
+        return;
+      }
+      tbody.textContent = "";
+      const recent = rows.slice(0, 20);
+      if (recent.length === 0) {
+        const row = document.createElement("tr");
+        const cell = appendTextCell(row, "No history yet.", "px-4 py-8 text-center text-gray-500 italic");
+        cell.colSpan = 10;
+        tbody.appendChild(row);
+        return;
+      }
+
+      recent.forEach((metric) => {
+        const row = document.createElement("tr");
+        row.className = "hover:bg-gray-50";
+        appendTextCell(row, normalizeMetricTime(metric), "px-4 py-3 text-sm text-gray-700 whitespace-nowrap");
+        appendTextCell(row, metric.throughput ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.retries ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.failures ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.waiting ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.active ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.delayed ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.completed ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.failed ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, metric.total_workers ?? 0, "px-4 py-3 text-sm text-gray-900");
+        tbody.appendChild(row);
+      });
+    }
+
+    function renderHistory(rows) {
+      setMetricsChart(rows);
+      setHistoryTable(rows);
+      setCards(rows[0]);
+      setStateChart(rows[0]);
+    }
+
+    async function refreshHistory() {
+      try {
+        const response = await fetch(root.dataset.historyUrl, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        renderHistory(Array.isArray(payload.history) ? payload.history : []);
+      } catch (error) {
+        console.warn("Metrics history fetch failed", error);
+      }
+    }
+
+    function appendLiveMetric(metric) {
+      if (metricsChart) {
+        metricsData.labels.push(new Date().toLocaleTimeString());
+        metricsData.datasets[0].data.push(metric.throughput ?? 0);
+        metricsData.datasets[1].data.push(metric.retries ?? 0);
+        metricsData.datasets[2].data.push(metric.failures ?? 0);
+
+        while (metricsData.labels.length > maxPoints) {
+          metricsData.labels.shift();
+          metricsData.datasets.forEach((dataset) => dataset.data.shift());
+        }
+        metricsChart.update();
+      }
+
+      setTextById("throughput", metric.throughput ?? 0);
+      setTextById("avg-duration", metric.avg_duration ?? "-");
+      setTextById("retries", metric.retries ?? 0);
+      setTextById("failures", metric.failures ?? 0);
+    }
+
+    renderHistory(readJsonTemplate("metrics-history-data", []));
+    refreshHistory();
+    window.setInterval(refreshHistory, 15000);
+
+    const source = connectEvents(root.dataset.eventsUrl, "Metrics SSE");
+    if (!source) {
+      return;
+    }
+
+    source.addEventListener("metrics", (event) => {
+      const metric = parseEventJson(event);
+      if (metric) {
+        appendLiveMetric(metric);
+      }
+    });
+
+    source.addEventListener("jobdist", (event) => {
+      const dist = parseEventJson(event);
+      if (!dist) {
+        return;
+      }
+      setTextById("waiting-count", dist.waiting ?? 0);
+      setTextById("active-count", dist.active ?? 0);
+      if (stateChart) {
+        stateData.datasets[0].data = [
+          dist.waiting ?? 0,
+          dist.active ?? 0,
+          dist.delayed ?? 0,
+          dist.completed ?? 0,
+          dist.failed ?? 0,
+        ];
+        stateChart.update();
+      }
+    });
+
+    source.addEventListener("overview", (event) => {
+      const data = parseEventJson(event);
+      if (!data) {
+        return;
+      }
+      setTextById("total-queues", data.total_queues ?? 0);
+      setTextById("total-workers", data.total_workers ?? 0);
+    });
+  }
+
+  function setupDlqControls(root) {
+    const selectAll = root.querySelector("[data-dlq-select-all]");
+    if (!selectAll) {
+      return;
+    }
+    selectAll.addEventListener("change", () => {
+      root.querySelectorAll("input.select-dlq").forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+    });
+  }
+
   function setupLiveDashboardPages() {
     document.querySelectorAll("[data-asyncmq-overview]").forEach(setupOverviewLive);
     document.querySelectorAll("[data-asyncmq-queues]").forEach(setupQueueListLive);
     document.querySelectorAll("[data-asyncmq-queue-detail]").forEach(setupQueueDetailLive);
+    document.querySelectorAll("[data-asyncmq-metrics]").forEach(setupMetricsLive);
+    document.querySelectorAll("[data-asyncmq-dlq]").forEach(setupDlqControls);
   }
 
   window.showLoading = showLoading;
