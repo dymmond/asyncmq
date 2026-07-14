@@ -111,7 +111,7 @@ class FakeBackend:
                 "queue": "emails",
                 "cron": "0 * * * *",
                 "args": [],
-                "kwargs": {},
+                "kwargs": {"api_token": "repeatable-secret-token"},
             }
         ]
         self.removed_repeatables: list[tuple[str, Any]] = []
@@ -399,7 +399,25 @@ def test_repeatables_list(client, app):
     response = client.get(url(app, "repeatables", name="emails"))
 
     assert response.status_code == 200
-    assert b"send-digest" in response.content or b"Repeatable" in response.content
+    assert b"send-digest" in response.content
+    assert "<title>AsyncMQ | Repeatables — emails</title>" in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
+    assert 'class="amq-table amq-repeatables-table"' in response.text
+    assert 'class="amq-confirm"' in response.text
+    assert "Redacted definition" in response.text
+    assert "[redacted]" in response.text
+    assert "repeatable-secret-token" not in response.text
+    assert "bg-blue-600" not in response.text
+
+
+def test_repeatables_new_form_uses_operations_components(client, app):
+    response = client.get(url(app, "repeatables", name="emails") + "/new")
+
+    assert response.status_code == 200
+    assert "<title>AsyncMQ | New Repeatable — emails</title>" in response.text
+    assert 'class="amq-card amq-form-card"' in response.text
+    assert 'class="amq-input"' in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
 
 
 def test_repeatables_new_post(client, app):
@@ -414,6 +432,28 @@ def test_repeatables_new_post(client, app):
     response = client.post(new_url, data=payload)
 
     assert response.status_code == 200
+
+
+def test_repeatables_new_rejects_invalid_schedule(client, app):
+    new_url = url(app, "repeatables", name="emails") + "/new"
+    response = client.post(new_url, data={"task_id": "daily-digest", "every": "0", "cron": ""})
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
+    assert "Every must be a positive integer." in response.text
+
+
+def test_repeatables_invalid_job_def_redirects_and_audits(client, app):
+    response = client.post(
+        url(app, "repeatables", name="emails"),
+        data={"action": "remove", "job_def": "not-json"},
+    )
+    audit_response = client.get(url(app, "audit") + "?status=failed&q=repeatable.remove")
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
+    assert "Invalid repeatable job definition." in response.text
+    assert "repeatable.remove" in audit_response.text
 
 
 def test_repeatables_remove_uses_backend_remove_api(client, app, fake_backend):

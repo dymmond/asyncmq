@@ -35,6 +35,10 @@ class AssetBackend:
         """Return no jobs so job-like pages render deterministically."""
         return []
 
+    async def list_repeatables(self, queue_name: str) -> list[dict[str, Any]]:
+        """Return no repeatables so repeatable pages render deterministically."""
+        return []
+
 
 def verify_user(username: str, password: str) -> User | None:
     """Verify the fixed test credentials for the bundled login template."""
@@ -184,6 +188,8 @@ def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: T
         "/queues",
         "/queues/critical-email",
         "/queues/critical-email/dlq",
+        "/queues/critical-email/repeatables",
+        "/queues/critical-email/repeatables/new",
         "/metrics",
         "/audit",
         "/events/history",

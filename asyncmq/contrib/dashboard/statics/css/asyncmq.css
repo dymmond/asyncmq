@@ -525,6 +525,10 @@ a.btn {
   gap: 8px;
 }
 
+.amq-inline-form {
+  display: inline-grid;
+}
+
 .amq-button {
   display: inline-flex;
   align-items: center;
@@ -833,6 +837,28 @@ a.btn {
   display: flex;
   align-items: end;
   gap: 8px;
+}
+
+.amq-form-card {
+  max-width: 760px;
+}
+
+.amq-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.amq-form-grid .amq-field-wide {
+  grid-column: 1 / -1;
+}
+
+.amq-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .amq-pill-nav {
@@ -1183,6 +1209,14 @@ a.btn {
   min-width: 900px;
 }
 
+.amq-repeatables-table {
+  min-width: 1080px;
+}
+
+.amq-repeatable-definition .amq-pre {
+  max-height: 220px;
+}
+
 .amq-confirm {
   display: grid;
   align-self: flex-start;
@@ -1416,9 +1450,10 @@ a.btn {
   .amq-job-grid,
   .amq-failure-summary,
   .amq-queue-grid,
-  .amq-queue-detail-hero,
-  .amq-queue-state-grid,
-  .amq-filter-panel {
+    .amq-queue-detail-hero,
+    .amq-queue-state-grid,
+    .amq-form-grid,
+    .amq-filter-panel {
     grid-template-columns: 1fr;
   }
 

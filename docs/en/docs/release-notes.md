@@ -25,6 +25,7 @@
 - Dashboard metrics now use the reusable operations-console components.
 - Dashboard queue details now show live count tiles and clearer operations.
 - Dashboard DLQ views now use redacted payloads and confirmation-gated actions.
+- Dashboard repeatables now use redacted definitions and safer forms/actions.
 
 ### Fixed
 
