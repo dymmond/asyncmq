@@ -9,6 +9,20 @@
 - Reproducible competitive benchmarks and production guidance for delivery
   guarantees, backend selection, deployment, recovery, monitoring, and
   security.
+- Dashboard operations console now ships with locally vendored Alpine.js and
+  Tailwind CSS assets, reusable Jinja components, JavaScript that works with a
+  strict CSP, and no frontend build pipeline.
+- Dashboard queue, job, DLQ, repeatable, worker, metrics, audit, and event views
+  were modernized for production operations with safer actions and clearer
+  state from the runtime.
+- Dashboard failed job diagnostics now include redacted payload evidence, root
+  cause, exception chain, stack frame summaries, raw traceback access, and
+  copyable safe diagnostics.
+- Dashboard reverse-proxy validation now covers root, `/asyncmq/`, and nested
+  `/operations/asyncmq/` Nginx deployments through real browser proof.
+- Dashboard browser, packaging, accessibility, and scale checks now cover
+  packaged assets, labeled controls, fixed desktop navigation, and bounded
+  inspection of 100,000 jobs.
 
 ### Fixed
 
@@ -20,23 +34,35 @@
   states after persistent backend restarts.
 - Backend semantics are aligned for priority/FIFO ordering, delayed jobs,
   dependency blocking, pause/resume, retries, cleanup, and restart handling.
-- Redis scalability improves with ID-indexed waiting queues, compact lifecycle
+- Redis scalability improves with waiting queues indexed by ID, compact lifecycle
   metadata, and compressed large payload storage.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
+- Dashboard links, redirects, and same origin checks now stay correct under
+  mounted paths and trusted reverse proxies.
+- Dashboard overview and queue live updates now run from packaged JavaScript
+  instead of inline scripts.
+- Dashboard metrics and DLQ controls now avoid inline scripts and unsupported
+  per-row AJAX routes.
+- Dashboard responses now include strict security headers and a CSP without
+  inline script or style allowances.
+- Dashboard job lists now consume an inspection page contract owned by the runtime and
+  clamp page sizes.
+- Dashboard desktop shell now keeps the navigation fixed while the content
+  workspace scrolls independently.
 
 ## 0.8.1
 
 ### Fixed
 
-- Restored package-level resolution for the `asyncmq.jobs` submodule when AsyncMQ's lazy exports are active, preventing dotted imports such as `asyncmq.jobs.Job` from failing after import-order edge cases on Python 3.11.
+- Restored package resolution for the `asyncmq.jobs` submodule when AsyncMQ's lazy exports are active, preventing dotted imports such as `asyncmq.jobs.Job` from failing after import order edge cases on Python 3.11.
 
 ## 0.8.0
 
 ### Added
 
 - BullMQ-style producer parity for practical Python usage:
-    - queue-scoped `job_id` duplicate suppression on `Queue.add(...)` and `Queue.add_bulk(...)`,
+    - per-queue `job_id` duplicate suppression on `Queue.add(...)` and `Queue.add_bulk(...)`,
     - BullMQ-style deduplication, throttle, and debounce semantics via `deduplication={...}` and `debounce={...}`,
     - deduplication inspection and control APIs such as `get_deduplication_job_id(...)`, `get_debounce_job_id(...)`, and `remove_deduplication_key(...)`.
 - Expanded queue administration and inspection APIs:
@@ -51,10 +77,10 @@
     - `clean_jobs(...)`,
     - `obliterate(...)`,
     - BullMQ-style inspection helpers for waiting, delayed, completed, failed, active, and `waiting-children`.
-- Durable repeatable scheduling APIs for production-oriented schedule management:
+- Durable repeatable scheduling APIs for production schedule management:
     - `upsert_repeatable(...)`,
     - `remove_repeatable(...)`,
-    - durable backend-managed repeatable discovery across built-in backends.
+    - durable repeatable discovery through built-in backends.
 - New documentation sections for:
     - deduplication,
     - BullMQ parity,
@@ -64,10 +90,10 @@
 
 ### Changed
 
-- Brought AsyncMQ to practical parity while preserving AsyncMQ's backend-neutral architecture rather than coupling behavior to Redis-only data structures.
-- Queue producer semantics now behave consistently across single-job and bulk-job creation, including custom job identifiers, deduplication windows, delayed replacement, and duplicate suppression.
-- Repeatable scheduling now supports both local code-defined schedules and durable backend-managed schedules in one coherent runtime model.
-- Scheduler ownership for durable repeatables is now coordinated under queue-scoped locks so multiple workers do not all advance the same backend schedule at once.
+- Brought AsyncMQ to practical parity while preserving portable backend behavior rather than coupling the design to Redis data structures.
+- Queue producer semantics now behave consistently for single and bulk job creation, including custom job identifiers, deduplication windows, delayed replacement, and duplicate suppression.
+- Repeatable scheduling now supports both local schedules defined in code and durable schedules stored in the backend in one coherent runtime model.
+- Scheduler ownership for durable repeatables is now coordinated under per-queue locks so multiple workers do not all advance the same backend schedule at once.
 - Documentation was substantially expanded and reorganized:
   - deeper runtime guides for jobs, workers, schedulers, and flows,
   - richer production and migration guidance,
@@ -76,8 +102,8 @@
 ### Fixed
 
 - Sandbox execution integration now respects the configured sandbox handler path consistently during worker execution.
-- PostgreSQL job identity semantics are now queue-scoped, aligning custom `job_id` handling  duplicate suppression behavior.
-- Retry and job-payload persistence paths were aligned across backends so stateful metadata such as deduplication, dependency updates, and retried payload state are preserved correctly.
+- PostgreSQL job identity semantics are now per queue, aligning custom `job_id` handling and duplicate suppression behavior.
+- Retry and job payload persistence paths were aligned across backends so stateful metadata such as deduplication, dependency updates, and retried payload state are preserved correctly.
 - MongoDB payload replacement now removes stale job metadata fields instead of leaving outdated values behind after payload mutation.
 - RabbitMQ metadata persistence and locking fallbacks were aligned with the shared backend contract for queue inspection, schedule management, and deduplication-aware updates.
 
@@ -85,13 +111,13 @@
 
 ### Added
 
-- Migrated the CLI to a Sayer-backed implementation while preserving existing command names and behavior.
-- Added a shared dashboard queue-count aggregation helper for consistent overview/metrics/SSE data.
+- Migrated the CLI to an implementation built on Sayer while preserving existing command names and behavior.
+- Added a shared dashboard queue count aggregation helper for consistent overview, metrics, and SSE data.
 - Added richer dashboard operations features:
   - queue job filtering/search (`q`, `task`, `job_id`, sorting),
   - action audit trail page (`/audit`),
   - metrics history endpoint (`/metrics/history`) and richer metrics history visualizations.
-- Added high-value regression tests for:
+- Added regression tests for:
     - MongoDB store `_id` update behavior,
     - worker handling of backend-wrapped payloads,
     - dashboard count aggregation and repeatables actions,
@@ -464,7 +490,7 @@ Welcome to the **first official release** of **AsyncMQ**!
 * 🔌 A **pluggable backend** system: Redis, Postgres, MongoDB, In-Memory, or your own.
 * ⏱️ Robust **delayed** and **repeatable** job scheduling, including cron expressions.
 * 🔄 Built-in **retries**, **exponential backoff**, and **time-to-live** (TTL) semantics.
-* 💀 **Dead Letter Queues** (DLQ) for failed-job inspection and replay.
+* 💀 **Dead Letter Queues** (DLQ) for failed job inspection and replay.
 * ⚡ **Rate limiting** and **concurrency control** to protect downstream systems.
 * 🐚 **Sandboxed execution** with subprocess isolation and fallback options.
 * 📊 **Event Pub/Sub** hooks for `job:started`, `completed`, `failed`, `progress`, `cancelled`, and `expired`.

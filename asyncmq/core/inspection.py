@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import math
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 DEFAULT_JOB_TYPES: tuple[str, ...] = (
@@ -16,6 +19,23 @@ DEFAULT_JOB_TYPES: tuple[str, ...] = (
 JOB_TYPE_ALIASES: dict[str, str] = {
     "wait": "waiting",
 }
+
+
+@dataclass(frozen=True)
+class JobInspectionPage:
+    """
+    A bounded page of runtime jobs for operator inspection.
+
+    Backends may override the default inspection implementation with indexed
+    filtering and pagination. The dashboard consumes this contract instead of
+    building its own canonical view of job state.
+    """
+
+    jobs: list[dict[str, Any]]
+    total: int
+    page: int
+    size: int
+    total_pages: int
 
 
 def normalize_job_type(job_type: str) -> str:
@@ -138,6 +158,89 @@ def paginate_jobs(
     if end < 0:
         return items[start:]
     return items[start : end + 1]
+
+
+def extract_job_timestamp(job: dict[str, Any]) -> float:
+    """
+    Extract the best available ordering timestamp from a stored job payload.
+    """
+    timestamp: Any = job.get("run_at") or job.get("created_at") or job.get("timestamp") or 0
+    try:
+        return float(timestamp)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def extract_job_task(job: dict[str, Any]) -> str:
+    """
+    Extract the display/search task name from a stored job payload.
+    """
+    task: Any = job.get("task_id") or job.get("task") or job.get("name") or ""
+    return str(task)
+
+
+def job_matches_inspection_filters(
+    job: dict[str, Any],
+    *,
+    q: str = "",
+    task: str = "",
+    job_id: str = "",
+) -> bool:
+    """
+    Return whether a stored job matches bounded inspection filters.
+    """
+    if job_id and job_id not in str(job.get("id") or ""):
+        return False
+
+    task_value = extract_job_task(job)
+    if task and task.lower() not in task_value.lower():
+        return False
+
+    if q:
+        searchable = json.dumps(job, sort_keys=True, default=str).lower()
+        if q.lower() not in searchable:
+            return False
+
+    return True
+
+
+def inspect_job_page(
+    jobs: Iterable[dict[str, Any]],
+    *,
+    page: int = 1,
+    size: int = 20,
+    q: str = "",
+    task: str = "",
+    job_id: str = "",
+    sort: str = "newest",
+) -> JobInspectionPage:
+    """
+    Filter, sort, and page job payloads using AsyncMQ inspection semantics.
+    """
+    page = max(1, page)
+    size = max(1, size)
+    order = sort if sort in {"newest", "oldest"} else "newest"
+
+    filtered = [
+        job
+        for job in jobs
+        if job_matches_inspection_filters(job, q=q.strip(), task=task.strip(), job_id=job_id.strip())
+    ]
+    filtered.sort(key=extract_job_timestamp, reverse=order == "newest")
+
+    total = len(filtered)
+    total_pages = math.ceil(total / size) if total > 0 else 1
+    page = min(page, total_pages)
+    start = (page - 1) * size
+    end = start + size
+
+    return JobInspectionPage(
+        jobs=filtered[start:end],
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+    )
 
 
 def infer_job_type(job: dict[str, Any]) -> str | None:

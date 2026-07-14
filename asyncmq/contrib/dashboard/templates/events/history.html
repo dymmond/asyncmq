@@ -1,0 +1,118 @@
+{% extends "layout.html" %}
+{% from "shared/components.html" import empty_state, stat_card, status_badge %}
+{% block content %}
+  <div class="amq-page">
+    <section class="amq-section">
+      <div class="amq-stat-grid">
+        {{ stat_card("Visible Events", event_summary.visible, tone="accent", detail="Current filter") }}
+        {{ stat_card("Event Types", event_summary.event_types, detail="Runtime names") }}
+        {{ stat_card("Queues", event_summary.queues, detail="Visible event queues") }}
+        {{ stat_card("Failure Signals", event_summary.failures, tone="danger", detail="Failed, expired, cancelled") }}
+      </div>
+
+      <form method="get" class="amq-filter-panel amq-filter-panel--events">
+        <label class="amq-field amq-field-wide">
+          <span>Search</span>
+          <input type="text"
+                 name="q"
+                 value="{{ selected_query }}"
+                 placeholder="Event, job, task, data"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Queue</span>
+          <input type="text"
+                 name="queue"
+                 value="{{ selected_queue }}"
+                 placeholder="Queue name"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Event</span>
+          <select name="event" class="amq-select">
+            <option value="">All events</option>
+            {% for event_name in event_options %}
+              <option value="{{ event_name }}" {% if selected_event == event_name %}selected{% endif %}>{{ event_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="amq-field">
+          <span>Rows</span>
+          <select name="limit" class="amq-select">
+            {% for option in [50, 100, 200, 500] %}
+              <option value="{{ option }}" {% if limit == option %}selected{% endif %}>{{ option }} rows</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="amq-filter-actions">
+          <button type="submit" class="amq-button amq-button--primary">
+            Apply
+          </button>
+          <a href="{{ url_prefix }}/events/history" class="amq-button">
+            Clear
+          </a>
+        </div>
+      </form>
+    </section>
+
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Runtime Event Evidence</h2>
+          <p class="amq-card-meta">Newest first · local process history · bounded to {{ limit }} rows</p>
+        </div>
+        <span class="amq-scope-pill">{{ retention_note }}</span>
+      </div>
+      <table class="amq-table amq-event-table">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Event</th>
+            <th scope="col">Queue</th>
+            <th scope="col">Job</th>
+            <th scope="col">Task</th>
+            <th scope="col">State</th>
+            <th scope="col">Data</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+            <tr>
+              <td class="amq-mono">{{ event.time }}</td>
+              <td>
+                <span class="amq-event-name">{{ event.event }}</span>
+              </td>
+              <td class="amq-mono">{{ event.queue }}</td>
+              <td class="amq-mono">{{ event.job_id }}</td>
+              <td class="amq-mono">{{ event.task_id }}</td>
+              <td>{{ status_badge(event.state) }}</td>
+              <td>
+                <details class="amq-diagnostic-section amq-event-details">
+                  <summary>Data</summary>
+                  <div class="amq-event-data-tools">
+                    <button type="button"
+                            class="amq-button"
+                            x-data="asyncmqClipboard"
+                            x-on:click="copy"
+                            x-text="label"
+                            data-clipboard-label="Copy data"
+                            data-clipboard-target="{{ event.data_id }}">
+                      Copy data
+                    </button>
+                  </div>
+                  <pre id="{{ event.data_id }}" class="amq-pre">{{ event.data_json }}</pre>
+                </details>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7">
+                {{ empty_state("No runtime events available", "Events appear after AsyncMQ emits lifecycle signals in this process.") }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+{% endblock %}

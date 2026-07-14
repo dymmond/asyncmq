@@ -11,8 +11,28 @@ from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
 from asyncmq.contrib.dashboard.audit import record_audit_event
+from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.redaction import to_pretty_json
 from asyncmq.queues import Queue
+
+REPEATABLE_ACTION_KEYS: tuple[str, ...] = (
+    "id",
+    "repeat_id",
+    "key",
+    "task_id",
+    "name",
+    "queue",
+    "every",
+    "cron",
+)
+
+
+def build_repeatable_action_definition(queue_name: str, job_def: dict[str, Any]) -> dict[str, Any]:
+    """Return the minimal repeatable identity needed for operator actions."""
+    action_def = {key: job_def[key] for key in REPEATABLE_ACTION_KEYS if key in job_def}
+    action_def.setdefault("queue", queue_name)
+    return action_def
 
 
 class RepeatablesController(DashboardMixin, TemplateController):
@@ -64,13 +84,18 @@ class RepeatablesController(DashboardMixin, TemplateController):
             next_run: str
             try:
                 if raw_next_run:
-                    # Convert Unix timestamp or datetime-like object to formatted string
-                    next_run = datetime.fromtimestamp(raw_next_run).strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(raw_next_run, datetime):
+                        next_run = raw_next_run.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        # Convert Unix timestamp to formatted string.
+                        next_run = datetime.fromtimestamp(float(raw_next_run)).strftime("%Y-%m-%d %H:%M:%S")
                 else:
                     next_run = "—"
             except Exception:
                 next_run = "—"
 
+            action_def = build_repeatable_action_definition(queue_name, jd)
+            job_def_json = json.dumps(action_def, sort_keys=True, default=str)
             rows.append(
                 {
                     "task_id": task_id,
@@ -79,6 +104,8 @@ class RepeatablesController(DashboardMixin, TemplateController):
                     "next_run": next_run,
                     "paused": paused,
                     "job_def": jd,  # Full job definition included for POST actions
+                    "job_def_json": job_def_json,
+                    "job_def_display": to_pretty_json(jd),
                 }
             )
         return rows
@@ -95,6 +122,7 @@ class RepeatablesController(DashboardMixin, TemplateController):
             {
                 "title": f"Repeatables — {queue}",
                 "page_header": f"Repeatable Jobs for “{queue}”",
+                "active_page": "queues",
                 "queue": queue,
                 "repeatables": repeatables,
             }
@@ -112,8 +140,20 @@ class RepeatablesController(DashboardMixin, TemplateController):
         queue: str = request.path_params["name"]
         action: str | None = form.get("action")
 
-        # Job definition is sent as a JSON string
-        posted_job_def = cast(dict[str, Any], json.loads(form["job_def"]))
+        # Job definition is sent as a JSON string.
+        try:
+            posted_job_def = cast(dict[str, Any], json.loads(form["job_def"]))
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            add_message(request, "error", "Invalid repeatable job definition.")
+            record_audit_event(
+                request=request,
+                action=f"repeatable.{action or 'unknown'}",
+                source="repeatables",
+                status="failed",
+                queue=queue,
+                error=str(exc),
+            )
+            return RedirectResponse(str(request.url.path), status_code=303)
         job_def = cast(dict[str, Any], posted_job_def.get("job_def", posted_job_def))
         backend: Any = monkay.settings.backend
         task_id = str(job_def.get("task_id") or job_def.get("id") or "unknown")
@@ -184,7 +224,9 @@ class RepeatablesNewController(DashboardMixin, TemplateController):
         ctx: dict[str, Any] = await super().get_context_data(request)
         ctx.update(
             {
+                "title": f"New Repeatable — {queue}",
                 "page_header": f"New Repeatable — {queue}",
+                "active_page": "queues",
                 "queue": queue,
                 "job_def": self.get_default_job_def(queue),
             }
@@ -207,12 +249,22 @@ class RepeatablesNewController(DashboardMixin, TemplateController):
         jd["task_id"] = form.get("task_id", "")
 
         if form.get("every"):
-            jd["every"] = int(form["every"])
+            try:
+                jd["every"] = int(form["every"])
+            except ValueError:
+                add_message(request, "error", "Every must be a positive integer.")
+                return RedirectResponse(str(request.url.path), status_code=303)
+            if jd["every"] <= 0:
+                add_message(request, "error", "Every must be a positive integer.")
+                return RedirectResponse(str(request.url.path), status_code=303)
         if form.get("cron"):
             jd["cron"] = form["cron"]
 
         # Filter out None values before submission
         data: dict[str, Any] = {k: v for k, v in jd.items() if v is not None}
+        if not data.get("every") and not data.get("cron"):
+            add_message(request, "error", "Provide either an interval or a cron expression.")
+            return RedirectResponse(str(request.url.path), status_code=303)
 
         # 2. Add repeatable job to the queue.
         upsert_repeatable = getattr(queue, "upsert_repeatable", None)

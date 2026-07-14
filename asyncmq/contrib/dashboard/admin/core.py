@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import cast
 
 from lilya.apps import ChildLilya, Lilya
+from lilya.controllers import Controller
 from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
+from lilya.middleware.security import SecurityMiddleware
 from lilya.requests import Request
 from lilya.responses import Response
 from lilya.routing import Include, Path
@@ -14,6 +16,10 @@ from asyncmq import monkay
 from asyncmq.contrib.dashboard import create_dashboard_app
 from asyncmq.contrib.dashboard.admin.middleware import AuthGateMiddleware
 from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+from asyncmq.contrib.dashboard.security import (
+    DASHBOARD_CONTENT_SECURITY_POLICY,
+    ContentSecurityPolicy,
+)
 
 
 class AsyncMQAdmin:
@@ -30,6 +36,8 @@ class AsyncMQAdmin:
         enable_login: bool = False,
         backend: AuthBackend | None = None,
         url_prefix: str | None = None,
+        include_security: bool = True,
+        content_security_policy: ContentSecurityPolicy | None = None,
         include_session: bool = True,
         include_cors: bool = True,
         cors_allow_origins: tuple[str, ...] | None = None,
@@ -39,6 +47,7 @@ class AsyncMQAdmin:
         enforce_same_origin: bool = True,
         require_admin: bool = True,
         required_roles: tuple[str, ...] = (),
+        trusted_proxies: tuple[str, ...] | None = None,
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -50,12 +59,18 @@ class AsyncMQAdmin:
             backend: The authentication backend implementing `AuthBackend` methods (required if `enable_login` is True).
             url_prefix: The base URL path where the dashboard should be mounted (e.g., "/asyncmq").
                         Defaults to the value from `monkay.settings.dashboard_config`.
+            include_security: If True, add dashboard security headers,
+                        including a strict Content Security Policy.
+            content_security_policy: Optional CSP override. Defaults to the
+                        packaged dashboard policy when `include_security` is True.
             enforce_same_origin: If True, reject authenticated unsafe requests
                         whose Origin is missing or does not match the dashboard host.
             require_admin: If True, authenticated users must expose admin
                         privileges before dashboard access is allowed.
             required_roles: Optional role names; when provided, authenticated
                         users must have at least one of these roles.
+            trusted_proxies: Optional client peer addresses whose forwarded
+                        host/proto headers may participate in checks for the same origin.
 
         Raises:
             ValueError: If `enable_login` is True but no `backend` is provided.
@@ -70,6 +85,10 @@ class AsyncMQAdmin:
         self.backend: AuthBackend = cast(AuthBackend, backend)
 
         # Extras
+        self.include_security = include_security
+        self.content_security_policy = (
+            content_security_policy if content_security_policy is not None else DASHBOARD_CONTENT_SECURITY_POLICY
+        )
         self.include_session = include_session
         self.include_cors = include_cors
         self.cors_allow_origins = cors_allow_origins
@@ -79,6 +98,7 @@ class AsyncMQAdmin:
         self.enforce_same_origin = enforce_same_origin
         self.require_admin = require_admin
         self.required_roles = required_roles
+        self.trusted_proxies = trusted_proxies if trusted_proxies is not None else config.trusted_proxies
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -95,6 +115,14 @@ class AsyncMQAdmin:
         """
         config = monkay.settings.dashboard_config
         middlewares: list[DefineMiddleware] = []
+
+        if self.include_security:
+            middlewares.append(
+                DefineMiddleware(
+                    SecurityMiddleware,
+                    content_policy=self.content_security_policy,
+                )
+            )
 
         if self.include_cors:
             allow_origins = self.cors_allow_origins or config.cors_allow_origins
@@ -132,24 +160,40 @@ class AsyncMQAdmin:
                     enforce_same_origin=self.enforce_same_origin,
                     require_admin=self.require_admin,
                     required_roles=self.required_roles,
+                    trusted_proxies=self.trusted_proxies,
                 )
             )
 
         # 2. Route Setup (Login/Logout, Dashboard)
         routes: list[Path | Include] = []
         if self.enable_login:
-            # Define login and logout endpoints using the configured backend
-            async def login(request: Request) -> Response:
-                """Handler to delegate to the backend's login logic."""
-                return await self.backend.login(request)
+            auth_backend = self.backend
 
-            async def logout(request: Request) -> Response:
-                """Handler to delegate to the backend's logout logic."""
-                return await self.backend.logout(request)
+            class LoginController(Controller):
+                """Delegates dashboard login requests to the configured authentication backend."""
+
+                async def get(self, request: Request) -> Response:
+                    """Render the backend-owned login response for GET requests."""
+                    return await auth_backend.login(request)
+
+                async def post(self, request: Request) -> Response:
+                    """Process backend-owned login submissions for POST requests."""
+                    return await auth_backend.login(request)
+
+            class LogoutController(Controller):
+                """Delegates dashboard logout requests to the configured authentication backend."""
+
+                async def get(self, request: Request) -> Response:
+                    """Process backend-owned logout requests submitted with GET."""
+                    return await auth_backend.logout(request)
+
+                async def post(self, request: Request) -> Response:
+                    """Process backend-owned logout requests submitted with POST."""
+                    return await auth_backend.logout(request)
 
             login_logout: list[Path] = [
-                Path("/login", login, methods=["GET", "POST"]),
-                Path("/logout", logout, methods=["GET", "POST"]),
+                Path("/login", LoginController, methods=["GET", "POST"]),
+                Path("/logout", LogoutController, methods=["GET", "POST"]),
             ]
             routes.extend(login_logout)
 

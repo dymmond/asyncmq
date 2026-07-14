@@ -1,7 +1,9 @@
 import json
+import re
 import time
 from typing import Any
 
+import anyio
 import pytest
 from lilya.apps import Lilya
 from lilya.compat import reverse
@@ -10,9 +12,12 @@ from lilya.testclient import TestClient
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.application import create_dashboard_app
-from asyncmq.contrib.dashboard.audit import clear_audit_events
+from asyncmq.contrib.dashboard.audit import clear_audit_events, record_audit_event
 from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
+from asyncmq.contrib.dashboard.redaction import redact_text_for_display
+from asyncmq.core.event import event_emitter
+from asyncmq.core.inspection import JobInspectionPage
 
 
 class FakeBackend:
@@ -42,14 +47,30 @@ class FakeBackend:
                     "id": "f1",
                     "task_id": "send-welcome",
                     "args": ["a"],
-                    "kwargs": {"x": 1},
+                    "kwargs": {"x": 1, "api_token": "secret-token"},
+                    "last_error": "ValueError: welcome failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        '  File "tasks/welcome.py", line 10, in send_welcome\n'
+                        '    raise ValueError("welcome failed")\n'
+                        "ValueError: welcome failed"
+                    ),
                     "created_at": self._now - 60,
                 },
                 {
                     "id": "f2",
                     "task_id": "send-reminder",
                     "args": [],
-                    "kwargs": {},
+                    "kwargs": {"password": "secret-token"},
+                    "last_error": "RuntimeError: reminder failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        '  File "asyncmq/workers.py", line 418, in process_job\n'
+                        "    await task(*job.args, **job.kwargs)\n"
+                        '  File "tasks/reminder.py", line 22, in send_reminder\n'
+                        '    raise RuntimeError("reminder failed")\n'
+                        "RuntimeError: reminder failed"
+                    ),
                     "created_at": self._now - 30,
                 },
             ],
@@ -91,7 +112,7 @@ class FakeBackend:
                 "queue": "emails",
                 "cron": "0 * * * *",
                 "args": [],
-                "kwargs": {},
+                "kwargs": {"api_token": "repeatable-secret-token"},
             }
         ]
         self.removed_repeatables: list[tuple[str, Any]] = []
@@ -112,6 +133,27 @@ class FakeBackend:
     # jobs API
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
         return list(self._jobs.get((queue, state), []))
+
+    async def get_job(self, queue: str, job_id: str) -> dict[str, Any] | None:
+        for (current_queue, _state), jobs in self._jobs.items():
+            if current_queue != queue:
+                continue
+            for job in jobs:
+                if job.get("id") == job_id:
+                    return dict(job)
+        return None
+
+    async def get_job_state(self, queue: str, job_id: str) -> str | None:
+        for (current_queue, state), jobs in self._jobs.items():
+            if current_queue != queue:
+                continue
+            if any(job.get("id") == job_id for job in jobs):
+                return state
+        return None
+
+    async def get_job_result(self, queue: str, job_id: str) -> Any | None:
+        job = await self.get_job(queue, job_id)
+        return job.get("result") if job else None
 
     async def retry_job(self, queue: str, job_id: str) -> bool:
         bucket = self._jobs.get((queue, "failed"), [])
@@ -201,6 +243,7 @@ def _patch_settings(fake_backend, monkeypatch):
 
     settings.debug = True
     settings.backend = fake_backend
+    settings.heartbeat_ttl = 30
     return settings
 
 
@@ -208,9 +251,11 @@ def _patch_settings(fake_backend, monkeypatch):
 def _clear_dashboard_transient_state():
     clear_audit_events()
     clear_metrics_history()
+    event_emitter.clear_history()
     yield
     clear_audit_events()
     clear_metrics_history()
+    event_emitter.clear_history()
 
 
 @pytest.fixture(scope="package")
@@ -249,8 +294,12 @@ def test_queue_detail_counts(client, app):
     assert response.status_code == 200
 
     # labels visible on page
-    for label in (b"waiting", b"active", b"delayed", b"failed", b"completed"):
+    for label in (b"Waiting", b"Active", b"Delayed", b"Failed", b"Completed"):
         assert label in response.content
+    assert 'class="amq-queue-detail-hero"' in response.text
+    assert "amq-queue-state-grid" in response.text
+    assert "data-queue-status" in response.text
+    assert '<canvas id="queue-chart">' in response.text
 
 
 def test_queue_pause_and_resume_actions_via_queue_detail(client, app):
@@ -302,6 +351,16 @@ def test_queue_jobs_list(client, app, queue, state, expect):
     assert expect in response.content or response.content
 
 
+def test_queue_jobs_filters_have_accessible_labels(client, app):
+    """Render job filter controls with visible labels instead of placeholder-only names."""
+    response = client.get(url(app, "queue-jobs", name="emails") + "?state=failed")
+
+    assert response.status_code == 200
+    for label in ("Search", "Task", "Job ID", "Sort", "Rows"):
+        assert f"<span>{label}</span>" in response.text
+    assert 'placeholder="Payload text"' in response.text
+
+
 def test_job_action_endpoint_exists(client, app):
     """
     POST /queues/{name}/jobs/{job_id}/{action}
@@ -313,11 +372,112 @@ def test_job_action_endpoint_exists(client, app):
     assert response.status_code == 200
 
 
+def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(client, app):
+    response = client.get(url(app, "job-detail", name="emails", job_id="f2"))
+
+    assert response.status_code == 200
+    assert b"send-reminder" in response.content
+    assert b"Failure Diagnostics" in response.content
+    assert b"Root cause" in response.content
+    assert b"Exception chain" in response.content
+    assert b"Exception" in response.content
+    assert b"RuntimeError" in response.content
+    assert b"Frames" in response.content
+    assert b"Stack frames" in response.content
+    assert b"asyncmq/workers.py" in response.content
+    assert b"Line 418 in process_job" in response.content
+    assert b"tasks/reminder.py" in response.content
+    assert b"Copy traceback" in response.content
+    assert b'data-clipboard-target="raw-traceback"' in response.content
+    assert b"Redacted diagnostic bundle" in response.content
+    assert b'id="diagnostic-bundle"' in response.content
+    assert b"Traceback (most recent call last)" in response.content
+    assert b"[redacted]" in response.content
+    assert b"secret-token" not in response.content
+
+
+def test_job_detail_redacts_inline_traceback_secrets(client, app):
+    class SecretTracebackBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self._jobs[("emails", "failed")].append(
+                {
+                    "id": "f-secret",
+                    "task_id": "send-secret",
+                    "kwargs": {"password": "secret-token"},
+                    "last_error": "RuntimeError: token=secret-token failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        '  File "tasks/secret.py", line 7, in send_secret\n'
+                        '    raise RuntimeError("password=\\"secret-token\\" failed")\n'
+                        "RuntimeError: token=secret-token failed"
+                    ),
+                    "created_at": self._now - 10,
+                }
+            )
+
+    settings.backend = SecretTracebackBackend()
+
+    response = client.get(url(app, "job-detail", name="emails", job_id="f-secret"))
+
+    assert response.status_code == 200
+    assert "secret-token" not in response.text
+    assert "token=[redacted]" in response.text
+    assert "password=" in response.text
+    assert "[redacted]" in response.text
+
+
+def test_text_redaction_handles_common_inline_secret_shapes():
+    redacted = redact_text_for_display(
+        'password="secret-token" token=abc123 {"api_key": "live-key"} authorization: Bearer'
+    )
+
+    assert "secret-token" not in redacted
+    assert "abc123" not in redacted
+    assert "live-key" not in redacted
+    assert "Bearer" not in redacted
+    assert 'password="[redacted]"' in redacted
+    assert "token=[redacted]" in redacted
+
+
+def test_job_detail_missing_job_returns_404(client, app):
+    response = client.get(url(app, "job-detail", name="emails", job_id="missing-job"))
+
+    assert response.status_code == 404
+
+
+def test_job_action_html_mode_redirects_to_detail_with_message(client, app):
+    jobs_url = url(app, "queue-jobs", name="emails") + "?state=failed"
+    action_url = url(app, "job-action", name="emails", job_id="f2", action="remove")
+    response = client.post(action_url, data={"_response": "html", "return_to": jobs_url})
+
+    assert response.status_code == 200
+    assert b"completed" in response.content
+
+
 def test_repeatables_list(client, app):
     response = client.get(url(app, "repeatables", name="emails"))
 
     assert response.status_code == 200
-    assert b"send-digest" in response.content or b"Repeatable" in response.content
+    assert b"send-digest" in response.content
+    assert "<title>AsyncMQ | Repeatables — emails</title>" in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
+    assert 'class="amq-table amq-repeatables-table"' in response.text
+    assert 'class="amq-confirm"' in response.text
+    assert "Redacted definition" in response.text
+    assert "[redacted]" in response.text
+    assert "repeatable-secret-token" not in response.text
+    assert "bg-blue-600" not in response.text
+
+
+def test_repeatables_new_form_uses_operations_components(client, app):
+    response = client.get(url(app, "repeatables", name="emails") + "/new")
+
+    assert response.status_code == 200
+    assert "<title>AsyncMQ | New Repeatable — emails</title>" in response.text
+    assert 'class="amq-card amq-form-card"' in response.text
+    assert 'class="amq-input"' in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
 
 
 def test_repeatables_new_post(client, app):
@@ -332,6 +492,28 @@ def test_repeatables_new_post(client, app):
     response = client.post(new_url, data=payload)
 
     assert response.status_code == 200
+
+
+def test_repeatables_new_rejects_invalid_schedule(client, app):
+    new_url = url(app, "repeatables", name="emails") + "/new"
+    response = client.post(new_url, data={"task_id": "daily-digest", "every": "0", "cron": ""})
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
+    assert "Every must be a positive integer." in response.text
+
+
+def test_repeatables_invalid_job_def_redirects_and_audits(client, app):
+    response = client.post(
+        url(app, "repeatables", name="emails"),
+        data={"action": "remove", "job_def": "not-json"},
+    )
+    audit_response = client.get(url(app, "audit") + "?status=failed&q=repeatable.remove")
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
+    assert "Invalid repeatable job definition." in response.text
+    assert "repeatable.remove" in audit_response.text
 
 
 def test_repeatables_remove_uses_backend_remove_api(client, app, fake_backend):
@@ -356,10 +538,74 @@ def test_repeatables_remove_uses_backend_remove_api(client, app, fake_backend):
 
 
 def test_dlq_list(client, app):
+    settings.backend = FakeBackend()
     response = client.get(url(app, "dlq", name="emails"))
 
     assert response.status_code == 200
     assert b"emails" in response.content
+    assert "<title>AsyncMQ | DLQ emails</title>" in response.text
+    assert "data-asyncmq-dlq" in response.text
+    assert 'href="/asyncmq/queues" class="amq-nav-link is-active" aria-current="page"' in response.text
+    assert "data-dlq-select-all" in response.text
+    assert 'class="amq-job-grid amq-dlq-grid"' in response.text
+    assert 'class="amq-confirm"' in response.text
+    assert "Open Diagnostics" in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
+    assert "retry-btn-dlq" not in response.text
+    assert "remove-btn-dlq" not in response.text
+    assert "fetch(" not in response.text
+    assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", response.text, re.IGNORECASE) is None
+
+
+def test_dlq_list_uses_backend_inspection_contract(client, app):
+    class InspectDLQBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int, str]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("dashboard should consume inspect_jobs when available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size, sort))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": "dlq-inspect-1",
+                        "task_id": "send-secret",
+                        "kwargs": {"password": "secret-token"},
+                        "last_error": "RuntimeError: failed",
+                        "created_at": self._now,
+                    }
+                ],
+                total=25,
+                page=2,
+                size=size,
+                total_pages=2,
+            )
+
+    backend = InspectDLQBackend()
+    settings.backend = backend
+
+    response = client.get(url(app, "dlq", name="emails") + "?page=2&size=999")
+
+    assert response.status_code == 200
+    assert "dlq-inspect-1" in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
+    assert backend.inspect_calls == [("emails", "failed", 2, 20, "newest")]
 
 
 @pytest.mark.parametrize("action, data", [("retry", {"job_id": "f1"}), ("delete", {"job_id": "f2"})])
@@ -369,11 +615,40 @@ def test_dlq_actions_post(client, app, action, data):
     assert response.status_code in (200, 302, 303)
 
 
+def test_dlq_actions_clamp_invalid_pagination_form_values(client, app):
+    response = client.post(
+        url(app, "dlq", **{"name": "emails"}),
+        data={"action": "retry", "job_id": "f1", "page": "not-a-page", "size": "999"},
+    )
+
+    assert 303 in [item.status_code for item in response.history]
+    assert response.status_code == 200
+
+
 def test_workers_page(client, app):
     response = client.get(url(app, "workers"))
 
     assert response.status_code == 200
-    assert b"wkr-" in response.content or b"Workers" in response.content
+    html = response.text
+    assert "Worker Health" in html
+    assert "Runtime-owned heartbeat registry" in html
+    assert "Runtime-declared capacity" in html
+    assert "wkr-1" in html
+    assert "wkr-2" in html
+    assert "Healthy" in html
+    assert "Aging" in html
+    assert "Backend registry record" in html
+    assert "Page 1 of 1" in html
+    assert 'class="amq-heartbeat-meter amq-heartbeat-meter--healthy"' in html
+    assert 'class="amq-heartbeat-meter amq-heartbeat-meter--warning"' in html
+    assert 'href="/asyncmq/queues/emails"' in html
+
+
+def test_workers_page_clamps_unsupported_page_size(client, app):
+    response = client.get(url(app, "workers") + "?size=999&page=8")
+
+    assert response.status_code == 200
+    assert '<option value="20" selected>20</option>' in response.text
 
 
 def test_metrics_page(client, app):
@@ -391,6 +666,110 @@ def test_job_list_search_filters(client, app):
     assert b"w2" not in response.content
 
 
+def test_job_list_uses_backend_inspection_contract(client, app):
+    class InspectingBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int, str, str, str, str]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("dashboard should consume inspect_jobs when available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size, q, task, job_id, sort))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": "inspect-1",
+                        "task_id": "send-welcome",
+                        "status": state,
+                        "created_at": self._now,
+                        "payload": {"message": q},
+                    }
+                ],
+                total=42,
+                page=page,
+                size=size,
+                total_pages=3,
+            )
+
+    backend = InspectingBackend()
+    settings.backend = backend
+
+    response = client.get(
+        url(app, "queue-jobs", name="emails") + "?state=failed&page=2&size=999&q=needle&task=send&sort=oldest"
+    )
+
+    assert response.status_code == 200
+    assert "inspect-1" in response.text
+    assert "42 failed jobs found" in response.text
+    assert "Page 2 of 3" in response.text
+    assert backend.inspect_calls == [("emails", "failed", 2, 20, "needle", "send", "", "oldest")]
+
+
+def test_job_list_large_inspection_page_stays_bounded(client, app):
+    class LargeInspectingBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("large dashboards must not load every job when inspect_jobs is available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": f"large-{index:02d}",
+                        "task_id": "scale-proof",
+                        "status": state,
+                        "created_at": self._now - index,
+                    }
+                    for index in range(size)
+                ],
+                total=100_000,
+                page=page,
+                size=size,
+                total_pages=5_000,
+            )
+
+    backend = LargeInspectingBackend()
+    settings.backend = backend
+
+    response = client.get(url(app, "queue-jobs", name="emails") + "?state=failed&page=5000&size=20")
+
+    assert response.status_code == 200
+    assert "100000 failed jobs found" in response.text
+    assert "Page 5000 of 5000" in response.text
+    assert "large-00" in response.text
+    assert "large-19" in response.text
+    assert "large-20" not in response.text
+    assert backend.inspect_calls == [("emails", "failed", 5000, 20)]
+
+
 def test_audit_page_reflects_job_action(client, app):
     action_url = url(app, "job-action", name="emails", job_id="f1", action="retry")
     response = client.post(action_url)
@@ -398,8 +777,63 @@ def test_audit_page_reflects_job_action(client, app):
 
     audit_response = client.get(url(app, "audit"))
     assert audit_response.status_code == 200
-    assert b"job.retry" in audit_response.content
-    assert b"f1" in audit_response.content
+    assert "Operator Action Evidence" in audit_response.text
+    assert "Visible Events" in audit_response.text
+    assert "job.retry" in audit_response.text
+    assert "job f1" in audit_response.text
+    assert 'class="amq-table amq-audit-table"' in audit_response.text
+
+
+def test_audit_page_formats_failed_actions_with_collapsible_details(client, app):
+    record_audit_event(
+        request=None,
+        action="queue.pause",
+        source="queues.detail",
+        status="failed",
+        queue="emails",
+        details={"reason": "backend refused", "attempt": 2},
+        error="<broker down>",
+    )
+
+    audit_response = client.get(url(app, "audit") + "?status=failed&q=backend")
+
+    assert audit_response.status_code == 200
+    assert "Failed" in audit_response.text
+    assert "queue.pause" in audit_response.text
+    assert "emails" in audit_response.text
+    assert "backend refused" in audit_response.text
+    assert "&lt;broker down&gt;" in audit_response.text
+    assert "<broker down>" not in audit_response.text
+    assert '<details class="amq-diagnostic-section amq-audit-details">' in audit_response.text
+
+
+def test_runtime_events_page_uses_event_history_and_redacts_sensitive_values(client, app):
+    anyio.run(
+        event_emitter.emit,
+        "job:failed",
+        {
+            "queue": "emails",
+            "job_id": "event-1",
+            "task_id": "send-welcome",
+            "status": "failed",
+            "api_token": "secret-token",
+            "error": "boom",
+        },
+    )
+
+    response = client.get(url(app, "runtime-events") + "?event=job:failed&q=boom")
+
+    assert response.status_code == 200
+    assert "Runtime Event Evidence" in response.text
+    assert "Local process history, not durable log storage" in response.text
+    assert "job:failed" in response.text
+    assert "emails" in response.text
+    assert "event-1" in response.text
+    assert "send-welcome" in response.text
+    assert "Copy data" in response.text
+    assert 'data-clipboard-target="runtime-event-data-1"' in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
 
 
 def test_metrics_history_endpoint_returns_snapshots(client, app):

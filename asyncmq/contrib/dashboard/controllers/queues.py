@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lilya.datastructures import URL, FormData
+from lilya.datastructures import FormData
 from lilya.requests import Request
 from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
@@ -12,6 +12,7 @@ from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.controllers._counts import get_queue_state_counts
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.urls import dashboard_path_for
 
 
 class QueueController(DashboardMixin, TemplateController):
@@ -24,9 +25,9 @@ class QueueController(DashboardMixin, TemplateController):
 
     template_name: str = "queues/queues.html"
 
-    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> URL:
+    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> str:
         """Calculates the URL path for redirecting back to this controller."""
-        return request.url_path_for(reverse_name, **params)
+        return dashboard_path_for(request, reverse_name, **params)
 
     async def get_queues(self) -> list[dict[str, Any]]:
         """
@@ -78,7 +79,7 @@ class QueueController(DashboardMixin, TemplateController):
                 "title": "Queues",
                 "queues": queues,
                 "active_page": "queues",
-                "page_header": "Overview",
+                "page_header": "Queues",
             }
         )
         return await self.render_template(request, context=context)
@@ -153,9 +154,9 @@ class QueueDetailController(DashboardMixin, TemplateController):
 
     template_name: str = "queues/info.html"
 
-    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> URL:
+    def get_return_url(self, request: Request, reverse_name: str, **params: Any) -> str:
         """Calculates the URL path for redirecting back to this controller."""
-        return request.url_path_for(reverse_name, **params)
+        return dashboard_path_for(request, reverse_name, **params)
 
     async def get(self, request: Request) -> Response:
         """

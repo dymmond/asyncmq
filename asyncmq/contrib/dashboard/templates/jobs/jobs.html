@@ -1,157 +1,128 @@
 {% extends "layout.html" %}
+{% from "shared/components.html" import empty_state, status_badge %}
 {% block content %}
-  <div class="mb-6 space-y-4">
-    <div class="flex items-center justify-between">
-      <h1 class="text-3xl font-bold">{{ page_header }}</h1>
-      <a href="{{ url_prefix }}/queues/{{ queue }}"
-         class="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 transition">
-        ← Back to Queue
-      </a>
-    </div>
+  <div class="amq-page">
+    <section class="amq-section">
+      <div class="amq-section-header">
+        <div>
+          <h2 class="amq-section-title">Queue: {{ queue }}</h2>
+          <p class="amq-section-meta">{{ total }} {{ state }} jobs found</p>
+        </div>
+        <a href="{{ url_prefix }}/queues/{{ queue }}" class="amq-button">Back to Queue</a>
+      </div>
 
-    <nav class="flex flex-wrap gap-2">
-      {% for key, label in tabs %}
-        <a
-          href="{{ tab_urls[key] }}"
-          class="px-3 py-1 rounded-full text-sm font-medium transition
-                 {% if key == state %}
-                   bg-indigo-600 text-white
-                 {% else %}
-                   bg-gray-200 text-gray-700 hover:bg-gray-300
-                 {% endif %}"
-        >
-          {{ label }}
-        </a>
-      {% endfor %}
-    </nav>
-
-    <form method="get" class="bg-white rounded-lg shadow-sm ring-1 ring-gray-200 p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
-      <input type="hidden" name="state" value="{{ state }}">
-      <input type="text"
-             name="q"
-             value="{{ q }}"
-             placeholder="Search payload text"
-             class="md:col-span-2 rounded border border-gray-300 px-3 py-2 text-sm">
-      <input type="text"
-             name="task"
-             value="{{ task }}"
-             placeholder="Task contains"
-             class="rounded border border-gray-300 px-3 py-2 text-sm">
-      <input type="text"
-             name="job_id"
-             value="{{ job_id }}"
-             placeholder="Job ID contains"
-             class="rounded border border-gray-300 px-3 py-2 text-sm">
-      <select name="sort" class="rounded border border-gray-300 px-3 py-2 text-sm">
-        <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
-        <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
-      </select>
-      <select name="size" class="rounded border border-gray-300 px-3 py-2 text-sm">
-        {% for option in [20, 50, 100] %}
-          <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
+      <nav class="amq-pill-nav" aria-label="Job state filters">
+        {% for key, label in tabs %}
+          <a
+            href="{{ tab_urls[key] }}"
+            class="amq-pill{% if key == state %} is-active{% endif %}"
+            {% if key == state %}aria-current="page"{% endif %}
+          >
+            {{ label }}
+          </a>
         {% endfor %}
-      </select>
-      <button type="submit"
-              class="rounded bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
-        Apply
-      </button>
-      <a href="?state={{ state }}&sort={{ sort }}&size={{ size }}"
-         class="rounded bg-gray-100 text-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 text-center">
-        Clear Filters
-      </a>
-    </form>
+      </nav>
+
+      <form method="get" class="amq-filter-panel">
+        <input type="hidden" name="state" value="{{ state }}">
+        <label class="amq-field amq-field-wide">
+          <span>Search</span>
+          <input type="text"
+                 name="q"
+                 value="{{ q }}"
+                 placeholder="Payload text"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Task</span>
+          <input type="text"
+                 name="task"
+                 value="{{ task }}"
+                 placeholder="Task contains"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Job ID</span>
+          <input type="text"
+                 name="job_id"
+                 value="{{ job_id }}"
+                 placeholder="Job ID contains"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Sort</span>
+          <select name="sort" class="amq-select">
+            <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
+            <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
+          </select>
+        </label>
+        <label class="amq-field">
+          <span>Rows</span>
+          <select name="size" class="amq-select">
+            {% for option in page_sizes %}
+              <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit" class="amq-button amq-button--primary">
+          Apply
+        </button>
+        <a href="?state={{ state }}&sort={{ sort }}&size={{ size }}" class="amq-button">
+          Clear
+        </a>
+      </form>
+    </section>
+
+    <section class="amq-job-grid">
+      {% for job in jobs %}
+        <article class="amq-job-card">
+          <div class="amq-job-card-header">
+            <div>
+              <h3 class="amq-job-title">{{ job.id }}</h3>
+              <p class="amq-job-subtitle">{{ job.task_id }}</p>
+            </div>
+            {{ status_badge(job.status) }}
+          </div>
+
+          <div class="amq-kv-grid">
+            <div class="amq-kv">
+              <span>Created</span>
+              <strong>{{ job.created_at }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Run at</span>
+              <strong>{{ job.run_at or "-" }}</strong>
+            </div>
+          </div>
+
+          <pre class="amq-job-snippet">{{ job.payload_json }}</pre>
+
+          <div class="amq-actions">
+            <a href="{{ url_prefix }}/queues/{{ queue }}/jobs/{{ job.id }}" class="amq-button amq-button--primary">
+              Inspect
+            </a>
+          </div>
+        </article>
+      {% else %}
+        {{ empty_state("No jobs to display", "Try another state or clear the filters.") }}
+      {% endfor %}
+    </section>
+
+    <div class="amq-pagination">
+      <p class="amq-card-meta">Page {{ page }} of {{ total_pages }}</p>
+      <nav class="amq-pagination-nav" aria-label="Job pages">
+        {% if prev_page_url %}
+          <a href="{{ prev_page_url }}" class="amq-pagination-link">Previous</a>
+        {% else %}
+          <span class="amq-pagination-link" aria-disabled="true">Previous</span>
+        {% endif %}
+        <span class="amq-pagination-current" aria-current="page">{{ page }}</span>
+        {% if next_page_url %}
+          <a href="{{ next_page_url }}" class="amq-pagination-link">Next</a>
+        {% else %}
+          <span class="amq-pagination-link" aria-disabled="true">Next</span>
+        {% endif %}
+      </nav>
+    </div>
   </div>
-
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    {% for job in jobs %}
-      <div class="job-card bg-white shadow-sm rounded-lg overflow-hidden flex flex-col">
-        <div class="px-4 py-3 border-b">
-          <h2 class="text-lg font-semibold truncate">ID: {{ job.id }}</h2>
-          <p class="text-xs text-gray-500 mt-1">Task: {{ job.task_id }}</p>
-          <p class="text-xs text-gray-500 mt-1">
-            {{ job.status | capitalize }} on {{ job.run_at or job.created_at }}
-          </p>
-        </div>
-        <div class="p-4 flex-1 overflow-auto bg-gray-50">
-          <pre class="text-xs whitespace-pre-wrap">{{ job.payload | tojson(indent=2) }}</pre>
-        </div>
-        <div class="px-4 py-3 border-t bg-white flex justify-end space-x-2">
-          <button
-            class="retry-btn px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
-            data-job-id="{{ job.id }}"
-          >Retry</button>
-          <button
-            class="remove-btn px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
-            data-job-id="{{ job.id }}"
-          >Delete</button>
-          <button
-            class="cancel-btn px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
-            data-job-id="{{ job.id }}"
-          >Cancel</button>
-        </div>
-      </div>
-    {% else %}
-      <div class="col-span-full text-center text-gray-500 py-8">
-        No {{ state }} jobs to display.
-      </div>
-    {% endfor %}
-  </div>
-
-  <div class="mt-8 flex justify-center items-center space-x-4">
-    {% if prev_page_url %}
-      <a href="{{ prev_page_url }}" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">← Previous</a>
-    {% endif %}
-    <span class="text-sm text-gray-600">Page {{ page }} of {{ total_pages }}</span>
-    {% if next_page_url %}
-      <a href="{{ next_page_url }}" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next →</a>
-    {% endif %}
-  </div>
-
-  <script>
-    (function() {
-      const prefix = window.location.pathname.replace(/\/$/, '');
-      async function doAction(jobId, action) {
-        const res = await fetch(`${prefix}/${jobId}/${action}`, {
-          method: 'POST',
-          headers: { 'Accept': 'application/json' }
-        });
-        const json = await res.json();
-        if (!json.ok) {
-          return alert(`Error ${action} ${jobId}: ${json.error || res.statusText}`);
-        }
-        const selector = action === 'retry'
-          ? '.retry-btn'
-          : action === 'remove'
-            ? '.remove-btn'
-            : '.cancel-btn';
-        const button = document.querySelector(`${selector}[data-job-id="${jobId}"]`);
-        if (button) {
-          const card = button.closest('.job-card');
-          if (card) card.remove();
-        }
-      }
-
-      document.querySelectorAll('.retry-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          e.preventDefault();
-          doAction(btn.dataset.jobId, 'retry');
-          showToast(`Job ${btn.dataset.jobId} has been retried`, "success");
-        })
-      );
-      document.querySelectorAll('.remove-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          e.preventDefault();
-          doAction(btn.dataset.jobId, 'remove');
-          showToast(`Job ${btn.dataset.jobId} has been deleted`);
-        })
-      );
-      document.querySelectorAll('.cancel-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          e.preventDefault();
-          doAction(btn.dataset.jobId, 'cancel');
-          showToast(`Job ${btn.dataset.jobId} has been cancelled`);
-        })
-      );
-    })();
-  </script>
 {% endblock %}

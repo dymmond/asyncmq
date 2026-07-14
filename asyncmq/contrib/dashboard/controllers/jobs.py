@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -13,10 +12,26 @@ from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
 from asyncmq.contrib.dashboard.audit import record_audit_event
+from asyncmq.contrib.dashboard.engine import templates
+from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.redaction import (
+    is_sensitive_key,
+    redact_for_display,
+    redact_text_for_display,
+    to_pretty_json,
+)
+from asyncmq.contrib.dashboard.urls import dashboard_path_for
+from asyncmq.core.inspection import (
+    JobInspectionPage,
+    extract_job_task,
+    extract_job_timestamp,
+    inspect_job_page,
+)
 
 RawJobData = dict[str, Any]
 FormattedJob = dict[str, Any]
+JOB_PAGE_SIZES: tuple[int, ...] = (20, 50, 100)
 JOB_STATE_TABS: list[tuple[str, str]] = [
     ("waiting", "Waiting"),
     ("active", "Active"),
@@ -25,6 +40,114 @@ JOB_STATE_TABS: list[tuple[str, str]] = [
     ("delayed", "Delayed"),
     ("repeatable", "Repeatable"),
 ]
+JOB_DETAIL_STATES: tuple[str, ...] = tuple(key for key, _ in JOB_STATE_TABS)
+MAX_TRACEBACK_FRAMES = 50
+TRACEBACK_FRAME_MARKERS: tuple[str, ...] = ('File "', "  File ")
+
+
+def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
+    """Infer an exception type from error text supplied by the runtime."""
+    candidates: list[str] = []
+    if traceback_text:
+        candidates.extend(line.strip() for line in traceback_text.splitlines() if line.strip())
+    if error_message:
+        candidates.append(str(error_message).strip())
+
+    for candidate in reversed(candidates):
+        head = candidate.split(":", 1)[0].strip()
+        if head and ("Error" in head or "Exception" in head or "." in head):
+            return head
+    return "Unknown"
+
+
+def extract_exception_chain(error_message: Any, traceback_text: str | None) -> list[str]:
+    """Extract exception chain summary lines from traceback text supplied by the runtime."""
+    candidates: list[str] = []
+    if traceback_text:
+        for line in traceback_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Traceback"):
+                continue
+            if stripped.startswith('File "') or line.startswith(("    ", "\t")):
+                continue
+            if stripped.startswith(("During handling", "The above exception")):
+                candidates.append(stripped)
+                continue
+            head = stripped.split(":", 1)[0].strip()
+            if head and ("Error" in head or "Exception" in head or "." in head):
+                candidates.append(stripped)
+
+    if error_message:
+        candidates.append(str(error_message).strip())
+
+    chain: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            chain.append(candidate)
+            seen.add(candidate)
+    return chain
+
+
+def extract_root_cause(error_message: Any, traceback_text: str | None) -> str:
+    """Return the last concrete exception line available for operator triage."""
+    for line in reversed(extract_exception_chain(error_message, traceback_text)):
+        if not line.startswith(("During handling", "The above exception")):
+            return line
+    return str(error_message or "Unknown")
+
+
+def extract_traceback_frames(traceback_text: str | None) -> list[dict[str, str]]:
+    """Extract Python traceback frame summaries from traceback text supplied by the runtime."""
+    if not traceback_text:
+        return []
+
+    lines = traceback_text.splitlines()
+    frames: list[dict[str, str]] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith('File "'):
+            continue
+
+        try:
+            path_and_rest = stripped[len('File "') :]
+            path, rest = path_and_rest.split('", line ', 1)
+            line_number, function = rest.split(", in ", 1)
+        except ValueError:
+            continue
+
+        source = ""
+        if index + 1 < len(lines):
+            candidate = lines[index + 1]
+            if candidate.startswith("    "):
+                source = candidate.strip()
+
+        frames.append(
+            {
+                "path": path,
+                "line": line_number.strip(),
+                "function": function.strip(),
+                "source": source,
+            }
+        )
+        if len(frames) >= MAX_TRACEBACK_FRAMES:
+            break
+
+    return frames
+
+
+def count_traceback_frames(traceback_text: str | None) -> int:
+    """Count Python-style stack frames in a traceback string."""
+    if not traceback_text:
+        return 0
+    return sum(1 for line in traceback_text.splitlines() if line.lstrip().startswith(TRACEBACK_FRAME_MARKERS))
+
+
+def traceback_frame_limit_reached(traceback_text: str | None, frames: list[dict[str, str]]) -> bool:
+    """Return whether traceback frame extraction stopped at the display limit."""
+    if not traceback_text:
+        return False
+    return count_traceback_frames(traceback_text) > len(frames)
 
 
 class QueueJobController(DashboardMixin, TemplateController):
@@ -43,9 +166,15 @@ class QueueJobController(DashboardMixin, TemplateController):
 
         try:
             page: int = max(1, int(request.query_params.get("page", 1)))
-            size: int = max(1, int(request.query_params.get("size", 20)))
         except ValueError:
-            page, size = 1, 20
+            page = 1
+
+        try:
+            size: int = int(request.query_params.get("size", 20))
+        except ValueError:
+            size = 20
+        if size not in JOB_PAGE_SIZES:
+            size = 20
 
         q: str = request.query_params.get("q", "").strip()
         task: str = request.query_params.get("task", "").strip()
@@ -57,30 +186,10 @@ class QueueJobController(DashboardMixin, TemplateController):
         return state, page, size, q, task, job_id, sort
 
     def _extract_job_timestamp(self, raw_job: RawJobData) -> float:
-        ts: Any = raw_job.get("run_at") or raw_job.get("created_at") or raw_job.get("timestamp") or 0
-        try:
-            return float(ts)
-        except (TypeError, ValueError):
-            return 0.0
+        return extract_job_timestamp(raw_job)
 
     def _extract_job_task(self, raw_job: RawJobData) -> str:
-        task: Any = raw_job.get("task_id") or raw_job.get("task") or raw_job.get("name") or ""
-        return str(task)
-
-    def _job_matches_filters(self, raw_job: RawJobData, *, q: str, task: str, job_id: str) -> bool:
-        if job_id and job_id not in str(raw_job.get("id") or ""):
-            return False
-
-        task_value = self._extract_job_task(raw_job)
-        if task and task.lower() not in task_value.lower():
-            return False
-
-        if q:
-            searchable: str = json.dumps(raw_job, sort_keys=True, default=str).lower()
-            if q.lower() not in searchable:
-                return False
-
-        return True
+        return extract_job_task(raw_job)
 
     @staticmethod
     def _build_query_string(**params: Any) -> str:
@@ -114,6 +223,7 @@ class QueueJobController(DashboardMixin, TemplateController):
             "status": raw_job.get("status") or state,
             "task_id": self._extract_job_task(raw_job) or "n/a",
             "payload": raw_job,  # Full object for tojson() inspection
+            "payload_json": to_pretty_json(raw_job),
             "run_at": raw_job.get("run_at"),  # Original timestamp (optional)
             "created_at": created,  # Formatted string
         }
@@ -130,28 +240,49 @@ class QueueJobController(DashboardMixin, TemplateController):
         job_id: str,
         sort: str,
     ) -> tuple[list[FormattedJob], int, int, int]:
-        """Fetches jobs for the given state, applies pagination, and calculates page counts."""
+        """Fetch jobs through the backend-owned inspection contract."""
         backend: Any = monkay.settings.backend
 
-        # Fetch all jobs for the given state
+        inspect_jobs = getattr(backend, "inspect_jobs", None)
+        if callable(inspect_jobs):
+            try:
+                inspected: JobInspectionPage = await inspect_jobs(
+                    queue,
+                    state,
+                    page=page,
+                    size=size,
+                    q=q,
+                    task=task,
+                    job_id=job_id,
+                    sort=sort,
+                )
+            except Exception:
+                inspected = JobInspectionPage(jobs=[], total=0, page=1, size=size, total_pages=1)
+        else:
+            try:
+                all_jobs: list[RawJobData] = await backend.list_jobs(queue, state)
+            except Exception:
+                all_jobs = []
+            inspected = inspect_job_page(
+                all_jobs,
+                page=page,
+                size=size,
+                q=q,
+                task=task,
+                job_id=job_id,
+                sort=sort,
+            )
+
         try:
-            all_jobs: list[RawJobData] = await backend.list_jobs(queue, state)
+            page_jobs = list(inspected.jobs)
+            total = int(inspected.total)
+            total_pages = max(1, int(inspected.total_pages))
+            page = min(max(1, int(inspected.page)), total_pages)
         except Exception:
-            all_jobs = []
-
-        filtered_jobs: list[RawJobData] = [
-            job for job in all_jobs if self._job_matches_filters(job, q=q, task=task, job_id=job_id)
-        ]
-        filtered_jobs.sort(key=self._extract_job_timestamp, reverse=sort == "newest")
-        total: int = len(filtered_jobs)
-
-        total_pages: int = max(1, (total + size - 1) // size)
-        page = min(page, total_pages)
-
-        # Apply pagination slice
-        start: int = (page - 1) * size
-        end: int = start + size
-        page_jobs: list[RawJobData] = filtered_jobs[start:end]
+            page_jobs = []
+            total = 0
+            total_pages = 1
+            page = 1
 
         # Format the sliced jobs
         jobs: list[FormattedJob] = [self._format_job_data(raw, state=state) for raw in page_jobs]
@@ -223,6 +354,7 @@ class QueueJobController(DashboardMixin, TemplateController):
                 "total_pages": total_pages,
                 "state": state,
                 "tabs": JOB_STATE_TABS,
+                "page_sizes": JOB_PAGE_SIZES,
                 "q": q,
                 "task": task,
                 "job_id": job_id,
@@ -302,16 +434,220 @@ class QueueJobController(DashboardMixin, TemplateController):
             job_id=job_id,
             sort=sort,
         )
-        redirect_path = str(request.url_path_for("queue-jobs", name=queue))
+        redirect_path = dashboard_path_for(request, "queue-jobs", name=queue)
         return RedirectResponse(f"{redirect_path}{redirect_query}", status_code=302)
+
+
+class JobDetailController(DashboardMixin, TemplateController):
+    """
+    Renders a job detail page from runtime data for a single queue job.
+
+    The controller consumes backend inspection contracts (`get_job`,
+    `get_job_state`, and `get_job_result`) and only falls back to bounded
+    state-bucket inspection when a backend-shaped test double does not expose
+    point lookup helpers.
+    """
+
+    template_name: str = "jobs/detail.html"
+
+    async def _load_job(self, backend: Any, queue: str, job_id: str) -> RawJobData | None:
+        """Load a job from the backend's native point lookup or inspection buckets."""
+        if hasattr(backend, "get_job"):
+            try:
+                job = await backend.get_job(queue, job_id)
+            except Exception:
+                job = None
+            if isinstance(job, dict):
+                return dict(job)
+
+        for state in JOB_DETAIL_STATES:
+            try:
+                jobs = await backend.list_jobs(queue, state)
+            except Exception:
+                jobs = []
+            for job in jobs:
+                current_id = job.get("id") or job.get("job_id")
+                if current_id is not None and str(current_id) == job_id:
+                    loaded = dict(job)
+                    loaded.setdefault("state", state)
+                    return loaded
+        return None
+
+    async def _get_backend_value(self, backend: Any, method: str, queue: str, job_id: str) -> Any:
+        """Safely call an optional backend inspection method."""
+        if not hasattr(backend, method):
+            return None
+        try:
+            return await getattr(backend, method)(queue, job_id)
+        except Exception:
+            return None
+
+    def _is_sensitive_key(self, key: str) -> bool:
+        """Return whether a metadata key should be redacted before display."""
+        return is_sensitive_key(key)
+
+    def _redact_for_display(self, value: Any, *, depth: int = 0) -> Any:
+        """Return a bounded, redacted copy of job data from the runtime."""
+        return redact_for_display(value, depth=depth)
+
+    def _to_pretty_json(self, value: Any) -> str:
+        """Serialize redacted display data as stable indented JSON."""
+        return to_pretty_json(value)
+
+    def _format_time(self, value: Any) -> str:
+        """Format numeric timestamps while preserving backend-provided strings."""
+        if value in (None, ""):
+            return "-"
+        try:
+            return dt.datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OSError):
+            return str(value)
+
+    def _extract_traceback(self, job: RawJobData) -> str | None:
+        """Extract the most specific traceback-like field available on a job."""
+        for key in ("error_traceback", "traceback", "stacktrace", "stack", "last_error"):
+            value = job.get(key)
+            if value:
+                return str(value)
+        return None
+
+    def _build_diagnostics_bundle(
+        self,
+        *,
+        job: RawJobData,
+        queue: str,
+        job_id: str,
+        task_id: str,
+        state: str,
+        error_message: Any,
+        traceback_text: str | None,
+    ) -> dict[str, Any]:
+        """Build a redacted diagnostic bundle from job evidence supplied by the runtime."""
+        return {
+            "queue": queue,
+            "job_id": job_id,
+            "task_id": task_id,
+            "state": state,
+            "exception_type": infer_exception_type(error_message, traceback_text),
+            "error": error_message,
+            "traceback": traceback_text,
+            "retry": {
+                "attempt": job.get("attempt") or job.get("attempts") or job.get("retry_count"),
+                "retries": job.get("retries", job.get("retry_count")),
+                "max_retries": job.get("max_retries"),
+                "last_attempt": job.get("last_attempt"),
+            },
+            "worker": job.get("worker") or job.get("worker_id") or job.get("execution_worker"),
+            "timestamps": {
+                "created_at": job.get("created_at") or job.get("timestamp"),
+                "failed_at": job.get("failed_at"),
+                "run_at": job.get("run_at") or job.get("delay_until"),
+            },
+        }
+
+    async def get(self, request: Request) -> Response:
+        """
+        Render a single job detail page with metadata, payload, result, and diagnostics.
+        """
+        queue: str = request.path_params["name"]
+        job_id: str = request.path_params["job_id"]
+        backend: Any = monkay.settings.backend
+        job = await self._load_job(backend, queue, job_id)
+
+        if job is None:
+            context = await self.get_context_data(request)
+            context.update({"title": "Job Not Found", "url_prefix": context["url_prefix"]})
+            return templates.get_template_response(request, "404.html", context=context, status_code=404)
+
+        backend_state = await self._get_backend_value(backend, "get_job_state", queue, job_id)
+        backend_result = await self._get_backend_value(backend, "get_job_result", queue, job_id)
+        state = str(job.get("status") or job.get("state") or backend_state or "unknown")
+        result = job.get("result") if "result" in job else backend_result
+        task_id = str(job.get("task_id") or job.get("task") or job.get("name") or "n/a")
+        raw_traceback_text = self._extract_traceback(job)
+        raw_error_message = job.get("last_error") or job.get("error") or job.get("exception")
+        traceback_text = redact_text_for_display(raw_traceback_text) if raw_traceback_text else None
+        error_message = redact_text_for_display(str(raw_error_message)) if raw_error_message else raw_error_message
+        exception_type = infer_exception_type(error_message, traceback_text)
+        root_cause = extract_root_cause(error_message, traceback_text)
+        exception_chain = extract_exception_chain(error_message, traceback_text)
+        traceback_frames = extract_traceback_frames(traceback_text)
+        traceback_frame_count = count_traceback_frames(traceback_text)
+        diagnostic_bundle = self._build_diagnostics_bundle(
+            job=job,
+            queue=queue,
+            job_id=job_id,
+            task_id=task_id,
+            state=state,
+            error_message=error_message,
+            traceback_text=traceback_text,
+        )
+
+        context: dict[str, Any] = await super().get_context_data(request)
+        context.update(
+            {
+                "title": f"Job {job_id}",
+                "active_page": "queues",
+                "page_header": f"Job {job_id}",
+                "queue": queue,
+                "job": job,
+                "job_id": job_id,
+                "task_id": task_id,
+                "state": state,
+                "created_at": self._format_time(job.get("created_at") or job.get("timestamp")),
+                "run_at": self._format_time(job.get("run_at") or job.get("delay_until")),
+                "last_attempt": self._format_time(job.get("last_attempt")),
+                "retries": job.get("retries", job.get("retry_count", "-")),
+                "max_retries": job.get("max_retries", "-"),
+                "depends_on": job.get("depends_on") or [],
+                "args_json": self._to_pretty_json(job.get("args", [])),
+                "kwargs_json": self._to_pretty_json(job.get("kwargs", {})),
+                "payload_json": self._to_pretty_json(job),
+                "result_json": self._to_pretty_json(result) if result is not None else None,
+                "error_message": error_message,
+                "exception_type": exception_type,
+                "root_cause": root_cause,
+                "exception_chain": exception_chain,
+                "traceback_frame_count": traceback_frame_count,
+                "traceback_frames": traceback_frames,
+                "traceback_frames_truncated": traceback_frame_limit_reached(traceback_text, traceback_frames),
+                "traceback_text": traceback_text,
+                "diagnostics_json": self._to_pretty_json(diagnostic_bundle),
+                "execution_worker": diagnostic_bundle["worker"] or "-",
+                "failed_at": self._format_time(job.get("failed_at")),
+                "return_to": dashboard_path_for(request, "job-detail", name=queue, job_id=job_id),
+                "jobs_url": dashboard_path_for(request, "queue-jobs", name=queue),
+                "queue_url": dashboard_path_for(request, "queue-detail", name=queue),
+            }
+        )
+        return await self.render_template(request, context=context)
 
 
 class JobActionController(Controller):
     """
-    Handles single-job actions (retry, remove, cancel) via dedicated AJAX endpoints.
+    Handles single job actions (retry, remove, cancel) via dedicated AJAX endpoints.
     """
 
-    async def post(self, request: Request, job_id: str, action: str) -> JSONResponse:
+    def _safe_return_to(self, request: Request, fallback: str, candidate: str | None) -> str:
+        """Return a relative redirect target from the same origin for HTML form actions."""
+        if candidate and candidate.startswith("/") and not candidate.startswith("//"):
+            return candidate
+        referer = request.headers.get("referer")
+        if referer:
+            request_origin = f"{request.url.scheme}://{request.url.netloc}"
+            if referer.startswith(request_origin):
+                return referer[len(request_origin) :] or fallback
+        return fallback
+
+    async def _form_response_mode(self, request: Request) -> tuple[bool, str | None]:
+        """Read optional HTML form response controls without affecting JSON callers."""
+        content_type = request.headers.get("content-type", "")
+        if "application/x-www-form-urlencoded" not in content_type and "multipart/form-data" not in content_type:
+            return False, None
+        form = await request.form()
+        return form.get("_response") == "html", form.get("return_to")
+
+    async def post(self, request: Request, job_id: str, action: str) -> JSONResponse | RedirectResponse:
         """
         Performs a single action on a job and returns a JSON status response.
 
@@ -326,6 +662,8 @@ class JobActionController(Controller):
         queue: str = request.path_params["name"]
         backend: Any = monkay.settings.backend
         canonical_action = "remove" if action == "delete" else action
+        html_response, return_to = await self._form_response_mode(request)
+        fallback = dashboard_path_for(request, "job-detail", name=queue, job_id=job_id)
 
         try:
             if canonical_action == "retry":
@@ -344,6 +682,9 @@ class JobActionController(Controller):
                     job_id=job_id,
                     error="Unknown action",
                 )
+                if html_response:
+                    add_message(request, "error", "Unknown job action.")
+                    return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
                 return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
         except Exception as e:
             record_audit_event(
@@ -355,6 +696,9 @@ class JobActionController(Controller):
                 job_id=job_id,
                 error=str(e),
             )
+            if html_response:
+                add_message(request, "error", f"Job {canonical_action} failed: {e}")
+                return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
         record_audit_event(
@@ -364,4 +708,7 @@ class JobActionController(Controller):
             queue=queue,
             job_id=job_id,
         )
+        if html_response:
+            add_message(request, "success", f"Job '{job_id}' {canonical_action} completed.")
+            return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
         return JSONResponse({"ok": True})

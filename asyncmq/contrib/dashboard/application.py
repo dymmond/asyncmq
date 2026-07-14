@@ -16,20 +16,22 @@ from asyncmq.contrib.dashboard.controllers import (
     metrics,
     queues,
     repeatables,
+    runtime_events,
     sse,
     workers,
 )
 from asyncmq.contrib.dashboard.engine import templates  # noqa
+from asyncmq.contrib.dashboard.mixins import default_context
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
+    """Render a mount-aware dashboard 404 page."""
+    context = default_context(request)
+    context["title"] = "Not Found"
     return templates.get_template_response(
         request,
         "404.html",
-        context={
-            "title": "Not Found",
-            "url_prefix": monkay.settings.dashboard_config.dashboard_url_prefix,
-        },
+        context=context,
         status_code=404,
     )
 
@@ -68,6 +70,12 @@ def create_dashboard_app() -> ASGIApp:
                         jobs.QueueJobController,
                         methods=["GET", "POST"],
                         name="queue-jobs",
+                    ),
+                    RoutePath(
+                        "/queues/{name}/jobs/{job_id}",
+                        jobs.JobDetailController,
+                        methods=["GET"],
+                        name="job-detail",
                     ),
                     RoutePath(
                         "/queues/{name}/jobs/{job_id}/{action}",
@@ -125,6 +133,12 @@ def create_dashboard_app() -> ASGIApp:
                         audit.AuditController,
                         methods=["GET"],
                         name="audit",
+                    ),
+                    RoutePath(
+                        "/events/history",
+                        runtime_events.RuntimeEventController,
+                        methods=["GET"],
+                        name="runtime-events",
                     ),
                     # New SSE endpoint for real-time updates
                     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),

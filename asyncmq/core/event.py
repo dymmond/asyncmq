@@ -1,4 +1,8 @@
 import inspect
+import json
+import threading
+import time
+from collections import deque
 from typing import Any, Callable, Coroutine
 
 import anyio
@@ -9,6 +13,8 @@ from asyncmq.logging import logger
 # A synchronous callback takes Any and returns Any.
 # An asynchronous callback takes Any and returns an Awaitable that resolves to Any.
 Callback = Callable[[Any], Any] | Callable[[Any], Coroutine[Any, Any, Any]]
+RecordedEvent = dict[str, Any]
+DEFAULT_EVENT_HISTORY_LIMIT = 2000
 
 
 class EventEmitter:
@@ -21,7 +27,7 @@ class EventEmitter:
     asynchronous listeners using AnyIO's task group and thread offloading.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, history_limit: int = DEFAULT_EVENT_HISTORY_LIMIT) -> None:
         """
         Initializes a new EventEmitter instance.
 
@@ -30,6 +36,8 @@ class EventEmitter:
         """
         # Dictionary to store registered callbacks, keyed by event name.
         self._listeners: dict[str, list[Callback]] = {}
+        self._history: deque[RecordedEvent] = deque(maxlen=max(1, history_limit))
+        self._history_lock = threading.Lock()
 
     def on(self, event: str, callback: Callback) -> None:
         """
@@ -74,6 +82,64 @@ class EventEmitter:
         if not self._listeners[event]:
             del self._listeners[event]
 
+    def _record_event(self, event: str, data: Any) -> None:
+        """Store a bounded local snapshot of an emitted runtime event."""
+        if isinstance(data, dict):
+            event_data = dict(data)
+        else:
+            event_data = data
+        record: RecordedEvent = {
+            "timestamp": time.time(),
+            "event": event,
+            "data": event_data,
+        }
+        with self._history_lock:
+            self._history.appendleft(record)
+
+    def list_history(
+        self,
+        *,
+        limit: int = 200,
+        event: str | None = None,
+        queue: str | None = None,
+        q: str | None = None,
+    ) -> list[RecordedEvent]:
+        """Return a bounded, newest-first view of local runtime events."""
+        limit = max(1, min(limit, self._history.maxlen or DEFAULT_EVENT_HISTORY_LIMIT))
+        text_q = (q or "").strip().lower()
+
+        with self._history_lock:
+            records = list(self._history)
+
+        out: list[RecordedEvent] = []
+        for record in records:
+            event_name = str(record.get("event") or "")
+            data = record.get("data")
+            if event and event_name != event:
+                continue
+            if queue and (not isinstance(data, dict) or str(data.get("queue") or "") != queue):
+                continue
+            if text_q:
+                searchable = " ".join(
+                    [
+                        event_name,
+                        json.dumps(data, sort_keys=True, default=str) if isinstance(data, dict) else str(data),
+                    ]
+                ).lower()
+                if text_q not in searchable:
+                    continue
+
+            out.append(dict(record))
+            if len(out) >= limit:
+                break
+
+        return out
+
+    def clear_history(self) -> None:
+        """Clear local runtime event history without unregistering listeners."""
+        with self._history_lock:
+            self._history.clear()
+
     async def emit(self, event: str, data: Any) -> None:
         """
         Emits an event, triggering all registered listeners for that event.
@@ -89,6 +155,8 @@ class EventEmitter:
             data: The data associated with the event, which will be passed
                   as an argument to the listener callbacks.
         """
+        self._record_event(event, data)
+
         # Get the list of listeners for the event, defaulting to an empty list.
         # Create a copy to avoid issues if listeners modify the list during emission.
         listeners: list[Callback] = list(self._listeners.get(event, []))

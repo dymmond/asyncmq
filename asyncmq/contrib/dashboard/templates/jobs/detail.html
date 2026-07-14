@@ -1,0 +1,247 @@
+{% extends "layout.html" %}
+{% from "shared/components.html" import status_badge %}
+{% block content %}
+  <div class="amq-page">
+    <section class="amq-section">
+      <div class="amq-section-header">
+        <div>
+          <h2 class="amq-section-title">{{ task_id }}</h2>
+          <p class="amq-section-meta">Queue {{ queue }} / Job {{ job_id }}</p>
+        </div>
+        <div class="amq-actions">
+          <a href="{{ jobs_url }}?state={{ state }}" class="amq-button">Back to Jobs</a>
+          <a href="{{ queue_url }}" class="amq-button">Queue Detail</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="amq-detail-grid">
+      <div class="amq-detail-stack">
+        <article class="amq-card">
+          <div class="amq-card-header">
+            <h2 class="amq-card-title">Job Metadata</h2>
+            {{ status_badge(state) }}
+          </div>
+          <div class="amq-card-body amq-meta-grid">
+            <div class="amq-kv">
+              <span>Job ID</span>
+              <strong class="amq-mono">{{ job_id }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Task</span>
+              <strong>{{ task_id }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Created</span>
+              <strong>{{ created_at }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Run at</span>
+              <strong>{{ run_at }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Retries</span>
+              <strong>{{ retries }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Max retries</span>
+              <strong>{{ max_retries }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Last attempt</span>
+              <strong>{{ last_attempt }}</strong>
+            </div>
+            <div class="amq-kv">
+              <span>Dependencies</span>
+              <strong>{{ depends_on|length }}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="amq-card">
+          <div class="amq-card-header">
+            <h2 class="amq-card-title">Arguments</h2>
+            <span class="amq-card-meta">Redacted display</span>
+          </div>
+          <div class="amq-card-body amq-grid-2">
+            <div>
+              <h3 class="amq-card-meta">Args</h3>
+              <pre class="amq-pre">{{ args_json }}</pre>
+            </div>
+            <div>
+              <h3 class="amq-card-meta">Kwargs</h3>
+              <pre class="amq-pre">{{ kwargs_json }}</pre>
+            </div>
+          </div>
+        </article>
+
+        {% if error_message or traceback_text %}
+          <article class="amq-card amq-failure-card">
+            <div class="amq-card-header">
+              <div>
+                <h2 class="amq-card-title">Failure Diagnostics</h2>
+                <p class="amq-card-meta">Runtime-owned error evidence</p>
+              </div>
+              <div class="amq-actions">
+                {{ status_badge("failed", "Failure") }}
+                {% if traceback_text %}
+                  <button type="button"
+                          class="amq-button"
+                          x-data="asyncmqClipboard"
+                          x-on:click="copy"
+                          x-text="label"
+                          data-clipboard-label="Copy traceback"
+                          data-clipboard-target="raw-traceback">
+                    Copy traceback
+                  </button>
+                {% endif %}
+                <button type="button"
+                        class="amq-button"
+                        x-data="asyncmqClipboard"
+                        x-on:click="copy"
+                        x-text="label"
+                        data-clipboard-label="Copy diagnostics"
+                        data-clipboard-target="diagnostic-bundle">
+                  Copy diagnostics
+                </button>
+              </div>
+            </div>
+            <div class="amq-card-body amq-failure-panel">
+              <div class="amq-root-cause">
+                <span>Root cause</span>
+                <strong class="amq-mono">{{ root_cause }}</strong>
+              </div>
+
+              <div class="amq-failure-summary" aria-label="Failure summary">
+                <div class="amq-kv">
+                  <span>Exception</span>
+                  <strong class="amq-mono">{{ exception_type }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Frames</span>
+                  <strong>{{ traceback_frame_count }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Worker</span>
+                  <strong class="amq-mono">{{ execution_worker }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Failed at</span>
+                  <strong>{{ failed_at }}</strong>
+                </div>
+              </div>
+
+              {% if exception_chain %}
+                <details open class="amq-diagnostic-section">
+                  <summary>Exception chain</summary>
+                  <ol class="amq-exception-chain">
+                    {% for line in exception_chain %}
+                      <li>
+                        <span class="amq-stack-index">{{ loop.index }}</span>
+                        <code>{{ line }}</code>
+                      </li>
+                    {% endfor %}
+                  </ol>
+                </details>
+              {% endif %}
+
+              {% if error_message %}
+                <div class="amq-error-callout">
+                  <span class="amq-card-meta">Error message</span>
+                  <pre class="amq-error-message">{{ error_message }}</pre>
+                </div>
+              {% endif %}
+
+              {% if traceback_text %}
+                {% if traceback_frames %}
+                  <details open class="amq-diagnostic-section">
+                    <summary>Stack frames</summary>
+                    <ol class="amq-stack-list">
+                      {% for frame in traceback_frames %}
+                        <li class="amq-stack-frame">
+                          <div class="amq-stack-frame-header">
+                            <span class="amq-stack-index">{{ loop.index }}</span>
+                            <div class="amq-stack-location">
+                              <strong class="amq-mono">{{ frame.path }}</strong>
+                              <span class="amq-card-meta">Line {{ frame.line }} in {{ frame.function }}</span>
+                            </div>
+                          </div>
+                          {% if frame.source %}
+                            <pre class="amq-stack-source">{{ frame.source }}</pre>
+                          {% endif %}
+                        </li>
+                      {% endfor %}
+                    </ol>
+                    {% if traceback_frames_truncated %}
+                      <p class="amq-card-meta">Additional frames are available in the raw traceback.</p>
+                    {% endif %}
+                  </details>
+                {% endif %}
+                <details {% if not traceback_frames %}open{% endif %} class="amq-diagnostic-section">
+                  <summary>Raw traceback</summary>
+                  <pre id="raw-traceback" class="amq-pre amq-traceback">{{ traceback_text }}</pre>
+                </details>
+              {% endif %}
+
+              <details class="amq-diagnostic-section">
+                <summary>Redacted diagnostic bundle</summary>
+                <pre id="diagnostic-bundle" class="amq-pre">{{ diagnostics_json }}</pre>
+              </details>
+            </div>
+          </article>
+        {% endif %}
+
+        {% if result_json %}
+          <article class="amq-card">
+            <div class="amq-card-header">
+              <h2 class="amq-card-title">Result</h2>
+              <span class="amq-card-meta">Redacted display</span>
+            </div>
+            <div class="amq-card-body">
+              <pre class="amq-pre">{{ result_json }}</pre>
+            </div>
+          </article>
+        {% endif %}
+      </div>
+
+      <aside class="amq-detail-stack">
+        <article class="amq-card">
+          <div class="amq-card-header">
+            <h2 class="amq-card-title">Operator Actions</h2>
+            <span class="amq-card-meta">Confirmation required</span>
+          </div>
+          <div class="amq-card-body amq-detail-stack">
+            {% for action, label, tone in [("retry", "Retry Job", "primary"), ("cancel", "Cancel Job", "warning"), ("remove", "Remove Job", "danger")] %}
+              <details class="amq-confirm">
+                <summary class="amq-button{% if tone == 'primary' %} amq-button--primary{% elif tone == 'warning' %} amq-button--warning{% else %} amq-button--danger{% endif %}">
+                  {{ label }}
+                </summary>
+                <form method="post"
+                      action="{{ url_prefix }}/queues/{{ queue }}/jobs/{{ job_id }}/{{ action }}"
+                      class="amq-confirm-panel">
+                  <input type="hidden" name="_response" value="html">
+                  <input type="hidden" name="return_to" value="{{ jobs_url }}?state={{ state }}">
+                  <p>Confirm {{ action }} for job <strong>{{ job_id }}</strong> in queue <strong>{{ queue }}</strong>.</p>
+                  <button type="submit"
+                          class="amq-button{% if tone == 'primary' %} amq-button--primary{% elif tone == 'warning' %} amq-button--warning{% else %} amq-button--danger{% endif %}">
+                    Confirm {{ label }}
+                  </button>
+                </form>
+              </details>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="amq-card">
+          <div class="amq-card-header">
+            <h2 class="amq-card-title">Raw Job Payload</h2>
+            <span class="amq-card-meta">Redacted display</span>
+          </div>
+          <div class="amq-card-body">
+            <pre class="amq-pre">{{ payload_json }}</pre>
+          </div>
+        </article>
+      </aside>
+    </section>
+  </div>
+{% endblock %}

@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 import asyncmq
 from asyncmq.core.enums import State
-from asyncmq.core.inspection import paginate_jobs, sanitize_job_types
+from asyncmq.core.inspection import (
+    JobInspectionPage,
+    inspect_job_page,
+    paginate_jobs,
+    sanitize_job_types,
+)
 
 if TYPE_CHECKING:
     from asyncmq.conf.global_settings import Settings
@@ -807,6 +812,36 @@ class BaseBackend(ABC):
         for job_type in selected_types:
             jobs.extend(await self.list_jobs(queue_name, job_type))
         return paginate_jobs(jobs, start=start, end=end, asc=asc)
+
+    async def inspect_jobs(
+        self,
+        queue_name: str,
+        state: str,
+        *,
+        page: int = 1,
+        size: int = 20,
+        q: str = "",
+        task: str = "",
+        job_id: str = "",
+        sort: str = "newest",
+    ) -> JobInspectionPage:
+        """
+        Return a filtered, sorted, and paged job inspection result.
+
+        Concrete backends can override this method with indexed backend-native
+        queries. The default preserves portable behavior by applying the shared
+        inspection semantics to the state bucket returned by ``list_jobs``.
+        """
+        jobs = await self.list_jobs(queue_name, state)
+        return inspect_job_page(
+            jobs,
+            page=page,
+            size=size,
+            q=q,
+            task=task,
+            job_id=job_id,
+            sort=sort,
+        )
 
     async def get_job_counts(self, queue_name: str, *types: str) -> dict[str, int]:
         """

@@ -136,7 +136,7 @@ Priority is separate from delay:
 - priority controls *which eligible waiting job* should be consumed first
 
 BullMQ users should think of this as the same practical model, expressed as a
-backend-neutral Python payload instead of Redis-only state structures.
+portable Python payload instead of Redis specific state structures.
 
 ## Dependencies and `waiting-children`
 
@@ -167,14 +167,14 @@ Important operational detail:
 - a permanently failed parent does not automatically fail descendants
 - blocked descendants remain inspectable until you retry, remove, or repair the parent
 
-That is simpler than BullMQ's richer flow-specific failure policies, but it is
-explicit and backend-neutral.
+That is simpler than BullMQ's richer failure policies for flows, but it is
+explicit and portable across backends.
 
 ## `job_id` and Deduplication
 
 `job_id` and `deduplication` solve different problems:
 
-- `job_id` prevents a duplicate record for one exact queue-scoped identity
+- `job_id` prevents a duplicate record for one exact identity within a queue
 - `deduplication` prevents logically equivalent work from being created again
 
 Example:

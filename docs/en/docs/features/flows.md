@@ -121,7 +121,7 @@ AsyncMQ flow behavior is intentionally simple and explicit:
 
 This is an important operational difference from BullMQ's broader flow
 ecosystem. AsyncMQ focuses on dependency gating rather than a large family of
-parent-state policy options.
+parent state policy options.
 
 If you want cascade failure semantics, model them in one of these ways:
 

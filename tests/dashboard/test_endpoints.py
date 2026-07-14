@@ -61,6 +61,7 @@ app = create_dashboard_app()
         ),
         (reverse("metrics"), b"Metrics"),
         (reverse("audit"), b"Audit Trail"),
+        (reverse("runtime-events", app=app), b"Runtime Events"),
     ],
 )
 def test_pages(path, keyword, client):

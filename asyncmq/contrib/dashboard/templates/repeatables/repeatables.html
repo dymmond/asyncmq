@@ -1,91 +1,109 @@
-{# templates/repeatables/repeatables.html #}
 {% extends "layout.html" %}
+{% from "shared/components.html" import empty_state, stat_card, status_badge %}
 {% block content %}
-  <div class="px-6 py-4">
-    <div class="flex justify-between items-center mb-6">
-      <h1 class="text-2xl font-semibold">Repeatable Jobs — {{ queue }}</h1>
-      <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables/new"
-         class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
-        + New Repeatable
-      </a>
-    </div>
+  <div class="amq-page">
+    <section class="amq-section">
+      <div class="amq-section-header">
+        <div>
+          <h2 class="amq-section-title">Repeatable Jobs</h2>
+          <p class="amq-section-meta">Queue {{ queue }} / backend-owned scheduled job definitions</p>
+        </div>
+        <div class="amq-actions">
+          <a href="{{ url_prefix }}/queues/{{ queue }}" class="amq-button">Queue Detail</a>
+          <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables/new" class="amq-button amq-button--primary">
+            New Repeatable
+          </a>
+        </div>
+      </div>
+    </section>
 
-    <div class="overflow-x-auto bg-white shadow ring-1 ring-gray-200 sm:rounded-lg">
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
+    <section class="amq-stat-grid amq-stat-grid--three" aria-label="Repeatable summary">
+      {{ stat_card("Definitions", repeatables|length, tone="accent") }}
+      {{ stat_card("Active", repeatables|selectattr("paused", "equalto", false)|list|length, tone="success") }}
+      {{ stat_card("Paused", repeatables|selectattr("paused")|list|length, tone="warning") }}
+    </section>
+
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Scheduled Definitions</h2>
+          <p class="amq-card-meta">Pause, resume, or remove backend repeatable definitions</p>
+        </div>
+      </div>
+
+      <table class="amq-table amq-repeatables-table">
+        <thead>
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Task
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Every (s)
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Cron
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Next Run
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Status
-            </th>
-            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Actions
-            </th>
+            <th scope="col">Task</th>
+            <th scope="col">Interval</th>
+            <th scope="col">Cron</th>
+            <th scope="col">Next Run</th>
+            <th scope="col">Status</th>
+            <th scope="col">Definition</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody>
           {% for r in repeatables %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-              {{ r.task_id }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-              {{ r.every or '—' }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-              {{ r.cron or '—' }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-              {{ r.next_run }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm">
-              {% if r.paused %}
-                <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">Paused</span>
-              {% else %}
-                <span class="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-semibold">Active</span>
-              {% endif %}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium space-x-2">
-              <form method="post" class="inline-block">
-                <input type="hidden" name="job_def" value='{{ r | tojson }}'>
+            <tr>
+              <td>
+                <span class="amq-mono">{{ r.task_id or "n/a" }}</span>
+              </td>
+              <td>{{ r.every or "—" }}</td>
+              <td><span class="amq-mono">{{ r.cron or "—" }}</span></td>
+              <td>{{ r.next_run }}</td>
+              <td>
                 {% if r.paused %}
-                  <button name="action" value="resume"
-                          class="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs">
-                    Resume
-                  </button>
+                  {{ status_badge("paused", "Paused") }}
                 {% else %}
-                  <button name="action" value="pause"
-                          class="px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-xs">
-                    Pause
-                  </button>
+                  {{ status_badge("active", "Active") }}
                 {% endif %}
-                <button name="action" value="remove"
-                        class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs">
-                  Remove
-                </button>
-              </form>
-            </td>
-          </tr>
+              </td>
+              <td>
+                <details class="amq-diagnostic-section amq-repeatable-definition">
+                  <summary>Redacted definition</summary>
+                  <pre class="amq-pre">{{ r.job_def_display }}</pre>
+                </details>
+              </td>
+              <td>
+                <div class="amq-actions">
+                  <form method="post" class="amq-inline-form">
+                    <input type="hidden" name="job_def" value="{{ r.job_def_json }}">
+                    {% if r.paused %}
+                      <button name="action" value="resume" class="amq-button amq-button--primary">
+                        Resume
+                      </button>
+                    {% else %}
+                      <button name="action" value="pause" class="amq-button amq-button--warning">
+                        Pause
+                      </button>
+                    {% endif %}
+                  </form>
+
+                  <form method="post" class="amq-inline-form">
+                    <input type="hidden" name="job_def" value="{{ r.job_def_json }}">
+                    <details class="amq-confirm">
+                      <summary class="amq-button amq-button--danger">Remove</summary>
+                      <div class="amq-confirm-panel">
+                        <p>Remove repeatable definition <strong>{{ r.task_id or "n/a" }}</strong> from queue <strong>{{ queue }}</strong>.</p>
+                        <button name="action" value="remove" class="amq-button amq-button--danger">
+                          Confirm Remove
+                        </button>
+                      </div>
+                    </details>
+                  </form>
+                </div>
+              </td>
+            </tr>
           {% else %}
-          <tr>
-            <td colspan="6" class="px-6 py-8 text-center text-gray-500 italic">
-              No repeatable jobs defined.
-            </td>
-          </tr>
+            <tr>
+              <td colspan="7">
+                {{ empty_state("No repeatable jobs", "Backend repeatable definitions will appear here when configured.") }}
+              </td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>
-    </div>
+    </section>
   </div>
 {% endblock %}

@@ -9,6 +9,7 @@ from lilya.types import ASGIApp, Receive, Scope, Send
 
 AuthenticateCallable = Callable[[Request], Awaitable[Any | None]]
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
+DEFAULT_SCHEME_PORTS = {"http": "80", "https": "443"}
 
 
 def _truthy(value: Any) -> bool:
@@ -65,6 +66,38 @@ def _user_is_admin(user: Any) -> bool:
     return _truthy(getattr(user, "is_admin", False))
 
 
+def _first_header_value(value: str | None) -> str | None:
+    """Return the first comma-separated forwarded-header value, if present."""
+    if not value:
+        return None
+    return value.split(",", 1)[0].strip() or None
+
+
+def _client_peer(scope: Scope) -> str:
+    """Return the ASGI client peer address used for trusted-proxy checks."""
+    client = scope.get("client")
+    if isinstance(client, (tuple, list)) and client:
+        return str(client[0])
+    return "unix"
+
+
+def _host_has_port(host: str) -> bool:
+    """Return whether a host string already carries an explicit port."""
+    if host.startswith("["):
+        return "]:" in host
+    return ":" in host
+
+
+def _origin_from_parts(scheme: str, host: str, port: str | None = None) -> str:
+    """Build a normalized origin string from request or trusted proxy parts."""
+    scheme = scheme.split(",", 1)[0].strip()
+    host = host.split(",", 1)[0].strip()
+    port = _first_header_value(port)
+    if port and not _host_has_port(host) and port != DEFAULT_SCHEME_PORTS.get(scheme):
+        host = f"{host}:{port}"
+    return f"{scheme}://{host}"
+
+
 class AuthGateMiddleware:
     """
     ASGI middleware that enforces authentication for the wrapped child application,
@@ -85,6 +118,7 @@ class AuthGateMiddleware:
         enforce_same_origin: bool = True,
         require_admin: bool = True,
         required_roles: Iterable[str] = (),
+        trusted_proxies: Iterable[str] = (),
     ) -> None:
         """
         Initializes the AuthGateMiddleware.
@@ -102,6 +136,8 @@ class AuthGateMiddleware:
             require_admin: If True, authenticated users must be admins.
             required_roles: Optional role allowlist. When provided, the user
                        must have at least one required role.
+            trusted_proxies: Client peer addresses whose forwarded host/proto
+                       headers may be trusted for checks against the same origin.
         """
         self.app: ASGIApp = app
         self.authenticate: AuthenticateCallable = authenticate
@@ -110,19 +146,32 @@ class AuthGateMiddleware:
         self.enforce_same_origin = enforce_same_origin
         self.require_admin = require_admin
         self.required_roles = frozenset(str(role) for role in required_roles)
+        self.trusted_proxies = frozenset(str(proxy) for proxy in trusted_proxies)
+
+    def _trusts_forwarded_headers(self, request: Request) -> bool:
+        """Return whether this request may use reverse-proxy origin headers."""
+        if not self.trusted_proxies:
+            return False
+        return "*" in self.trusted_proxies or _client_peer(request.scope) in self.trusted_proxies
 
     def _is_same_origin(self, request: Request) -> bool:
+        """Return whether an unsafe request came from the dashboard origin."""
         origin = request.headers.get("origin")
         if not origin:
             return False
 
-        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        forwarded_trusted = self._trusts_forwarded_headers(request)
+        host = (
+            _first_header_value(request.headers.get("x-forwarded-host")) if forwarded_trusted else None
+        ) or request.headers.get("host")
         if not host:
             return False
 
-        scheme = request.headers.get("x-forwarded-proto") or request.scope.get("scheme", "http")
-        scheme = scheme.split(",", 1)[0].strip()
-        return origin == f"{scheme}://{host}"
+        scheme = (
+            _first_header_value(request.headers.get("x-forwarded-proto")) if forwarded_trusted else None
+        ) or request.scope.get("scheme", "http")
+        port = request.headers.get("x-forwarded-port") if forwarded_trusted else None
+        return origin == _origin_from_parts(str(scheme), host, port)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """

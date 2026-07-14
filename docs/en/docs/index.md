@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <span>⚡ Supercharge your async applications with tasks so fast, you'll think you're bending time itself. ⚡</span>
+  <strong>Async task queues, workers, retries, scheduling, and operations visibility for Python.</strong>
 </p>
 
 <p align="center">
@@ -22,78 +22,36 @@
 
 ---
 
-**Documentation**: [https://asyncmq.dymmond.com](https://asyncmq.dymmond.com) 📚
+AsyncMQ is a background job runtime for Python services built on `asyncio` and
+`anyio`. It provides task registration for Python applications, durable queue
+backends, workers, retries, delayed jobs, repeatables, flow primitives, a CLI,
+and a packaged operations dashboard.
 
-**Source Code**: [https://github.com/dymmond/asyncmq](https://github.com/dymmond/asyncmq)
+Use AsyncMQ when you want a queue system that is owned by your Python services
+and deployable with your existing infrastructure.
 
-**The official supported version is always the latest released**.
+## What You Get
 
----
+- `@task` registration with `.enqueue()`, `.delay()`, and `.send()` helpers.
+- Queue APIs for job creation, pause/resume, cleanup, cancellation, retry, and DLQ operations.
+- Worker runtime for async handlers, concurrency, heartbeat metadata, retries, and lifecycle hooks.
+- Backend support for Redis, PostgreSQL, MongoDB, RabbitMQ, and in-memory development.
+- Repeatable jobs, delayed jobs, dependencies, and flow orchestration.
+- A Sayer-powered `asyncmq` CLI for production inspection and operations.
+- A native Lilya/Jinja dashboard with packaged assets and no frontend build step.
 
-AsyncMQ is an asynchronous Python job queue focused on `asyncio`/`anyio` workloads.
+AsyncMQ is not a hosted queue service and does not remove the need for
+idempotent task handlers. Production systems should assume jobs can be retried.
 
-It gives you:
-- task registration via `@task`
-- queue and worker runtime APIs
-- delayed jobs, retries/backoff, TTL expiration, and dead-letter routing
-- multiple backends (`Redis`, `Postgres`, `MongoDB`, `RabbitMQ`, in-memory)
-- a CLI (`asyncmq`) and a built-in dashboard app
+## First Run
 
-## What AsyncMQ Is (and Is Not)
+Install AsyncMQ:
 
-AsyncMQ is:
-
-- a library-first queue/worker runtime you embed in Python apps
-- backend-pluggable through a shared `BaseBackend` contract
-- suitable for both local development and production deployments
-
-AsyncMQ is not:
-
-- a hosted queue service
-- a guaranteed exactly-once execution system
-- a replacement for domain-level idempotency in your task code
-
-## Architecture Overview
-
-At runtime, AsyncMQ has four main layers:
-
-1. Task registration: `@task(queue=...)` stores handlers in `TASK_REGISTRY` and adds `.enqueue()` helpers.
-2. Queue API: `Queue` wraps backend operations (`enqueue`, `pause`, `list_jobs`, delayed/repeatable APIs).
-3. Worker runtime: `process_job`/`handle_job` run tasks, manage state transitions, retries, and acknowledgements.
-4. Backend and store: concrete backends persist job state and queue metadata.
-
-For an end-to-end walkthrough, start with [Core Concepts](features/core-concepts.md).
-
-```mermaid
-flowchart LR
-    A["Producer"] --> B["@task/.enqueue"]
-    B --> C["Queue API"]
-    C --> D["Backend (waiting/delayed state)"]
-    D --> E["Worker runtime"]
-    E --> F["Task handler execution"]
-    F --> G["Result/state update + ack/DLQ"]
+```bash
+pip install asyncmq
 ```
 
-## Feature Map
-
-- [Installation](installation.md)
-- [Quickstart](features/quickstart.md)
-- [Tasks](features/tasks.md)
-- [Queues](features/queues.md)
-- [Deduplication](features/deduplication.md)
-- [Jobs](features/jobs.md)
-- [Workers](features/workers.md)
-- [Schedulers](features/schedulers.md)
-- [Flows](features/flows.md)
-- [CLI](features/cli.md)
-- [Dashboard](dashboard/dashboard.md)
-- [Production Operations](learn/production-operations.md)
-- [BullMQ Migration](reference/bullmq-migration.md)
-- [Troubleshooting](troubleshooting.md)
-
-## Minimal Quickstart (In-Memory)
-
-Use in-memory backend first so you can run without Redis/Postgres.
+Create settings:
 
 ```python
 # myapp/settings.py
@@ -103,11 +61,14 @@ from asyncmq.conf.global_settings import Settings
 
 class AppSettings(Settings):
     backend = InMemoryBackend()
+    worker_concurrency = 1
 ```
 
 ```bash
 export ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings
 ```
+
+Define a task:
 
 ```python
 # myapp/tasks.py
@@ -115,13 +76,16 @@ from asyncmq.tasks import task
 
 
 @task(queue="emails", retries=2, ttl=300)
-async def send_welcome(email: str) -> None:
-    print(f"sent welcome email to {email}")
+async def send_welcome(email: str) -> str:
+    return f"sent welcome email to {email}"
 ```
+
+Enqueue work:
 
 ```python
 # producer.py
 import anyio
+
 from asyncmq.queues import Queue
 from myapp.tasks import send_welcome
 
@@ -135,13 +99,129 @@ async def main() -> None:
 anyio.run(main)
 ```
 
+Run a worker:
+
 ```bash
 asyncmq worker start emails --concurrency 1
 ```
 
-## Next Steps
+Inspect state:
 
-1. Configure your target backend in [Settings](features/settings.md).
-2. Add failure handling and retries with [Jobs](features/jobs.md) and [Workers](features/workers.md).
-3. Add scheduling and orchestration with [Schedulers](features/schedulers.md) and [Flows](features/flows.md).
-4. Add operations visibility with the [Dashboard](dashboard/dashboard.md), [CLI reference](reference/cli-reference.md), and [Production Operations](learn/production-operations.md).
+```bash
+asyncmq queue list
+asyncmq queue info emails
+asyncmq job list --queue emails --state waiting
+asyncmq job list --queue emails --state failed
+```
+
+Continue with the [Quickstart](features/quickstart.md) and
+[Core Concepts](features/core-concepts.md).
+
+## Production Pattern
+
+For production, put the backend configuration in one settings class and use the
+same `ASYNCMQ_SETTINGS_MODULE` in producers, workers, the CLI, and the
+dashboard service.
+
+```python
+# myapp/settings.py
+from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf.global_settings import Settings
+from asyncmq.core.utils.dashboard import DashboardConfig
+
+
+class AppSettings(Settings):
+    secret_key = "replace-with-a-secret-from-your-secret-manager"
+    backend = RedisBackend("redis://redis:6379/0")
+    worker_concurrency = 8
+    scan_interval = 1.0
+
+    @property
+    def dashboard_config(self) -> DashboardConfig:
+        return DashboardConfig(
+            secret_key=self.secret_key,
+            dashboard_url_prefix="/asyncmq",
+            path="/asyncmq",
+            https_only=True,
+        )
+```
+
+Run workers wherever they belong:
+
+```bash
+ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings \
+asyncmq worker start emails --concurrency 8
+```
+
+Run the dashboard as a separate ASGI service if you want:
+
+```python
+# myapp/dashboard.py
+from lilya.apps import Lilya
+
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+
+app = Lilya()
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=auth_backend,  # Provide an AuthBackend implementation.
+    url_prefix="/asyncmq",
+)
+admin.include_in(app)
+```
+
+The dashboard reads the same backend evidence as the workers. It does not need
+to run in the same process as a worker.
+
+## Operations Dashboard
+
+The dashboard is an AsyncMQ-owned Lilya contrib app rendered with Jinja
+templates. It ships packaged Alpine.js, Tailwind CSS, Chart.js, dashboard CSS,
+and JavaScript assets, so it does not require Node.js, a frontend build
+pipeline, or a public CDN at runtime.
+
+It covers:
+
+- queue and job inspection
+- worker status and heartbeat freshness
+- failed job diagnostics with redacted payloads and tracebacks
+- DLQ and repeatable operations
+- metrics, runtime events, and audit history
+- deployments behind reverse proxies at `/`, `/asyncmq/`, and nested paths such as `/operations/asyncmq/`
+
+Start with the [Dashboard guide](dashboard/dashboard.md), then use the
+[Dashboard Operations Playbook](dashboard/operations.md) for day-to-day
+incident workflows.
+
+## Runtime Shape
+
+```mermaid
+flowchart LR
+    Producer["Producer service"] --> Task["@task enqueue"]
+    Task --> Queue["Queue API"]
+    Queue --> Backend["Backend state"]
+    Backend --> Worker["Worker runtime"]
+    Worker --> Handler["Task handler"]
+    Worker --> Backend
+    Backend --> Dashboard["Operations dashboard"]
+    Backend --> CLI["asyncmq CLI"]
+```
+
+## Where To Go Next
+
+| Goal | Start Here |
+| --- | --- |
+| Install and configure AsyncMQ | [Installation](installation.md) |
+| Run your first job | [Quickstart](features/quickstart.md) |
+| Understand runtime concepts | [Core Concepts](features/core-concepts.md) |
+| Define tasks | [Tasks](features/tasks.md) |
+| Work with queues and jobs | [Queues](features/queues.md), [Jobs](features/jobs.md) |
+| Run workers safely | [Workers](features/workers.md) |
+| Schedule repeatable work | [Schedulers](features/schedulers.md) |
+| Model dependencies and flows | [Flows](features/flows.md) |
+| Operate from the CLI | [CLI](features/cli.md), [CLI Reference](reference/cli-reference.md) |
+| Deploy the dashboard | [Dashboard](dashboard/dashboard.md) |
+| Prepare production systems | [Production Operations](learn/production-operations.md), [Deployment](learn/deployment.md) |
+| Tune performance | [Performance Tuning and Benchmarks](learn/performance-tuning-and-benchmarks.md) |
+| Migrate BullMQ concepts | [BullMQ Migration](reference/bullmq-migration.md) |
+| Debug failures | [Troubleshooting](troubleshooting.md) |

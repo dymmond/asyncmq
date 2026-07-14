@@ -79,7 +79,7 @@ The job execution path is:
      `job:failed`
 
 This is broadly the same mental model as BullMQ workers, expressed through
-backend-neutral Python runtime code instead of Redis scripts.
+portable Python runtime code instead of Redis scripts.
 
 Lifecycle transitions such as completion, retry, expiration, and terminal
 failure are owned by the backend interface. Backends with transactional storage
@@ -114,7 +114,7 @@ What that means in practice:
 Choose concurrency based on the handler's bottleneck:
 
 - I/O-heavy jobs usually tolerate higher concurrency
-- CPU-heavy jobs usually need lower concurrency or separate worker pools
+- CPU bound jobs usually need lower concurrency or separate worker pools
 
 ## Rate Limiting
 
@@ -334,7 +334,7 @@ A common production topology is:
 1. dedicated producer application processes
 2. one or more worker deployments per queue class
 3. built-in stalled recovery on workers when `enable_stalled_check=True`, or one
-   standalone stalled-recovery process when you deliberately centralize recovery
+   standalone stalled recovery process when you deliberately centralize recovery
 4. dashboard or metrics readers as separate operational services
 
 Example bootstrap:

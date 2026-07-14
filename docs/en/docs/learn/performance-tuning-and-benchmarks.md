@@ -119,7 +119,7 @@ not a substitute for broker-backed measurements.
 ## Concurrency Guidance
 
 - I/O-heavy tasks: increase concurrency gradually.
-- CPU-heavy tasks: keep concurrency lower or use sandbox/process isolation.
+- CPU bound tasks: keep concurrency lower or use sandbox/process isolation.
 - Large idle fleets should use adaptive idle polling defaults to avoid empty
   dequeue storms while producers are filling a queue.
 

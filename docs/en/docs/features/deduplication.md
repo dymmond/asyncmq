@@ -5,7 +5,7 @@ deduplication windows that ignore or replace jobs while a logical key is
 already active.
 
 AsyncMQ now exposes the same practical producer model without depending on
-Redis-only key scripts.
+Redis specific key scripts.
 
 ## What It Solves
 
@@ -146,7 +146,7 @@ track why a producer call did not create a new job.
 ## Backend Notes
 
 AsyncMQ stores deduplication metadata on the job payload itself rather than in
-Redis-only side keys. That keeps the feature portable across:
+Redis specific side keys. That keeps the feature portable across:
 
 - Redis
 - Postgres
@@ -199,5 +199,5 @@ Locking is backend-aware:
 | `getDebounceJobId(...)` | `queue.get_debounce_job_id(...)` |
 | `removeDeduplicationKey(...)` | `queue.remove_deduplication_key(...)` |
 
-AsyncMQ keeps BullMQ's practical semantics while expressing them in a
-Python-native and backend-neutral API.
+AsyncMQ keeps BullMQ's practical semantics while expressing them in an API that
+feels natural in Python and stays portable across backends.

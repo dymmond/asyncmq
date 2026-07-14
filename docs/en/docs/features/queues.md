@@ -133,7 +133,7 @@ completed = await queue.get_completed()
 waiting_children = await queue.get_waiting_children()
 ```
 
-The inspection model is backend-neutral:
+The inspection model is portable across backends:
 
 - `waiting-children` is inferred from unresolved dependency metadata.
 - `paused` and `prioritized` are exposed as inspection buckets for API parity, but AsyncMQ does not persist them as separate backend states.
@@ -177,9 +177,9 @@ await queue.remove_repeatable(job_def)
 
 `Queue.add_repeatable(...)` registers an in-process repeatable used only by the current worker process.
 
-`Queue.upsert_repeatable(...)` persists a backend-managed schedule so workers and dashboard flows can discover it without inheriting local producer state. Prefer `upsert_repeatable(...)` for production scheduling and keep `add_repeatable(...)` for tests, local development, or code-defined worker bootstrap.
+`Queue.upsert_repeatable(...)` persists a schedule in the backend so workers and dashboard flows can discover it without inheriting local producer state. Prefer `upsert_repeatable(...)` for production scheduling and keep `add_repeatable(...)` for tests, local development, or worker bootstrap defined in code.
 
-Backend-managed repeatables are coordinated under a queue-scoped scheduler lock
+Repeatables stored in the backend are coordinated under a per-queue scheduler lock
 so multiple workers do not all advance the same durable schedule at once.
 Redis and Postgres provide distributed coordination here; in-memory and MongoDB
 provide process-local coordination.
@@ -191,4 +191,4 @@ await queue.run()  # async
 queue.start()      # blocking wrapper
 ```
 
-`queue.run()` calls `run_worker(...)` with queue-level concurrency, rate-limit, scan interval, local repeatables, and backend-managed repeatables.
+`queue.run()` calls `run_worker(...)` with queue-level concurrency, rate limit, scan interval, local repeatables, and repeatables stored in the backend.

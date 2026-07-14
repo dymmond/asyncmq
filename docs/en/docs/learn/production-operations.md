@@ -18,7 +18,7 @@ For most teams, the cleanest production topology is:
 
 1. application processes that only produce jobs
 2. dedicated worker processes or containers per queue family
-3. one optional stalled-recovery process when stalled recovery is enabled
+3. one optional stalled recovery process when stalled recovery is enabled
 4. dashboard and admin surfaces as separate operational services
 
 Avoid embedding high-volume workers into the same process that handles your
@@ -41,7 +41,7 @@ Good queue boundaries:
 - `emails`: moderate latency tolerance, external provider throttling
 - `webhooks`: bursty I/O work, retry-heavy
 - `billing`: low concurrency, stronger operator scrutiny
-- `media`: CPU-heavy or long-running tasks
+- `media`: CPU bound or long-running tasks
 
 Bad queue boundaries:
 
@@ -111,7 +111,7 @@ Scale with a combination of:
 Example thought process:
 
 - I/O-heavy email/webhook jobs: higher concurrency, higher worker count
-- CPU-heavy PDF generation: lower concurrency, often isolated workers
+- CPU bound PDF generation: lower concurrency, often isolated workers
 - rate-limited downstream API: dedicated queue with moderate concurrency plus rate limiting
 
 Remember:

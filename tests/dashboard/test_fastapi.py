@@ -51,6 +51,7 @@ def test_sidebar_links_include_mount_prefix(client):
     assert 'href="/fastapi/asyncmq/queues"' in html
     assert 'href="/fastapi/asyncmq/metrics"' in html
     assert 'href="/fastapi/asyncmq/audit"' in html
+    assert 'href="/fastapi/asyncmq/events/history"' in html
     assert 'href="/fastapi/asyncmq/workers"' in html
 
     # Ensure incorrect, unmounted links are NOT present
@@ -58,4 +59,5 @@ def test_sidebar_links_include_mount_prefix(client):
     assert 'href="/asyncmq/queues"' not in html
     assert 'href="/asyncmq/metrics"' not in html
     assert 'href="/asyncmq/audit"' not in html
+    assert 'href="/asyncmq/events/history"' not in html
     assert 'href="/asyncmq/workers"' not in html

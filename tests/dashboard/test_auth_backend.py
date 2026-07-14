@@ -162,6 +162,23 @@ def test_login_success_sets_session_and_allows_access(client_userpass: TestClien
     assert "Queues" in response.text or "Dashboard" in response.text
 
 
+def test_login_and_logout_routes_use_controller_delegates(client_userpass: TestClient):
+    response = client_userpass.get("/asyncmq/login")
+    assert response.status_code == 200
+    assert "<form" in response.text
+
+    response = client_userpass.post(
+        "/asyncmq/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    response = client_userpass.post("/asyncmq/logout", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers.get("location", "").endswith("/login")
+
+
 def test_logout_clears_session(client_userpass: TestClient):
     # Login first
     client_userpass.post(

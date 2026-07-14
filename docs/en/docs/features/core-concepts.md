@@ -57,7 +57,7 @@ Typical transitions:
 ## Delayed and Repeatable Work
 
 - Delayed jobs are scheduled through `enqueue_delayed` and moved back to the main queue by `delayed_job_scanner`.
-- Local repeatables are registered with `Queue.add_repeatable(...)`, while durable backend-managed schedules use `Queue.upsert_repeatable(...)`; both are consumed by `repeatable_scheduler` when that queue's worker runs.
+- Local repeatables are registered with `Queue.add_repeatable(...)`, while durable schedules stored in the backend use `Queue.upsert_repeatable(...)`; both are consumed by `repeatable_scheduler` when that queue's worker runs.
 
 ## Dependencies and Flows
 

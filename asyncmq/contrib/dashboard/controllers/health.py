@@ -10,12 +10,18 @@ from asyncmq import monkay
 
 
 class HealthController(Controller):
+    """Returns the lightweight dashboard liveness response."""
+
     async def get(self, request: Request) -> JSONResponse:
+        """Handle liveness checks without touching the AsyncMQ backend."""
         return JSONResponse({"status": "ok", "service": "asyncmq-dashboard"})
 
 
 class ReadinessController(Controller):
+    """Returns backend-aware readiness for production health checks."""
+
     async def get(self, request: Request) -> JSONResponse:
+        """Check the configured backend using its lightweight health contract when available."""
         backend: Any = monkay.settings.backend
         backend_name = backend.__class__.__name__
         try:
