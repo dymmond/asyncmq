@@ -17,6 +17,8 @@
   queue coverage, and declared concurrency.
 - Dashboard failed-job details now present structured exception, traceback, and
   redacted diagnostic evidence.
+- Dashboard audit trail now has operator-focused summaries, filters, and
+  collapsible action details.
 
 ### Fixed
 

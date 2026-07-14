@@ -622,6 +622,29 @@ a.btn {
   grid-column: span 2;
 }
 
+.amq-filter-panel--audit {
+  grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(120px, 1fr)) auto;
+  align-items: end;
+}
+
+.amq-filter-panel--audit .amq-field-wide {
+  grid-column: auto;
+}
+
+.amq-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.amq-field > span {
+  color: var(--amq-muted);
+  font-size: .72rem;
+  font-weight: 760;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .amq-input,
 .amq-select {
   width: 100%;
@@ -632,6 +655,12 @@ a.btn {
   background: var(--amq-surface);
   border: 1px solid var(--amq-border-strong);
   border-radius: var(--amq-radius);
+}
+
+.amq-filter-actions {
+  display: flex;
+  align-items: end;
+  gap: 8px;
 }
 
 .amq-pill-nav {
@@ -805,6 +834,40 @@ a.btn {
 
 .amq-diagnostic-section summary::-webkit-details-marker {
   color: var(--amq-muted);
+}
+
+.amq-audit-table {
+  min-width: 960px;
+}
+
+.amq-audit-action,
+.amq-audit-target {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.amq-audit-action {
+  color: var(--amq-ink);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.amq-audit-target span {
+  overflow-wrap: anywhere;
+}
+
+.amq-audit-error {
+  margin: 0;
+  color: #7f1d1d;
+  font-size: .84rem;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.amq-audit-details .amq-pre {
+  max-height: 260px;
 }
 
 .amq-confirm {
@@ -1040,6 +1103,15 @@ a.btn {
 
   .amq-filter-panel .amq-field-wide {
     grid-column: auto;
+  }
+
+  .amq-filter-panel--audit {
+    grid-template-columns: 1fr;
+  }
+
+  .amq-filter-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .amq-section-header,

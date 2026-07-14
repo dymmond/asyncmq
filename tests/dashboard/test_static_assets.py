@@ -175,7 +175,7 @@ def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: T
     """Keep primary operator pages compatible with strict CSP."""
     inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
 
-    for path in ("/", "/queues", "/queues/critical-email", "/metrics", "/workers"):
+    for path in ("/", "/queues", "/queues/critical-email", "/metrics", "/audit", "/workers"):
         response = client.get(path)
 
         assert response.status_code == 200

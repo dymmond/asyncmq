@@ -11,7 +11,7 @@ from lilya.testclient import TestClient
 
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.application import create_dashboard_app
-from asyncmq.contrib.dashboard.audit import clear_audit_events
+from asyncmq.contrib.dashboard.audit import clear_audit_events, record_audit_event
 from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
 from asyncmq.core.inspection import JobInspectionPage
@@ -534,8 +534,34 @@ def test_audit_page_reflects_job_action(client, app):
 
     audit_response = client.get(url(app, "audit"))
     assert audit_response.status_code == 200
-    assert b"job.retry" in audit_response.content
-    assert b"f1" in audit_response.content
+    assert "Operator Action Evidence" in audit_response.text
+    assert "Visible Events" in audit_response.text
+    assert "job.retry" in audit_response.text
+    assert "job f1" in audit_response.text
+    assert 'class="amq-table amq-audit-table"' in audit_response.text
+
+
+def test_audit_page_formats_failed_actions_with_collapsible_details(client, app):
+    record_audit_event(
+        request=None,
+        action="queue.pause",
+        source="queues.detail",
+        status="failed",
+        queue="emails",
+        details={"reason": "backend refused", "attempt": 2},
+        error="<broker down>",
+    )
+
+    audit_response = client.get(url(app, "audit") + "?status=failed&q=backend")
+
+    assert audit_response.status_code == 200
+    assert "Failed" in audit_response.text
+    assert "queue.pause" in audit_response.text
+    assert "emails" in audit_response.text
+    assert "backend refused" in audit_response.text
+    assert "&lt;broker down&gt;" in audit_response.text
+    assert "<broker down>" not in audit_response.text
+    assert "<details class=\"amq-diagnostic-section amq-audit-details\">" in audit_response.text
 
 
 def test_metrics_history_endpoint_returns_snapshots(client, app):
