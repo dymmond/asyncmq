@@ -10,9 +10,9 @@ inspection:
 - queue, job, worker, DLQ, repeatable, metrics, event, and audit visibility
 - retry, cancel, remove, pause, resume, drain, and purge operations where the
   configured backend supports them
-- failed-job diagnostics with redacted payload metadata, root cause, exception
-  chain, stack-frame summaries, and raw traceback access
-- reverse-proxy-aware URLs for direct, mounted, and nested deployments
+- failed job diagnostics with redacted payload metadata, root cause, exception
+  chain, stack frame summaries, and raw traceback access
+- URLs that work for direct, mounted, and nested deployments behind a reverse proxy
 
 Related pages:
 
@@ -50,7 +50,7 @@ failure, retry, or health state in the browser.
 | Durable queue data | Configured backend | Redis, PostgreSQL, MongoDB, RabbitMQ, or in-memory backend capabilities differ |
 | Audit history | Dashboard process | Bounded local evidence of dashboard actions |
 | Metrics history | Dashboard process | Bounded local snapshots for the operations console |
-| Templates | Dashboard package | Server-rendered Jinja remains the primary rendering layer |
+| Templates | Dashboard package | Jinja rendered by the server remains the primary rendering layer |
 | Alpine.js | Dashboard static package | Progressive interaction only; loaded from packaged assets |
 | Tailwind CSS | Dashboard static package | Vendored CSS asset; no runtime CDN or build step |
 
@@ -62,7 +62,7 @@ failure, retry, or health state in the browser.
 | Queues | `/queues` | Queue list, state counts, pause/resume controls |
 | Queue details | `/queues/{name}` | Per-queue counts, operations, and navigation |
 | Jobs | `/queues/{name}/jobs` | Server-side state filters, search, sorting, pagination |
-| Job detail | `/queues/{name}/jobs/{job_id}` | Runtime-owned metadata, redacted payloads, diagnostics |
+| Job detail | `/queues/{name}/jobs/{job_id}` | Runtime metadata, redacted payloads, diagnostics |
 | DLQ | `/queues/{name}/dlq` | Dead-letter inspection and confirmation-gated actions |
 | Repeatables | `/queues/{name}/repeatables` | Durable repeatable definitions and safe controls |
 | Workers | `/workers` | Worker status, queues, concurrency, heartbeat freshness |
@@ -377,7 +377,7 @@ admin = AsyncMQAdmin(
 Do not use wildcard origins for authenticated dashboards. AsyncMQ rejects
 `cors_allow_origins=("*",)` when `cors_allow_credentials=True`.
 
-When login is enabled, unsafe requests such as `POST` must be same-origin by
+When login is enabled, unsafe requests such as `POST` must come from the same origin by
 default. This protects queue and job operations from cross-origin form
 submissions. Set `enforce_same_origin=False` only when a trusted gateway already
 enforces equivalent origin rules before traffic reaches AsyncMQ.
@@ -402,12 +402,12 @@ and configure equivalent or stronger headers there.
 
 ## Reverse Proxy Deployments
 
-The dashboard is prefix-aware through Lilya mount and ASGI `root_path`
+The dashboard handles prefixes through Lilya mount and ASGI `root_path`
 handling. The validated Nginx proof lives in `tests/dashboard/nginx/` and uses
 a real browser to verify:
 
 - pages, forms, redirects, navigation, login, logout, queue actions, workers,
-  and failed-job diagnostics
+  and failed job diagnostics
 - CSS, Alpine.js, and static assets under the effective prefix
 - security headers
 - no required failed network requests
@@ -559,7 +559,7 @@ same contract:
 - do not trust forwarded headers from arbitrary direct clients
 
 For SSE at `/events`, disable response buffering or configure streaming support
-for the dashboard route. The browser uses same-origin `EventSource`.
+for the dashboard route. The browser uses `EventSource` from the same origin.
 
 ### Proxy Troubleshooting
 
@@ -664,7 +664,7 @@ Use the job detail view for:
 
 - sanitized arguments, keyword arguments, result, and error metadata
 - root cause and exception chain
-- stack-frame summaries and raw traceback text
+- stack frame summaries and raw traceback text
 - copyable diagnostic evidence with sensitive fields redacted
 - related queue and worker links when the backend reports them
 
@@ -687,8 +687,8 @@ freshness where the runtime provides those fields.
 
 ## Scale Guidance
 
-The dashboard uses server-side filtering and pagination where runtime contracts
-support it. Job inspection prefers backend-owned page contracts and clamps page
+The dashboard uses filtering and pagination on the server where runtime contracts
+support it. Job inspection prefers page contracts from the backend and clamps page
 sizes to avoid rendering or scanning unbounded job lists.
 
 Recommended production practice:
@@ -706,7 +706,7 @@ Dashboard changes are validated through:
 - unit and integration tests under `tests/dashboard/`
 - real browser workflows using Playwright
 - Nginx proof under `tests/dashboard/nginx/`
-- package-content checks for templates and static assets
+- package content checks for templates and static assets
 - wheel and sdist installation checks
 
 The packaged resources include:

@@ -45,7 +45,7 @@ Practical implications:
 AsyncMQ dashboard is production-usable for:
 
 - queue triage
-- failed-job recovery
+- failed job recovery
 - worker visibility
 - operator action traceability
 - short-window trend checks

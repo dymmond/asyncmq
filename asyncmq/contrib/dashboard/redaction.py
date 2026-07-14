@@ -31,7 +31,7 @@ def is_sensitive_key(key: str) -> bool:
 
 
 def redact_text_for_display(value: str) -> str:
-    """Redact common inline secret assignments from operator-visible text."""
+    """Redact common inline secret assignments from text shown to operators."""
 
     def replace_secret(match: re.Match[str]) -> str:
         opening_quote = match.group(3)
@@ -45,7 +45,7 @@ def redact_text_for_display(value: str) -> str:
 
 
 def redact_for_display(value: Any, *, depth: int = 0) -> Any:
-    """Return a bounded, redacted copy of operator-visible runtime data."""
+    """Return a bounded, redacted copy of runtime data shown to operators."""
     if depth > MAX_REDACTION_DEPTH:
         return "[nested data omitted]"
     if isinstance(value, dict):

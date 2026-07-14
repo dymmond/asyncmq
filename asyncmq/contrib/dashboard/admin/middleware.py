@@ -137,7 +137,7 @@ class AuthGateMiddleware:
             required_roles: Optional role allowlist. When provided, the user
                        must have at least one required role.
             trusted_proxies: Client peer addresses whose forwarded host/proto
-                       headers may be trusted for same-origin checks.
+                       headers may be trusted for checks against the same origin.
         """
         self.app: ASGIApp = app
         self.authenticate: AuthenticateCallable = authenticate

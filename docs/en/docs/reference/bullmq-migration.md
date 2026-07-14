@@ -6,8 +6,8 @@ without losing the operational model they rely on.
 The short version:
 
 - most day-to-day concepts map cleanly
-- AsyncMQ keeps the model async-first and Python-native
-- AsyncMQ avoids Redis lock-in by expressing capabilities through backends
+- AsyncMQ keeps the model async and natural for Python
+- AsyncMQ avoids Redis lock-in by expressing capabilities through backend contracts
 
 ## Concept Mapping
 
@@ -92,7 +92,7 @@ await queue.add(
 Notes:
 
 - AsyncMQ uses seconds for timing values in Python APIs
-- deduplication is stored on job metadata, not in Redis-only side keys
+- deduplication is stored on job metadata, not Redis specific side keys
 - the practical behavior is still simple deduplication, throttle windows, and debounce replacement
 
 ## Worker Migration
@@ -161,7 +161,7 @@ await queue.upsert_repeatable(
 )
 ```
 
-AsyncMQ also has a local-only helper:
+AsyncMQ also has a helper for local worker setup:
 
 ```python
 queue.add_repeatable("maintenance.cleanup", every=300)
@@ -189,9 +189,9 @@ await producer.add_flow("etl", [parent, child])
 Important behavioral note:
 
 - AsyncMQ supports dependency gating and `waiting-children` inspection
-- AsyncMQ does not try to clone every BullMQ flow-specific failure policy API
+- AsyncMQ does not try to clone every BullMQ failure policy API for flows
 
-If your BullMQ usage depends on advanced parent-state policies, model those
+If your BullMQ usage depends on advanced parent state policies, model those
 policies explicitly in application logic or operator workflows.
 
 ## Queue Inspection Migration
@@ -214,11 +214,11 @@ Intentional difference:
 
 ## Events and Telemetry
 
-BullMQ users may expect Redis-stream-based `QueueEvents`. AsyncMQ takes a
+BullMQ users may expect `QueueEvents` based on Redis streams. AsyncMQ takes a
 different route:
 
 - local lifecycle events through the event emitter
-- dashboard-oriented telemetry and SSE surfaces
+- dashboard telemetry and SSE surfaces
 - backend broadcast hooks where supported
 
 This is one of the largest intentional differences because AsyncMQ is not built
@@ -228,7 +228,7 @@ around Redis streams as the universal event substrate.
 
 ### Naming
 
-- BullMQ: camelCase-heavy JavaScript surface
+- BullMQ: JavaScript surface that leans on camelCase
 - AsyncMQ: Pythonic snake_case surface
 
 ### Timing units
@@ -238,8 +238,8 @@ around Redis streams as the universal event substrate.
 
 ### Backend model
 
-- BullMQ is Redis-native
-- AsyncMQ is backend-agnostic and lets coordination quality vary by backend
+- BullMQ is built around Redis
+- AsyncMQ is portable across backends and lets coordination quality vary by backend
 
 ### Queue scheduler model
 
@@ -254,7 +254,7 @@ around Redis streams as the universal event substrate.
 4. migrate repeatables to `upsert_repeatable(...)`
 5. review any flow logic that depends on advanced parent-failure policies
 6. choose the AsyncMQ backend that matches your coordination requirements
-7. wire delayed, repeatable, and stalled-recovery loops appropriately
+7. wire delayed, repeatable, and stalled recovery loops appropriately
 8. validate queue inspection and dashboard workflows in staging
 
 ## Related

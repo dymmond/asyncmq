@@ -27,7 +27,7 @@ ACTION_OPTIONS: list[str] = [
 
 
 def format_audit_details(details: dict[str, Any] | None) -> str:
-    """Return stable JSON for operator-visible audit details."""
+    """Return stable JSON for audit details shown to operators."""
     if not details:
         return ""
     return json.dumps(details, sort_keys=True, indent=2, default=str)
@@ -48,7 +48,7 @@ def build_audit_summary(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 class AuditController(DashboardMixin, TemplateController):
-    """Renders the bounded audit trail for operator-visible dashboard actions."""
+    """Renders the bounded audit trail for dashboard actions shown to operators."""
 
     template_name = "audit/audit.html"
 

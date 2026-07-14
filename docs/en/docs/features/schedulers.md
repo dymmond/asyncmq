@@ -1,7 +1,7 @@
 # Schedulers
 
-AsyncMQ scheduling is split into explicit loops instead of one Redis-only
-scheduler abstraction. That keeps the runtime backend-neutral while still
+AsyncMQ scheduling is split into explicit loops instead of one Redis specific
+scheduler abstraction. That keeps the runtime portable across backends while still
 covering the practical BullMQ feature set:
 
 - delayed jobs
@@ -83,7 +83,7 @@ queue.add_repeatable("maintenance.compact_indexes", every=300)
 
 Use this when:
 
-- the schedule is code-defined
+- the schedule is defined in code
 - one worker process is intentionally the source of truth
 - you are running tests or local development loops
 
@@ -133,7 +133,7 @@ Practical rule:
 The repeatable scheduler does two separate jobs:
 
 1. process local in-memory repeatable definitions passed in through `Queue`
-2. poll durable backend-managed repeatables and advance the next-run marker
+2. poll durable repeatables stored in the backend and advance the next-run marker
 
 When a schedule is due, the scheduler:
 
@@ -153,7 +153,7 @@ last-run marker only after a generated job is successfully enqueued.
 
 Multiple workers for the same queue may all start a repeatable scheduler. To
 avoid duplicate enqueue of durable schedules, AsyncMQ processes
-backend-managed repeatables under a queue-scoped scheduler lock.
+repeatables stored in the backend under a per-queue scheduler lock.
 
 What this means:
 
@@ -163,7 +163,7 @@ What this means:
 
 This is the AsyncMQ equivalent of BullMQ's need for centralized schedule
 advancement, but expressed through backend capability contracts instead of a
-Redis-only `QueueScheduler`.
+Redis specific `QueueScheduler`.
 
 ## Schedule Management APIs
 
@@ -211,7 +211,7 @@ async def main() -> None:
     # Local, code-owned housekeeping schedule.
     queue.add_repeatable("maintenance.cleanup_tmp", every=300)
 
-    # Durable, operator-visible schedule.
+    # Durable schedule shown to operators.
     await queue.upsert_repeatable(
         "maintenance.rotate_keys",
         cron="0 2 * * 0",

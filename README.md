@@ -30,16 +30,16 @@
 
 ---
 
-AsyncMQ is a library-first background job runtime for `asyncio` and `anyio`
-applications. It gives Python services a native queue API, worker runtime,
+AsyncMQ is a background job runtime for Python services built on `asyncio` and
+`anyio`. It gives applications a queue API, worker runtime,
 retry and dead-letter behavior, repeatable scheduling, flow primitives,
 multiple backends, a CLI, and a packaged Lilya/Jinja operations dashboard.
 
 ## Why AsyncMQ
 
-- Python-native task registration with `@task`, `.enqueue()`, `.delay()`, and `.send()`.
+- Task registration for Python services with `@task`, `.enqueue()`, `.delay()`, and `.send()`.
 - Queue and worker APIs for retries, backoff, delayed jobs, cancellation, pause/resume, cleanup, and DLQ operations.
-- Backend options for Redis, PostgreSQL, MongoDB, RabbitMQ, and in-memory development.
+- Backend options for Redis, PostgreSQL, MongoDB, RabbitMQ, and local memory-backed development.
 - A production operations console that is packaged with AsyncMQ and works without Node.js or a frontend build pipeline.
 - Clear runtime ownership: workers own execution, backends own durable queue state, and the dashboard consumes that state.
 
@@ -158,8 +158,8 @@ same `ASYNCMQ_SETTINGS_MODULE` and backend credentials.
 
 ## Operations Dashboard
 
-AsyncMQ includes a native dashboard built with Lilya, server-rendered Jinja
-templates, and packaged static assets.
+AsyncMQ includes a native dashboard built with Lilya, Jinja templates rendered
+by the server, and packaged static assets.
 
 ```python
 # myapp/dashboard.py
@@ -176,9 +176,9 @@ admin = AsyncMQAdmin(
 admin.include_in(app)
 ```
 
-The dashboard supports queue inspection, worker health, job lists, failed-job
+The dashboard supports queue inspection, worker health, job lists, failed job
 tracebacks, DLQ actions, repeatables, metrics, runtime events, audit history,
-and reverse-proxy deployments at `/`, `/asyncmq/`, and nested prefixes such as
+and deployments behind reverse proxies at `/`, `/asyncmq/`, and nested prefixes such as
 `/operations/asyncmq/`.
 
 Read the [Dashboard guide](https://asyncmq.dymmond.com/dashboard/dashboard/) for

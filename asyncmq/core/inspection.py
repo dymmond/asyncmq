@@ -24,7 +24,7 @@ JOB_TYPE_ALIASES: dict[str, str] = {
 @dataclass(frozen=True)
 class JobInspectionPage:
     """
-    A bounded, runtime-owned page of jobs for operator inspection.
+    A bounded page of runtime jobs for operator inspection.
 
     Backends may override the default inspection implementation with indexed
     filtering and pagination. The dashboard consumes this contract instead of

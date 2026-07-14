@@ -51,7 +51,7 @@ RabbitMQBackend(
 - RabbitMQ waiting delivery respects broker priority when queues are declared
   with `max_priority`; same-priority delivery follows RabbitMQ's broker
   ordering rather than an AsyncMQ-owned tie-breaker.
-- Published deliveries include backend-managed delivery tokens. Removed jobs
+- Published deliveries include delivery tokens managed by the backend. Removed jobs
   leave durable markers so stale broker redeliveries are acknowledged and
   ignored, while an explicit new enqueue with the same id receives a new token.
 - Cancelled jobs keep cancelled metadata, remove ready broker deliveries, and

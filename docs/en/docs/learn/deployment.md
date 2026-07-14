@@ -9,7 +9,7 @@ Run these as separate process types whenever traffic is meaningful:
 
 - producer applications that enqueue jobs
 - worker processes or containers per queue family
-- optional standalone stalled-recovery process
+- optional standalone stalled recovery process
 - dashboard/admin process
 
 Avoid combining high-volume workers with user-facing HTTP traffic unless the

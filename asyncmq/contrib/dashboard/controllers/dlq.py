@@ -62,7 +62,7 @@ class DLQController(DashboardMixin, TemplateController):
         return created
 
     def _format_job_data(self, raw_job: RawJobData) -> FormattedJob:
-        """Format one runtime-owned failed job for safe operator display."""
+        """Format one failed runtime job for safe operator display."""
         return {
             "id": raw_job.get("id") or raw_job.get("job_id") or "n/a",
             "task_id": extract_job_task(raw_job) or "n/a",

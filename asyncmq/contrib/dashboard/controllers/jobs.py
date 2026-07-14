@@ -46,7 +46,7 @@ TRACEBACK_FRAME_MARKERS: tuple[str, ...] = ('File "', "  File ")
 
 
 def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
-    """Infer an exception type from runtime-owned error text."""
+    """Infer an exception type from error text supplied by the runtime."""
     candidates: list[str] = []
     if traceback_text:
         candidates.extend(line.strip() for line in traceback_text.splitlines() if line.strip())
@@ -61,7 +61,7 @@ def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
 
 
 def extract_exception_chain(error_message: Any, traceback_text: str | None) -> list[str]:
-    """Extract exception-chain summary lines from runtime-owned traceback text."""
+    """Extract exception chain summary lines from traceback text supplied by the runtime."""
     candidates: list[str] = []
     if traceback_text:
         for line in traceback_text.splitlines():
@@ -98,7 +98,7 @@ def extract_root_cause(error_message: Any, traceback_text: str | None) -> str:
 
 
 def extract_traceback_frames(traceback_text: str | None) -> list[dict[str, str]]:
-    """Extract Python traceback frame summaries from runtime-owned traceback text."""
+    """Extract Python traceback frame summaries from traceback text supplied by the runtime."""
     if not traceback_text:
         return []
 
@@ -440,7 +440,7 @@ class QueueJobController(DashboardMixin, TemplateController):
 
 class JobDetailController(DashboardMixin, TemplateController):
     """
-    Renders a runtime-owned job detail page for a single queue job.
+    Renders a job detail page from runtime data for a single queue job.
 
     The controller consumes backend inspection contracts (`get_job`,
     `get_job_state`, and `get_job_result`) and only falls back to bounded
@@ -487,7 +487,7 @@ class JobDetailController(DashboardMixin, TemplateController):
         return is_sensitive_key(key)
 
     def _redact_for_display(self, value: Any, *, depth: int = 0) -> Any:
-        """Return a bounded, redacted copy of runtime-owned job data."""
+        """Return a bounded, redacted copy of job data from the runtime."""
         return redact_for_display(value, depth=depth)
 
     def _to_pretty_json(self, value: Any) -> str:
@@ -522,7 +522,7 @@ class JobDetailController(DashboardMixin, TemplateController):
         error_message: Any,
         traceback_text: str | None,
     ) -> dict[str, Any]:
-        """Build a redacted diagnostic bundle from runtime-owned job evidence."""
+        """Build a redacted diagnostic bundle from job evidence supplied by the runtime."""
         return {
             "queue": queue,
             "job_id": job_id,
@@ -625,11 +625,11 @@ class JobDetailController(DashboardMixin, TemplateController):
 
 class JobActionController(Controller):
     """
-    Handles single-job actions (retry, remove, cancel) via dedicated AJAX endpoints.
+    Handles single job actions (retry, remove, cancel) via dedicated AJAX endpoints.
     """
 
     def _safe_return_to(self, request: Request, fallback: str, candidate: str | None) -> str:
-        """Return a same-origin relative redirect target for HTML form actions."""
+        """Return a relative redirect target from the same origin for HTML form actions."""
         if candidate and candidate.startswith("/") and not candidate.startswith("//"):
             return candidate
         referer = request.headers.get("referer")

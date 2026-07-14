@@ -22,8 +22,8 @@
 
 ---
 
-AsyncMQ is a library-first background job runtime for `asyncio` and `anyio`
-applications. It provides Python-native task registration, durable queue
+AsyncMQ is a background job runtime for Python services built on `asyncio` and
+`anyio`. It provides task registration for Python applications, durable queue
 backends, workers, retries, delayed jobs, repeatables, flow primitives, a CLI,
 and a packaged operations dashboard.
 
@@ -184,10 +184,10 @@ It covers:
 
 - queue and job inspection
 - worker status and heartbeat freshness
-- failed-job diagnostics with redacted payloads and tracebacks
+- failed job diagnostics with redacted payloads and tracebacks
 - DLQ and repeatable operations
 - metrics, runtime events, and audit history
-- reverse-proxy deployments at `/`, `/asyncmq/`, and nested paths such as `/operations/asyncmq/`
+- deployments behind reverse proxies at `/`, `/asyncmq/`, and nested paths such as `/operations/asyncmq/`
 
 Start with the [Dashboard guide](dashboard/dashboard.md), then use the
 [Dashboard Operations Playbook](dashboard/operations.md) for day-to-day

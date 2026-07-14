@@ -70,7 +70,7 @@ class AsyncMQAdmin:
             required_roles: Optional role names; when provided, authenticated
                         users must have at least one of these roles.
             trusted_proxies: Optional client peer addresses whose forwarded
-                        host/proto headers may participate in same-origin checks.
+                        host/proto headers may participate in checks for the same origin.
 
         Raises:
             ValueError: If `enable_login` is True but no `backend` is provided.

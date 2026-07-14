@@ -34,7 +34,7 @@ def _format_duration(seconds: int | float | None) -> str:
 
 
 def _format_timestamp(timestamp: float | None) -> str:
-    """Format a Unix timestamp for operator-facing worker tables."""
+    """Format a Unix timestamp for worker tables shown to operators."""
     if timestamp is None or timestamp <= 0:
         return "-"
     try:
@@ -142,7 +142,7 @@ class WorkerController(DashboardMixin, TemplateController):
         *,
         heartbeat_ttl: float,
     ) -> dict[str, Any]:
-        """Summarize runtime-owned worker records for the page header."""
+        """Summarize worker records from the runtime for the page header."""
         healthy = sum(1 for worker in workers if worker["health_status"] == "healthy")
         warning = sum(1 for worker in workers if worker["health_status"] == "warning")
         stale = sum(1 for worker in workers if worker["health_status"] == "stale")
