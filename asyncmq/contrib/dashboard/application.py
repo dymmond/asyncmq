@@ -20,15 +20,17 @@ from asyncmq.contrib.dashboard.controllers import (
     workers,
 )
 from asyncmq.contrib.dashboard.engine import templates  # noqa
+from asyncmq.core.utils.dashboard import get_effective_prefix
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
+    """Render a mount-aware dashboard 404 page."""
     return templates.get_template_response(
         request,
         "404.html",
         context={
             "title": "Not Found",
-            "url_prefix": monkay.settings.dashboard_config.dashboard_url_prefix,
+            "url_prefix": get_effective_prefix(request),
         },
         status_code=404,
     )

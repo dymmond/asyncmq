@@ -4,7 +4,7 @@ import datetime as dt
 import json
 from typing import Any
 
-from lilya.datastructures import URL, FormData
+from lilya.datastructures import FormData
 from lilya.requests import Request
 from lilya.responses import RedirectResponse, Response
 from lilya.templating.controllers import TemplateController
@@ -13,6 +13,7 @@ from asyncmq import monkay
 from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.urls import dashboard_path_for
 
 RawJobData = dict[str, Any]
 FormattedJob = dict[str, Any]
@@ -28,9 +29,9 @@ class DLQController(DashboardMixin, TemplateController):
 
     template_name: str = "dlqs/dlq.html"
 
-    def get_return_url(self, request: Request, **params: Any) -> URL:
+    def get_return_url(self, request: Request, **params: Any) -> str:
         """Calculates the URL path for redirecting back to this controller."""
-        return request.url_path_for("dlq", **params)
+        return dashboard_path_for(request, "dlq", **params)
 
     def _get_pagination_params(self, request: Request) -> tuple[int, int]:
         """Extracts and validates pagination parameters (page and size)."""

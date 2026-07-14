@@ -40,6 +40,7 @@ class AsyncMQAdmin:
         enforce_same_origin: bool = True,
         require_admin: bool = True,
         required_roles: tuple[str, ...] = (),
+        trusted_proxies: tuple[str, ...] | None = None,
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -57,6 +58,8 @@ class AsyncMQAdmin:
                         privileges before dashboard access is allowed.
             required_roles: Optional role names; when provided, authenticated
                         users must have at least one of these roles.
+            trusted_proxies: Optional client peer addresses whose forwarded
+                        host/proto headers may participate in same-origin checks.
 
         Raises:
             ValueError: If `enable_login` is True but no `backend` is provided.
@@ -80,6 +83,7 @@ class AsyncMQAdmin:
         self.enforce_same_origin = enforce_same_origin
         self.require_admin = require_admin
         self.required_roles = required_roles
+        self.trusted_proxies = trusted_proxies if trusted_proxies is not None else config.trusted_proxies
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -133,6 +137,7 @@ class AsyncMQAdmin:
                     enforce_same_origin=self.enforce_same_origin,
                     require_admin=self.require_admin,
                     required_roles=self.required_roles,
+                    trusted_proxies=self.trusted_proxies,
                 )
             )
 

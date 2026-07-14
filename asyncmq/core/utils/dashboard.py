@@ -87,6 +87,13 @@ class DashboardConfig:
     Must not be combined with a wildcard origin.
     """
 
+    trusted_proxies: tuple[str, ...] = ()
+    """
+    Client peer addresses whose forwarded host/proto headers may be trusted
+    for dashboard same-origin checks. Empty by default so direct clients cannot
+    forge reverse-proxy origins.
+    """
+
     @property
     def session_middleware(self) -> DefineMiddleware:
         """
@@ -113,20 +120,14 @@ class DashboardConfig:
 def get_effective_prefix(request: Request) -> str:
     """Compute the effective base URL prefix for the dashboard.
 
-    Combines the ASGI mount root_path (if any) with the configured dashboard
-    URL prefix. Ensures a clean result without double slashes and with no
-    trailing slash, except when the result is exactly "/".
+    Lilya stores the actual mounted path in ``scope["root_path"]`` as requests
+    pass through includes and child applications. That runtime mount is the
+    canonical prefix whenever present; the configured dashboard prefix is only a
+    fallback for directly rendered dashboard apps with no mount scope.
     """
     configured_prefix = monkay.settings.dashboard_config.dashboard_url_prefix or ""
     mount_prefix = (getattr(request, "scope", None) or {}).get("root_path", "") or ""
 
-    # If the mount prefix already includes the configured prefix, don't double it.
-    if configured_prefix and (
-        mount_prefix.endswith(configured_prefix) or f"{mount_prefix}/".endswith(f"{configured_prefix}/")
-    ):
-        base = mount_prefix
-    else:
-        base = f"{mount_prefix}{configured_prefix or '/'}"
+    base = mount_prefix or configured_prefix or "/"
 
-    # Avoid trailing slash unless it's the root
     return base if base == "/" else base.rstrip("/")

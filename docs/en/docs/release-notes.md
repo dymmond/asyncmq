@@ -28,6 +28,8 @@
   metadata, and compressed large payload storage.
 - Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
   hardened for production operation.
+- Dashboard links, redirects, and same-origin checks now stay correct under
+  mounted paths and trusted reverse proxies.
 
 ## 0.8.1
 

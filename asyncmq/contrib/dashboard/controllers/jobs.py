@@ -16,6 +16,7 @@ from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.engine import templates
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.urls import dashboard_path_for
 
 RawJobData = dict[str, Any]
 FormattedJob = dict[str, Any]
@@ -356,7 +357,7 @@ class QueueJobController(DashboardMixin, TemplateController):
             job_id=job_id,
             sort=sort,
         )
-        redirect_path = str(request.url_path_for("queue-jobs", name=queue))
+        redirect_path = dashboard_path_for(request, "queue-jobs", name=queue)
         return RedirectResponse(f"{redirect_path}{redirect_query}", status_code=302)
 
 
@@ -477,9 +478,9 @@ class JobDetailController(DashboardMixin, TemplateController):
                 "result_json": self._to_pretty_json(result) if result is not None else None,
                 "error_message": job.get("last_error") or job.get("error") or job.get("exception"),
                 "traceback_text": traceback_text,
-                "return_to": str(request.url_path_for("job-detail", name=queue, job_id=job_id)),
-                "jobs_url": str(request.url_path_for("queue-jobs", name=queue)),
-                "queue_url": str(request.url_path_for("queue-detail", name=queue)),
+                "return_to": dashboard_path_for(request, "job-detail", name=queue, job_id=job_id),
+                "jobs_url": dashboard_path_for(request, "queue-jobs", name=queue),
+                "queue_url": dashboard_path_for(request, "queue-detail", name=queue),
             }
         )
         return await self.render_template(request, context=context)
@@ -525,7 +526,7 @@ class JobActionController(Controller):
         backend: Any = monkay.settings.backend
         canonical_action = "remove" if action == "delete" else action
         html_response, return_to = await self._form_response_mode(request)
-        fallback = str(request.url_path_for("job-detail", name=queue, job_id=job_id))
+        fallback = dashboard_path_for(request, "job-detail", name=queue, job_id=job_id)
 
         try:
             if canonical_action == "retry":
