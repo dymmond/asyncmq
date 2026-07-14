@@ -752,6 +752,61 @@ a.btn {
   border-color: #f2c3bf;
 }
 
+.amq-failure-card {
+  border-color: #f2c3bf;
+}
+
+.amq-failure-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.amq-failure-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.amq-error-callout {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  background: #fff7f7;
+  border: 1px solid #f2c3bf;
+  border-radius: var(--amq-radius);
+}
+
+.amq-error-message {
+  margin: 0;
+  color: #7f1d1d;
+  font-size: .9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.amq-diagnostic-section {
+  display: grid;
+  gap: 10px;
+}
+
+.amq-diagnostic-section summary {
+  width: fit-content;
+  color: var(--amq-ink);
+  font-size: .86rem;
+  font-weight: 740;
+  cursor: pointer;
+}
+
+.amq-diagnostic-section summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
+}
+
+.amq-diagnostic-section summary::-webkit-details-marker {
+  color: var(--amq-muted);
+}
+
 .amq-confirm {
   display: grid;
   gap: 10px;
@@ -977,6 +1032,7 @@ a.btn {
   .amq-grid-2,
   .amq-detail-grid,
   .amq-job-grid,
+  .amq-failure-summary,
   .amq-queue-grid,
   .amq-filter-panel {
     grid-template-columns: 1fr;

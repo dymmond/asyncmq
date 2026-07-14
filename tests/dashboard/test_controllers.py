@@ -347,6 +347,10 @@ def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(clien
     assert response.status_code == 200
     assert b"send-reminder" in response.content
     assert b"Failure Diagnostics" in response.content
+    assert b"Exception" in response.content
+    assert b"RuntimeError" in response.content
+    assert b"Frames" in response.content
+    assert b"Redacted diagnostic bundle" in response.content
     assert b"Traceback (most recent call last)" in response.content
     assert b"[redacted]" in response.content
     assert b"secret-token" not in response.content

@@ -48,6 +48,7 @@ SENSITIVE_KEY_PARTS: tuple[str, ...] = (
 )
 MAX_DISPLAY_STRING_LENGTH = 4000
 MAX_REDACTION_DEPTH = 8
+TRACEBACK_FRAME_MARKERS: tuple[str, ...] = ('File "', "  File ")
 
 
 def is_sensitive_key(key: str) -> bool:
@@ -86,6 +87,28 @@ def to_pretty_json(value: Any) -> str:
         sort_keys=True,
         default=str,
     )
+
+
+def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
+    """Infer an exception type from runtime-owned error text."""
+    candidates: list[str] = []
+    if traceback_text:
+        candidates.extend(line.strip() for line in traceback_text.splitlines() if line.strip())
+    if error_message:
+        candidates.append(str(error_message).strip())
+
+    for candidate in reversed(candidates):
+        head = candidate.split(":", 1)[0].strip()
+        if head and ("Error" in head or "Exception" in head or "." in head):
+            return head
+    return "Unknown"
+
+
+def count_traceback_frames(traceback_text: str | None) -> int:
+    """Count Python-style stack frames in a traceback string."""
+    if not traceback_text:
+        return 0
+    return sum(1 for line in traceback_text.splitlines() if line.lstrip().startswith(TRACEBACK_FRAME_MARKERS))
 
 
 class QueueJobController(DashboardMixin, TemplateController):
@@ -449,6 +472,40 @@ class JobDetailController(DashboardMixin, TemplateController):
                 return str(value)
         return None
 
+    def _build_diagnostics_bundle(
+        self,
+        *,
+        job: RawJobData,
+        queue: str,
+        job_id: str,
+        task_id: str,
+        state: str,
+        error_message: Any,
+        traceback_text: str | None,
+    ) -> dict[str, Any]:
+        """Build a redacted diagnostic bundle from runtime-owned job evidence."""
+        return {
+            "queue": queue,
+            "job_id": job_id,
+            "task_id": task_id,
+            "state": state,
+            "exception_type": infer_exception_type(error_message, traceback_text),
+            "error": error_message,
+            "traceback": traceback_text,
+            "retry": {
+                "attempt": job.get("attempt") or job.get("attempts") or job.get("retry_count"),
+                "retries": job.get("retries", job.get("retry_count")),
+                "max_retries": job.get("max_retries"),
+                "last_attempt": job.get("last_attempt"),
+            },
+            "worker": job.get("worker") or job.get("worker_id") or job.get("execution_worker"),
+            "timestamps": {
+                "created_at": job.get("created_at") or job.get("timestamp"),
+                "failed_at": job.get("failed_at"),
+                "run_at": job.get("run_at") or job.get("delay_until"),
+            },
+        }
+
     async def get(self, request: Request) -> Response:
         """
         Render a single job detail page with metadata, payload, result, and diagnostics.
@@ -469,6 +526,18 @@ class JobDetailController(DashboardMixin, TemplateController):
         result = job.get("result") if "result" in job else backend_result
         task_id = str(job.get("task_id") or job.get("task") or job.get("name") or "n/a")
         traceback_text = self._extract_traceback(job)
+        error_message = job.get("last_error") or job.get("error") or job.get("exception")
+        exception_type = infer_exception_type(error_message, traceback_text)
+        traceback_frame_count = count_traceback_frames(traceback_text)
+        diagnostic_bundle = self._build_diagnostics_bundle(
+            job=job,
+            queue=queue,
+            job_id=job_id,
+            task_id=task_id,
+            state=state,
+            error_message=error_message,
+            traceback_text=traceback_text,
+        )
 
         context: dict[str, Any] = await super().get_context_data(request)
         context.update(
@@ -491,8 +560,13 @@ class JobDetailController(DashboardMixin, TemplateController):
                 "kwargs_json": self._to_pretty_json(job.get("kwargs", {})),
                 "payload_json": self._to_pretty_json(job),
                 "result_json": self._to_pretty_json(result) if result is not None else None,
-                "error_message": job.get("last_error") or job.get("error") or job.get("exception"),
+                "error_message": error_message,
+                "exception_type": exception_type,
+                "traceback_frame_count": traceback_frame_count,
                 "traceback_text": traceback_text,
+                "diagnostics_json": self._to_pretty_json(diagnostic_bundle),
+                "execution_worker": diagnostic_bundle["worker"] or "-",
+                "failed_at": self._format_time(job.get("failed_at")),
                 "return_to": dashboard_path_for(request, "job-detail", name=queue, job_id=job_id),
                 "jobs_url": dashboard_path_for(request, "queue-jobs", name=queue),
                 "queue_url": dashboard_path_for(request, "queue-detail", name=queue),

@@ -15,6 +15,8 @@
   diagnostics, and confirmation-gated job actions.
 - Dashboard worker inspection now summarizes runtime-owned heartbeat freshness,
   queue coverage, and declared concurrency.
+- Dashboard failed-job details now present structured exception, traceback, and
+  redacted diagnostic evidence.
 
 ### Fixed
 

@@ -76,21 +76,49 @@
         </article>
 
         {% if error_message or traceback_text %}
-          <article class="amq-card">
+          <article class="amq-card amq-failure-card">
             <div class="amq-card-header">
               <h2 class="amq-card-title">Failure Diagnostics</h2>
               {{ status_badge("failed", "Failure") }}
             </div>
-            <div class="amq-card-body">
+            <div class="amq-card-body amq-failure-panel">
+              <div class="amq-failure-summary" aria-label="Failure summary">
+                <div class="amq-kv">
+                  <span>Exception</span>
+                  <strong class="amq-mono">{{ exception_type }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Frames</span>
+                  <strong>{{ traceback_frame_count }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Worker</span>
+                  <strong class="amq-mono">{{ execution_worker }}</strong>
+                </div>
+                <div class="amq-kv">
+                  <span>Failed at</span>
+                  <strong>{{ failed_at }}</strong>
+                </div>
+              </div>
+
               {% if error_message %}
-                <pre class="amq-pre amq-traceback">{{ error_message }}</pre>
+                <div class="amq-error-callout">
+                  <span class="amq-card-meta">Error message</span>
+                  <pre class="amq-error-message">{{ error_message }}</pre>
+                </div>
               {% endif %}
+
               {% if traceback_text %}
-                <details open class="mt-4">
-                  <summary class="amq-button">Traceback</summary>
-                  <pre class="amq-pre amq-traceback mt-4">{{ traceback_text }}</pre>
+                <details open class="amq-diagnostic-section">
+                  <summary>Formatted traceback</summary>
+                  <pre class="amq-pre amq-traceback">{{ traceback_text }}</pre>
                 </details>
               {% endif %}
+
+              <details class="amq-diagnostic-section">
+                <summary>Redacted diagnostic bundle</summary>
+                <pre class="amq-pre">{{ diagnostics_json }}</pre>
+              </details>
             </div>
           </article>
         {% endif %}
