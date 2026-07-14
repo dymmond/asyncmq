@@ -79,7 +79,7 @@ def test_static_assets_are_served_locally(client: TestClient):
     expected_assets = {
         "/static/favicon.ico": b"\x00\x00\x01\x00",
         "/static/css/tailwind-4.3.2.min.css": "tailwindcss v4.3.2",
-        "/static/vendor/alpinejs/alpine-3.15.12.min.js": 'version:"3.15.12"',
+        "/static/vendor/alpinejs/alpine-csp-3.15.12.min.js": 'version:"3.15.12"',
         "/static/vendor/chartjs/chart.umd-4.5.1.min.js": "Chart.js v4.5.1",
         "/static/vendor/manifest.json": '"alpinejs"',
     }
@@ -121,7 +121,7 @@ def test_templates_reference_local_assets_without_public_cdns(client: TestClient
             assert marker not in html
         assert "/static/css/tailwind-4.3.2.min.css" in html
         if path != "/missing-page":
-            assert "/static/vendor/alpinejs/alpine-3.15.12.min.js" in html
+            assert "/static/vendor/alpinejs/alpine-csp-3.15.12.min.js" in html
 
 
 def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
@@ -132,7 +132,7 @@ def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
     assert response.status_code == 200
     assert f'{prefix}/static/favicon.ico' in response.text
     assert f"{prefix}/static/css/tailwind-4.3.2.min.css" in response.text
-    assert f"{prefix}/static/vendor/alpinejs/alpine-3.15.12.min.js" in response.text
+    assert f"{prefix}/static/vendor/alpinejs/alpine-csp-3.15.12.min.js" in response.text
     assert "cdn.tailwindcss.com" not in response.text
     assert "unpkg.com" not in response.text
     assert "tailwind.config" not in response.text

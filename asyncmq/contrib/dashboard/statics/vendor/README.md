@@ -7,7 +7,7 @@ dashboard does not depend on public CDNs at runtime.
 
 | Asset | Version | Source | Runtime file |
 | --- | --- | --- | --- |
-| Alpine.js | 3.15.12 | npm `alpinejs` | `vendor/alpinejs/alpine-3.15.12.min.js` |
+| Alpine.js CSP | 3.15.12 | npm `@alpinejs/csp` | `vendor/alpinejs/alpine-csp-3.15.12.min.js` |
 | Tailwind CSS | 4.3.2 | npm `tailwindcss` + `@tailwindcss/cli` | `css/tailwind-4.3.2.min.css` |
 | Chart.js | 4.5.1 | npm `chart.js` | `vendor/chartjs/chart.umd-4.5.1.min.js` |
 
@@ -17,14 +17,14 @@ License attributions are stored in `vendor/licenses/`.
 ## Update Procedure
 
 1. Query authoritative npm package metadata:
-   `https://registry.npmjs.org/alpinejs/latest`,
+   `https://registry.npmjs.org/@alpinejs/csp/latest`,
    `https://registry.npmjs.org/tailwindcss/latest`,
    `https://registry.npmjs.org/@tailwindcss/cli/latest`, and
    `https://registry.npmjs.org/chart.js/latest`.
 2. Download the exact tarballs listed in the metadata and verify their npm
    integrity values plus SHA-256 checksums.
-3. Copy Alpine's `dist/cdn.min.js` to
-   `vendor/alpinejs/alpine-<version>.min.js`.
+3. Copy `@alpinejs/csp`'s `dist/cdn.min.js` to
+   `vendor/alpinejs/alpine-csp-<version>.min.js`.
 4. Generate Tailwind's committed stylesheet from `css/asyncmq-tailwind.input.css`
    using the matching `@tailwindcss/cli` and `tailwindcss` versions. The output
    must be written to `css/tailwind-<version>.min.css`.

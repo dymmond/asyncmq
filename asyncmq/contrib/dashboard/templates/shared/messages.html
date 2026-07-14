@@ -15,6 +15,9 @@
       <div
         id="flash-{{ loop.index }}"
         data-flash-message
+        x-data="asyncmqDismissible"
+        x-show="visible"
+        x-transition.opacity.duration.200ms
         class="
           relative flex items-start gap-3 p-4 bg-{{ color }}-50
           border-l-4 border-{{ color }}-500 text-{{ color }}-700
@@ -40,7 +43,7 @@
         <!-- Dismiss Button -->
         <button
           type="button"
-          data-dismiss-target="#flash-{{ loop.index }}"
+          x-on:click="dismiss"
           class="
             absolute top-5 right-6 text-xl font-bold leading-none
             text-{{ color }}-700 hover:text-{{ color }}-900

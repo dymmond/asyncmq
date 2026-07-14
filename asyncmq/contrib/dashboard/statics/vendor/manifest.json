@@ -1,13 +1,13 @@
 {
   "alpinejs": {
     "version": "3.15.12",
-    "package": "alpinejs",
-    "artifact": "vendor/alpinejs/alpine-3.15.12.min.js",
-    "upstream": "https://registry.npmjs.org/alpinejs/-/alpinejs-3.15.12.tgz",
+    "package": "@alpinejs/csp",
+    "artifact": "vendor/alpinejs/alpine-csp-3.15.12.min.js",
+    "upstream": "https://registry.npmjs.org/@alpinejs/csp/-/csp-3.15.12.tgz",
     "homepage": "https://alpinejs.dev",
-    "npm_integrity": "sha512-nJvPAQVNPdZZ0NrExJ/kzQco3ijR8LwvCOadQecllESiqT4NyZ/57sN9V2XyvhlBGAbmlKYgeWZvYdKq99ij/Q==",
-    "tarball_sha256": "ae0d8bb325cdc65cbb4a16dda67c40bda4626ac525cba06158bab4ceaed89b00",
-    "artifact_sha256": "57b37d7cae9a27d965fdae4adcc844245dfdc407e655aee85dcfff3a08036a3f",
+    "npm_integrity": "sha512-9jielHzVPqMlO9zQ6K1WtdhSHVX5OZfq5ZDUSVZfY10VnXRoRBx8nOadWjsG1xev/kz4EPaNN9eDFWtZSvJHxA==",
+    "tarball_sha256": "323a1c203133a456aca37057b663a32bd7bdb2233e395cd0d0dfb76057f7dc3b",
+    "artifact_sha256": "566167134bb2347110904e2ced6e816d2e8d837200c158f98b72372b3bb0b9a6",
     "license": "MIT",
     "license_file": "vendor/licenses/alpinejs-MIT.txt"
   },

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('statics', path='/css/tailwind-4.3.2.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
   <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
-  <script defer src="{{ url_for('statics', path='/vendor/alpinejs/alpine-3.15.12.min.js') }}"></script>
+  <script defer src="{{ url_for('statics', path='/vendor/alpinejs/alpine-csp-3.15.12.min.js') }}"></script>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 text-gray-900 antialiased">
   {% include "shared/loading.html" %}
@@ -61,14 +61,17 @@
 
             <div>
               <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-              <div class="mt-1 relative">
+              <div class="mt-1 relative" x-data="asyncmqPassword">
                 <input id="password" name="password" type="password" autocomplete="current-password" required
+                       x-bind:type="inputType"
                        class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm focus-ring"
                        placeholder="••••••••" />
                 <button type="button" aria-label="Toggle password visibility"
+                        x-bind:aria-label="label"
+                        x-bind:aria-pressed="pressed"
+                        x-on:click="toggle"
                         class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-500 hover:text-gray-700"
-                        data-password-toggle
-                        data-password-target="#password">
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12z"/>
                     <circle cx="12" cy="12" r="3"></circle>

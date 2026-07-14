@@ -34,31 +34,6 @@
     window.addEventListener("pageshow", hideLoading);
   }
 
-  function setupPasswordToggles() {
-    document.querySelectorAll("[data-password-toggle]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = document.querySelector(button.getAttribute("data-password-target"));
-        if (!target) {
-          return;
-        }
-        target.type = target.type === "password" ? "text" : "password";
-      });
-    });
-  }
-
-  function setupDismissButtons() {
-    document.querySelectorAll("[data-dismiss-target]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = document.querySelector(button.getAttribute("data-dismiss-target"));
-        if (!target) {
-          return;
-        }
-        target.classList.add("opacity-0");
-        window.setTimeout(() => target.remove(), 200);
-      });
-    });
-  }
-
   function setupAutosubmitControls() {
     document.querySelectorAll("[data-auto-submit]").forEach((control) => {
       control.addEventListener("change", () => {
@@ -66,6 +41,33 @@
           control.form.requestSubmit();
         }
       });
+    });
+  }
+
+  function registerAlpineComponents() {
+    document.addEventListener("alpine:init", () => {
+      window.Alpine.data("asyncmqDismissible", () => ({
+        visible: true,
+        dismiss() {
+          this.visible = false;
+        },
+      }));
+
+      window.Alpine.data("asyncmqPassword", () => ({
+        visible: false,
+        get inputType() {
+          return this.visible ? "text" : "password";
+        },
+        get label() {
+          return this.visible ? "Hide password" : "Show password";
+        },
+        get pressed() {
+          return this.visible ? "true" : "false";
+        },
+        toggle() {
+          this.visible = !this.visible;
+        },
+      }));
     });
   }
 
@@ -93,8 +95,8 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     setupLoadingIndicators();
-    setupPasswordToggles();
-    setupDismissButtons();
     setupAutosubmitControls();
   });
+
+  registerAlpineComponents();
 })();
