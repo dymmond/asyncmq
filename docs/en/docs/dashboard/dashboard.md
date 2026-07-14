@@ -86,6 +86,8 @@ and live charts/tables for recent activity.
 
 The metrics page combines live SSE updates with recent history snapshots, helping
 operators correlate throughput, retries, failures, and queue-state distribution.
+Prometheus-compatible queue and worker gauges are exposed at
+`/metrics/prometheus` for scrape-based monitoring.
 
 ![System Metrics Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.41_rvwfqk.png)
 
@@ -174,6 +176,34 @@ class AppSettings(Settings):
         )
 ```
 
+## Dashboard CORS
+
+Dashboard CORS is same-origin by default. `AsyncMQAdmin(include_cors=True)` only
+installs CORS middleware when explicit origins are configured.
+
+```python
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=auth_backend,
+    cors_allow_origins=("https://ops.example.com",),
+    cors_allow_credentials=True,
+)
+```
+
+Do not use wildcard origins for an authenticated dashboard. AsyncMQ rejects
+`cors_allow_origins=("*",)` when `cors_allow_credentials=True`.
+
+## Mutating Request Protection
+
+When `enable_login=True`, dashboard `POST`/`PUT`/`PATCH`/`DELETE` requests must
+come from the same origin as the dashboard host. This protects queue and job
+operations from cross-origin form submissions while keeping normal same-origin
+operator workflows unchanged.
+
+Set `enforce_same_origin=False` only when a trusted reverse proxy or identity
+gateway performs equivalent request-origin enforcement before traffic reaches
+AsyncMQ.
+
 ## High-Value Workflows
 
 ### 1. Find and retry a bad job quickly
@@ -241,10 +271,16 @@ Built-ins:
 
 See [Authentication Backends](jwt.md).
 
+Dashboard access also enforces authorization. By default, authenticated users
+must be dashboard admins (`require_admin=True`). For role-based deployments,
+pass `required_roles=("ops", "asyncmq:admin")` and set `require_admin=False`
+when role membership alone should grant access.
+
 ## Production Guidance
 
 - Keep dashboard behind authentication and HTTPS.
 - Use non-default session/JWT secrets.
+- Require explicit dashboard admin or operator roles from your identity provider.
 - Restrict dashboard network exposure to operator/admin paths.
 - Treat dashboard actions as operational controls and keep an audit review process.
 - Use external observability for long-term analytics/retention.

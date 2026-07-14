@@ -1,5 +1,30 @@
 # Release Notes
 
+## 0.9.0
+
+### Added
+
+- Production operations for worker draining, shutdown, queue cleanup,
+  inspection, health probes, metrics, and tracing.
+- Reproducible competitive benchmarks and production guidance for delivery
+  guarantees, backend selection, deployment, recovery, monitoring, and
+  security.
+
+### Fixed
+
+- Worker reservation is bounded by execution capacity, with adaptive idle
+  polling to reduce empty-dequeue pressure.
+- Lifecycle transitions now reject stale claims and cover completion, retry,
+  cancellation, expiration, delayed promotion, cleanup, and DLQ movement.
+- Stalled recovery releases abandoned active jobs while preserving terminal
+  states after persistent backend restarts.
+- Backend semantics are aligned for priority/FIFO ordering, delayed jobs,
+  dependency blocking, pause/resume, retries, cleanup, and restart handling.
+- Redis scalability improves with ID-indexed waiting queues, compact lifecycle
+  metadata, and compressed large payload storage.
+- Worker, scheduler, dashboard, CLI, sandbox, and security defaults were
+  hardened for production operation.
+
 ## 0.8.1
 
 ### Fixed

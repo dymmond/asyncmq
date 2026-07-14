@@ -92,6 +92,42 @@ class PostgresBackend(BaseBackend):
         # Each row.data is a JSON string
         return [self._json_serializer.to_dict(r["data"]) for r in rows]
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Atomically move due delayed rows to waiting rows and return the promoted payloads.
+        """
+        await self.connect()
+        now = time.time()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                WITH due AS (
+                    SELECT job_id
+                    FROM {monkay.settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND status = $2
+                      AND (data ->> 'delay_until') IS NOT NULL
+                      AND (data ->> 'delay_until')::float <= $3
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE {monkay.settings.postgres_jobs_table_name} AS jobs
+                SET
+                    status = $4::text,
+                    delay_until = NULL,
+                    data = jobs.data || jsonb_build_object('status', $4::text, 'delay_until', NULL),
+                    updated_at = now()
+                FROM due
+                WHERE jobs.queue_name = $1
+                  AND jobs.job_id = due.job_id
+                RETURNING jobs.data
+                """,
+                queue_name,
+                State.DELAYED,
+                now,
+                State.WAITING,
+            )
+        return [self._json_serializer.to_dict(row["data"]) for row in rows]
+
     async def connect(self) -> None:
         """
         Asynchronously establishes a connection to the PostgreSQL database by
@@ -104,6 +140,22 @@ class PostgresBackend(BaseBackend):
             self.pool = await asyncpg.create_pool(dsn=self.dsn, **self.pool_options)
             # Also ensure the associated job store is connected.
             await self.store.connect()
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS asyncmq_paused_queues (
+                        queue_name TEXT PRIMARY KEY,
+                        paused_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                    )
+                    """
+                )
+
+    async def health_check(self) -> None:
+        await self.connect()
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL connection pool is not initialized.")
+        async with self.pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
 
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
@@ -150,7 +202,8 @@ class PostgresBackend(BaseBackend):
         Uses a `SELECT FOR UPDATE SKIP LOCKED` query within a transaction to
         atomically select the next waiting job, update its status to `State.ACTIVE`,
         and return its payload. This prevents multiple workers from picking the
-        same job. Jobs are selected based on creation time (`created_at ASC`).
+        same job. Jobs are selected by priority first and creation time second,
+        preserving FIFO order among jobs with the same priority.
 
         Args:
             queue_name: The name of the queue to dequeue a job from.
@@ -161,19 +214,53 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
+        active_since = time.time()
         # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name} AS jobs
+                    WHERE jobs.queue_name = $1
+                      AND jobs.status = $2
+                      AND EXISTS (
+                          SELECT 1
+                          FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                          WHERE cancelled.queue_name = jobs.queue_name
+                            AND cancelled.job_id = jobs.job_id
+                      )
+                    """,
+                    queue_name,
+                    State.WAITING,
+                )
                 # Select the oldest WAITING job for the given queue, lock it,
                 # update its status to ACTIVE, and return its data.
                 row: Record | None = await conn.fetchrow(
                     f"""
                     UPDATE {self._settings.postgres_jobs_table_name}
-                    SET status = $3, updated_at = now()
+                    SET
+                        status = $3,
+                        data = data || jsonb_build_object('status', $3::text, 'active_since', $4::double precision),
+                        updated_at = now()
                     WHERE id = (
-                        SELECT id FROM {self._settings.postgres_jobs_table_name}
-                        WHERE queue_name = $1 AND status = $2
-                        ORDER BY created_at ASC
+                        SELECT jobs.id FROM {self._settings.postgres_jobs_table_name} AS jobs
+                        WHERE jobs.queue_name = $1
+                          AND jobs.status = $2
+                          AND COALESCE(
+                              CASE
+                                  WHEN jsonb_typeof(jobs.data -> 'depends_on') = 'array'
+                                  THEN jsonb_array_length(jobs.data -> 'depends_on')
+                                  ELSE 0
+                              END,
+                              0
+                          ) = 0
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                              WHERE cancelled.queue_name = jobs.queue_name
+                                AND cancelled.job_id = jobs.job_id
+                          )
+                        ORDER BY COALESCE((jobs.data ->> 'priority')::int, 5) ASC, jobs.created_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                     )
@@ -182,6 +269,7 @@ class PostgresBackend(BaseBackend):
                     queue_name,
                     State.WAITING,
                     State.ACTIVE,
+                    active_since,
                 )
                 # If a row was returned (a job was dequeued).
                 if row:
@@ -250,6 +338,96 @@ class PostgresBackend(BaseBackend):
         payload["delay_until"] = run_at
         # Save the job payload in the job store.
         await self.store.save(queue_name, payload["id"], payload)
+
+    async def _save_lifecycle_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self.connect()
+        job_id = str(payload["id"])
+        payload_json = self._json_serializer.to_json(payload)
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                cancelled = await conn.fetchval(
+                    f"""
+                    SELECT 1
+                    FROM {self._settings.postgres_cancelled_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                    """,
+                    queue_name,
+                    job_id,
+                )
+                if cancelled:
+                    await conn.execute(
+                        f"""
+                        DELETE FROM {self._settings.postgres_jobs_table_name}
+                        WHERE queue_name = $1
+                          AND job_id = $2
+                        """,
+                        queue_name,
+                        job_id,
+                    )
+                    return
+                await conn.execute(
+                    f"""
+                    INSERT INTO {self._settings.postgres_jobs_table_name}
+                        (queue_name, job_id, data, status, delay_until)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (queue_name, job_id)
+                    DO UPDATE SET
+                        data = EXCLUDED.data,
+                        status = EXCLUDED.status,
+                        delay_until = EXCLUDED.delay_until,
+                        updated_at = now()
+                    """,
+                    queue_name,
+                    job_id,
+                    payload_json,
+                    payload.get("status"),
+                    payload.get("delay_until"),
+                )
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        stored = {**payload, "status": State.COMPLETED, "result": result, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        stored = {**payload, "status": State.DELAYED, "delay_until": run_at}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        target_status = payload.get("status")
+        if target_status not in {State.FAILED, State.EXPIRED}:
+            target_status = State.FAILED
+        stored = {**payload, "status": target_status, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        stored = {**payload, "status": State.EXPIRED, "delay_until": None}
+        stored.pop("heartbeat", None)
+        await self._save_lifecycle_payload(queue_name, stored)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND (NOT (data ? 'result') OR data -> 'result' = 'null'::jsonb)
+                    """,
+                    queue_name,
+                    str(payload["id"]),
+                )
 
     async def get_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
         """
@@ -540,6 +718,8 @@ class PostgresBackend(BaseBackend):
         if job:
             # Update the status field.
             job["status"] = state
+            if state == State.ACTIVE:
+                job.setdefault("active_since", time.time())
             # Save the updated job data back to the job store.
             await self.store.save(queue_name, job_id, job)
 
@@ -636,17 +816,40 @@ class PostgresBackend(BaseBackend):
         """
         # Ensure connection is established.
         await self.connect()
-        job_id: str = job_dict["id"]
+        job_id: str = str(job_dict["id"])
         # Get the list of parent IDs from the input dictionary.
-        dependencies: list[str] = job_dict.get("depends_on", [])
-        # Load the existing job data from the job store.
-        job: dict[str, Any] | None = await self.store.load(queue_name, job_id)
-        # If the job was found.
-        if job:
-            # Add the new dependencies to the job's data. Overwrites existing list.
-            job["depends_on"] = dependencies
-            # Save the updated job data back to the job store.
-            await self.store.save(queue_name, job_id, job)
+        dependencies: list[str] = list(dict.fromkeys(job_dict.get("depends_on", [])))
+        if not dependencies:
+            return
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    f"""
+                    SELECT data
+                    FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1 AND job_id = $2
+                    FOR UPDATE
+                    """,
+                    queue_name,
+                    job_id,
+                )
+                job = self._json_serializer.to_dict(row["data"]) if row else {**job_dict, "id": job_id}
+                merged = sorted(set(job.get("depends_on", [])) | set(dependencies))
+                job["depends_on"] = merged
+                job["status"] = job.get("status") or State.WAITING
+                await conn.execute(
+                    f"""
+                    INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (queue_name, job_id)
+                    DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
+                    """,
+                    queue_name,
+                    job_id,
+                    self._json_serializer.to_json(job),
+                    job.get("status"),
+                )
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -728,69 +931,93 @@ class PostgresBackend(BaseBackend):
         # Acquire a connection from the pool and start a transaction for atomicity.
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Enqueue all jobs by saving them with WAITING status.
-                for payload in job_dicts:
-                    payload["status"] = State.WAITING
-                    # Use the job store's save method within the transaction.
-                    await self.store.save(queue_name, payload["id"], payload)
-                # Register dependencies by updating child job data.
+                deps_by_child: dict[str, set[str]] = {}
                 for parent, child in dependency_links:
-                    # Load the child job data from the store.
-                    job: dict[str, Any] | None = await self.store.load(queue_name, child)
-                    # If the child job exists.
-                    if job is not None:
-                        # Get the existing dependencies or initialize an empty list.
-                        deps: list[str] = job.get("depends_on", [])
-                        # Add the parent ID to the dependencies list if not already present.
-                        if parent not in deps:
-                            deps.append(parent)
-                            job["depends_on"] = deps
-                            # Save the updated child job data back to the store.
-                            await self.store.save(queue_name, child, job)
+                    deps_by_child.setdefault(child, set()).add(parent)
+
+                # Save all jobs with their merged dependency metadata.
+                for payload in job_dicts:
+                    job_id = str(payload["id"])
+                    deps = set(payload.get("depends_on", [])) | deps_by_child.get(job_id, set())
+                    stored = {**payload, "status": State.WAITING}
+                    if deps:
+                        stored["depends_on"] = sorted(deps)
+                    else:
+                        stored.pop("depends_on", None)
+                    await conn.execute(
+                        f"""
+                        INSERT INTO {self._settings.postgres_jobs_table_name} (queue_name, job_id, data, status)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (queue_name, job_id)
+                        DO UPDATE SET data = EXCLUDED.data, status = EXCLUDED.status, updated_at = now()
+                        """,
+                        queue_name,
+                        job_id,
+                        self._json_serializer.to_json(stored),
+                        State.WAITING,
+                    )
         # Return the list of IDs of the jobs that were initially provided.
         return [payload["id"] for payload in job_dicts]
 
     async def pause_queue(self, queue_name: str) -> None:
         """
-        Marks the specified queue as paused.
-
-        Note: This operation is not currently implemented for the Postgres
-        backend and does nothing. Queue pausing logic must be handled externally
-        or implemented here using a database flag.
+        Marks the specified queue as paused in PostgreSQL.
 
         Args:
             queue_name: The name of the queue to pause.
         """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO asyncmq_paused_queues (queue_name)
+                VALUES ($1)
+                ON CONFLICT (queue_name) DO UPDATE SET paused_at = now()
+                """,
+                queue_name,
+            )
         self._paused_queues.add(queue_name)
 
     async def resume_queue(self, queue_name: str) -> None:
         """
-        Resumes the specified queue.
-
-        Note: This operation is not currently implemented for the Postgres
-        backend and does nothing. Queue resuming logic must be handled externally
-        or implemented here using a database flag.
+        Resumes the specified queue by clearing persisted pause state.
 
         Args:
             queue_name: The name of the queue to resume.
         """
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM asyncmq_paused_queues WHERE queue_name = $1
+                """,
+                queue_name,
+            )
         self._paused_queues.discard(queue_name)
 
     async def is_queue_paused(self, queue_name: str) -> bool:
         """
         Checks if the specified queue is currently marked as paused.
 
-        Note: This operation is not currently implemented for the Postgres
-        backend and always returns False. Queue pausing logic must be handled
-        externally or implemented here using a database flag.
-
         Args:
             queue_name: The name of the queue to check.
 
         Returns:
-            Always False as pausing is not implemented.
+            True if the queue is paused, otherwise False.
         """
-        return queue_name in self._paused_queues
+        await self.connect()
+        async with self.pool.acquire() as conn:
+            exists = await conn.fetchval(
+                """
+                SELECT EXISTS(SELECT 1 FROM asyncmq_paused_queues WHERE queue_name = $1)
+                """,
+                queue_name,
+            )
+        if exists:
+            self._paused_queues.add(queue_name)
+        else:
+            self._paused_queues.discard(queue_name)
+        return bool(exists)
 
     async def save_job_progress(self, queue_name: str, job_id: str, progress: float) -> None:
         """
@@ -836,35 +1063,7 @@ class PostgresBackend(BaseBackend):
                         will be removed. If None, all jobs in the specified state
                         will be removed.
         """
-        # Ensure connection is established.
-        await self.connect()
-        # Acquire a connection from the pool.
-        async with self.pool.acquire() as conn:
-            # Check if an age threshold is provided.
-            if older_than:
-                # Calculate the timestamp threshold.
-                threshold_time: float = time.time() - older_than
-                # Execute the DELETE query with queue name, status, and age filter.
-                await conn.execute(
-                    f"""
-                    DELETE FROM {self._settings.postgres_jobs_table_name}
-                    WHERE queue_name = $1 AND status = $2
-                      AND EXTRACT(EPOCH FROM created_at) < $3
-                    """,
-                    queue_name,
-                    state,
-                    threshold_time,
-                )
-            else:
-                # Execute the DELETE query with only queue name and status filter.
-                await conn.execute(
-                    f"""
-                    DELETE FROM {self._settings.postgres_jobs_table_name}
-                    WHERE queue_name = $1 AND status = $2
-                    """,
-                    queue_name,
-                    state,
-                )
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
@@ -1022,16 +1221,47 @@ class PostgresBackend(BaseBackend):
         """
         await self.connect()
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                f"""
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
                         INSERT INTO {self._settings.postgres_cancelled_jobs_table_name}
                           (queue_name, job_id)
                         VALUES ($1, $2)
                         ON CONFLICT DO NOTHING
                         """,
-                queue_name,
-                job_id,
-            )
+                    queue_name,
+                    job_id,
+                )
+                await conn.execute(
+                    f"""
+                    DELETE FROM {self._settings.postgres_jobs_table_name}
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND status = ANY($3::text[])
+                    """,
+                    queue_name,
+                    job_id,
+                    [State.WAITING, State.DELAYED],
+                )
+                await conn.execute(
+                    f"""
+                    UPDATE {self._settings.postgres_jobs_table_name}
+                    SET status = $3,
+                        data = data || jsonb_build_object(
+                            'status', $3::text,
+                            'cancelled_at', EXTRACT(EPOCH FROM now())::double precision
+                        ),
+                        delay_until = NULL,
+                        updated_at = now()
+                    WHERE queue_name = $1
+                      AND job_id = $2
+                      AND status = $4
+                    """,
+                    queue_name,
+                    job_id,
+                    "cancelled",
+                    State.ACTIVE,
+                )
         return True
 
     async def retry_job(self, queue_name: str, job_id: str) -> bool:
@@ -1052,11 +1282,9 @@ class PostgresBackend(BaseBackend):
         if job is None:
             return False
 
-        job["status"] = State.WAITING
-        job.pop("result", None)
-        job.pop("failed_at", None)
-        job["updated_at"] = time.time()
-        await self.store.save(queue_name, job_id, job)
+        retry_payload = self._prepare_retry_payload(job, job_id)
+        retry_payload["updated_at"] = time.time()
+        await self.store.save(queue_name, job_id, retry_payload)
         return True
 
     async def remove_job(self, queue_name: str, job_id: str) -> bool:
@@ -1077,16 +1305,26 @@ class PostgresBackend(BaseBackend):
         # other methods using `self.pool.acquire()`.
         await self.connect()
         async with self.pool.acquire() as conn:
-            cmd_tag = await conn.execute(
-                f"""
-                        DELETE FROM {self._settings.postgres_jobs_table_name}
-                        WHERE job_id = $1
-                          AND queue_name = $2
-                        """,
-                job_id,
-                queue_name,
-            )
-        return cast(bool, cmd_tag.endswith("DELETE 1"))
+            async with conn.transaction():
+                job_cmd = await conn.execute(
+                    f"""
+                            DELETE FROM {self._settings.postgres_jobs_table_name}
+                            WHERE job_id = $1
+                              AND queue_name = $2
+                            """,
+                    job_id,
+                    queue_name,
+                )
+                cancel_cmd = await conn.execute(
+                    f"""
+                            DELETE FROM {self._settings.postgres_cancelled_jobs_table_name}
+                            WHERE job_id = $1
+                              AND queue_name = $2
+                            """,
+                    job_id,
+                    queue_name,
+                )
+        return cast(bool, job_cmd.endswith("DELETE 1") or cancel_cmd.endswith("DELETE 1"))
 
     async def save_heartbeat(self, queue_name: str, job_id: str, timestamp: float) -> None:
         """
@@ -1148,8 +1386,14 @@ class PostgresBackend(BaseBackend):
             f"""
             SELECT queue_name, data
               FROM {self._settings.postgres_jobs_table_name}
-             WHERE (data->>'heartbeat')::float < $1 -- Filter by heartbeat timestamp
-               AND status = $2                      -- Filter by job status being ACTIVE
+             WHERE status = $2
+               AND (
+                   (data ? 'heartbeat' AND (data->>'heartbeat')::float < $1)
+                   OR (
+                       NOT (data ? 'heartbeat')
+                       AND COALESCE((data->>'active_since')::float, EXTRACT(EPOCH FROM updated_at)) < $1
+                   )
+               )
             """,
             older_than,
             State.ACTIVE,
@@ -1174,12 +1418,51 @@ class PostgresBackend(BaseBackend):
             job_data: The dictionary containing the job's data, including its current
                       state and payload. This dictionary is modified in-place.
         """
-        # Reset the job status to WAITING so the enqueue method correctly processes it
-        job_data["status"] = State.WAITING
+        await self.connect()
+        retry_payload = dict(job_data)
+        job_id = str(retry_payload["id"])
+        expected_active_since = retry_payload.get("active_since")
+        retry_payload["status"] = State.WAITING
+        retry_payload.pop("heartbeat", None)
+        retry_payload.pop("active_since", None)
+        retry_payload.pop("updated_at", None)
+        payload_json = self._json_serializer.to_json(retry_payload)
 
-        # Call the internal enqueue method to place the job back in the queue
-        # Note: The `enqueue` method is assumed to exist elsewhere in this class.
-        await self.enqueue(queue_name, job_data)
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    f"""
+                    UPDATE {self._settings.postgres_jobs_table_name} AS jobs
+                    SET status = $3,
+                        data = $4,
+                        delay_until = NULL,
+                        updated_at = now()
+                    WHERE jobs.queue_name = $1
+                      AND jobs.job_id = $2
+                      AND jobs.status = $5
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {self._settings.postgres_cancelled_jobs_table_name} AS cancelled
+                          WHERE cancelled.queue_name = jobs.queue_name
+                            AND cancelled.job_id = jobs.job_id
+                      )
+                      AND (
+                          $6::double precision IS NULL
+                          OR abs(
+                              COALESCE(
+                                  (jobs.data ->> 'active_since')::double precision,
+                                  EXTRACT(EPOCH FROM jobs.updated_at)
+                              ) - $6::double precision
+                          ) <= 0.000001
+                      )
+                    """,
+                    queue_name,
+                    job_id,
+                    State.WAITING,
+                    payload_json,
+                    State.ACTIVE,
+                    expected_active_since,
+                )
 
     async def register_worker(
         self,

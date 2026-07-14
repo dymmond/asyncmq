@@ -4,6 +4,7 @@ import time
 import pytest
 
 from asyncmq.backends.mongodb import MongoDBBackend
+from asyncmq.core.enums import State
 from asyncmq.jobs import Job
 
 pytestmark = pytest.mark.anyio
@@ -33,6 +34,71 @@ async def test_enqueue_and_dequeue(backend):
     assert dequeued["id"] == "job1"
 
 
+async def test_dequeue_reads_waiting_jobs_across_backend_instances(backend):
+    queue = "mongo-cross-instance-waiting"
+    job = {"id": "mongo-cross-waiting", "task_id": "task1", "args": [], "kwargs": {}}
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, job)
+
+        dequeued = await observer.dequeue(queue)
+
+        assert dequeued is not None
+        assert dequeued["id"] == job["id"]
+        assert await backend.get_job_state(queue, job["id"]) == State.ACTIVE
+    finally:
+        observer.store.client.close()
+
+
+async def test_cancel_job_is_visible_across_backend_instances(backend):
+    queue = "mongo-cross-instance-cancel"
+    job_id = "mongo-cancel-waiting"
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, {"id": job_id, "task_id": "task1", "args": [], "kwargs": {}})
+
+        assert await backend.cancel_job(queue, job_id) is True
+
+        assert await observer.is_job_cancelled(queue, job_id) is True
+        assert await observer.dequeue(queue) is None
+    finally:
+        observer.store.client.close()
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_marker(backend):
+    queue = "mongo-cross-instance-active-cancel"
+    job_id = "mongo-cancel-active"
+    admin = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue(queue, {"id": job_id, "task_id": "task1", "args": [], "kwargs": {}})
+        claimed = await backend.dequeue(queue)
+        assert claimed is not None
+
+        assert await admin.cancel_job(queue, job_id) is True
+        assert await backend.is_job_cancelled(queue, job_id) is True
+
+        await backend.complete_active_job(queue, claimed, {"ok": True})
+
+        assert await admin.get_job_state(queue, job_id) == "cancelled"
+    finally:
+        admin.store.client.close()
+
+
+async def test_dequeue_respects_priority_then_fifo(backend):
+    queue = "mongo-priority"
+    low = Job(task_id="mongo.priority.low", args=[], kwargs={}, job_id="mongo-low", priority=10)
+    first = Job(task_id="mongo.priority.first", args=[], kwargs={}, job_id="mongo-first", priority=1)
+    second = Job(task_id="mongo.priority.second", args=[], kwargs={}, job_id="mongo-second", priority=1)
+
+    await backend.enqueue(queue, low.to_dict())
+    await backend.enqueue(queue, first.to_dict())
+    await backend.enqueue(queue, second.to_dict())
+
+    assert (await backend.dequeue(queue))["id"] == "mongo-first"
+    assert (await backend.dequeue(queue))["id"] == "mongo-second"
+    assert (await backend.dequeue(queue))["id"] == "mongo-low"
+
+
 async def test_move_to_dlq(backend):
     job = {"id": "job2", "task_id": "task2", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)
@@ -55,6 +121,48 @@ async def test_enqueue_delayed_and_get_due(backend):
     assert any(j["id"] == "job3" for j in due_jobs)
 
 
+async def test_promote_due_delayed_moves_mongodb_job_to_waiting_atomically(backend):
+    queue = "mongo-promote-delayed"
+    job = Job(task_id="mongo.promote", args=[], kwargs={}, job_id="mongo-promote", priority=1)
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, job.id) == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
+
+
+async def test_promote_due_delayed_reads_jobs_across_backend_instances(backend):
+    queue = "mongo-cross-instance-delayed"
+    job = Job(task_id="mongo.promote.cross", args=[], kwargs={}, job_id="mongo-cross-delayed", priority=1)
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+
+        promoted = await observer.promote_due_delayed(queue)
+        dequeued = await observer.dequeue(queue)
+
+        assert [item["id"] for item in promoted] == [job.id]
+        assert dequeued is not None
+        assert dequeued["id"] == job.id
+    finally:
+        observer.store.client.close()
+
+
+async def test_remove_delayed_removes_mongodb_document(backend):
+    queue = "mongo-remove-delayed"
+    job = Job(task_id="mongo.remove.delayed", args=[], kwargs={}, job_id="mongo-remove-delayed")
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() + 60)
+
+    assert await backend.remove_delayed(queue, job.id) is True
+    assert await backend.remove_delayed(queue, job.id) is False
+    assert await backend.store.load(queue, job.id) is None
+
+
 async def test_update_and_get_job_state(backend):
     job = {"id": "job4", "task_id": "task4", "args": [], "kwargs": {}}
     await backend.enqueue("test-queue", job)
@@ -71,6 +179,62 @@ async def test_save_and_get_job_result(backend):
     await backend.save_job_result("test-queue", "job5", {"result": 42})
     result = await backend.get_job_result("test-queue", "job5")
     assert result["result"] == 42
+
+
+async def test_complete_active_job_updates_mongodb_document_and_releases_local_ownership(backend):
+    queue = "mongo-lifecycle-complete"
+    job = Job(task_id="mongo.lifecycle.complete", args=[], kwargs={}, job_id="mongo-complete")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.COMPLETED
+    assert stored["result"] == {"ok": True}
+    assert (queue, job.id) not in backend.heartbeats
+    assert backend.queues.get(queue, []) == []
+    assert backend.delayed.get(queue, []) == []
+
+
+async def test_retry_active_job_updates_mongodb_document_and_delayed_mirror(backend):
+    queue = "mongo-lifecycle-retry"
+    job = Job(task_id="mongo.lifecycle.retry", args=[], kwargs={}, job_id="mongo-retry")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    run_at = time.time() + 60
+    await backend.retry_active_job(queue, {**payload, "retries": 1}, run_at)
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.DELAYED
+    assert stored["delay_until"] == pytest.approx(run_at)
+    assert (queue, job.id) not in backend.heartbeats
+    assert len(backend.delayed[queue]) == 1
+    assert backend.delayed[queue][0][1]["id"] == job.id
+
+
+async def test_fail_active_job_updates_mongodb_document_and_releases_local_ownership(backend):
+    queue = "mongo-lifecycle-fail"
+    job = Job(task_id="mongo.lifecycle.fail", args=[], kwargs={}, job_id="mongo-fail")
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+
+    await backend.save_heartbeat(queue, job.id, time.time())
+    await backend.fail_active_job(queue, {**payload, "status": State.FAILED})
+
+    stored = await backend.store.load(queue, job.id)
+    assert stored["status"] == State.FAILED
+    assert (queue, job.id) not in backend.heartbeats
+    assert backend.queues.get(queue, []) == []
 
 
 async def test_bulk_enqueue(backend):
@@ -92,6 +256,18 @@ async def test_pause_resume(backend):
 
     await backend.resume_queue("test-queue")
     assert await backend.is_queue_paused("test-queue") is False
+
+
+async def test_pause_state_is_shared_between_backend_instances(backend):
+    observer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
+    try:
+        await backend.pause_queue("test-queue-cross-instance")
+        assert await observer.is_queue_paused("test-queue-cross-instance") is True
+
+        await observer.resume_queue("test-queue-cross-instance")
+        assert await backend.is_queue_paused("test-queue-cross-instance") is False
+    finally:
+        observer.store.client.close()
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])

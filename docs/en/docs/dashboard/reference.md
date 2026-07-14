@@ -4,9 +4,15 @@ This page documents the dashboard routes and request parameters implemented in `
 
 ## Route Map
 
+Routes are shown relative to the configured dashboard mount or URL prefix. For
+example, with the default `/asyncmq` prefix, `/health` is served at
+`/asyncmq/health`.
+
 | Route | Methods | Purpose |
 | --- | --- | --- |
 | `/` | `GET` | Overview page (totals + live charts/tables) |
+| `/health` | `GET` | Liveness probe for the dashboard process |
+| `/ready` | `GET` | Readiness probe that runs a lightweight backend reachability check |
 | `/queues` | `GET` | Queue list with state counts |
 | `/queues/{name}` | `GET`, `POST` | Queue detail + pause/resume actions |
 | `/queues/{name}/jobs` | `GET`, `POST` | Job list with filtering/search and bulk actions |
@@ -17,6 +23,7 @@ This page documents the dashboard routes and request parameters implemented in `
 | `/workers` | `GET` | Active worker list |
 | `/metrics` | `GET` | Metrics view and charts |
 | `/metrics/history` | `GET` | Metrics history JSON API |
+| `/metrics/prometheus` | `GET` | Prometheus text exposition for dashboard-visible queue and worker gauges |
 | `/audit` | `GET` | Queue/job action audit trail view |
 | `/events` | `GET` | Server-Sent Events stream |
 
@@ -96,6 +103,33 @@ Response shape:
   ]
 }
 ```
+
+## Prometheus Metrics
+
+`GET /metrics/prometheus` returns `text/plain; version=0.0.4` exposition
+derived from dashboard-visible backend inspection.
+
+Current gauges:
+
+- `asyncmq_dashboard_ready`
+- `asyncmq_queue_total`
+- `asyncmq_worker_total`
+- `asyncmq_queue_jobs{queue="...",state="..."}`
+
+If backend inspection fails, the endpoint returns `503` and emits
+`asyncmq_dashboard_ready 0`.
+
+## Health and Readiness
+
+`GET /health` returns process liveness without touching the queue backend:
+
+```json
+{"status": "ok", "service": "asyncmq-dashboard"}
+```
+
+`GET /ready` runs the backend's lightweight reachability check without
+enumerating queues or workers. It returns `200` with `status: "ok"` when the
+backend is reachable and `503` with `status: "error"` when the check raises.
 
 ## SSE Events
 

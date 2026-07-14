@@ -18,6 +18,23 @@ async def test_enqueue_and_dequeue():
     assert result["id"] == job.id
 
 
+async def test_enqueue_preserves_priority_and_fifo_order():
+    backend = InMemoryBackend()
+    queue = "priority-order"
+    jobs = [
+        Job(task_id="test.task", args=[], kwargs={}, job_id="low", priority=10),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="high-1", priority=1),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="medium", priority=5),
+        Job(task_id="test.task", args=[], kwargs={}, job_id="high-2", priority=1),
+    ]
+    for job in jobs:
+        await backend.enqueue(queue, job.to_dict())
+
+    dequeued = [await backend.dequeue(queue) for _ in jobs]
+
+    assert [job["id"] for job in dequeued if job is not None] == ["high-1", "high-2", "medium", "low"]
+
+
 async def test_job_state_tracking():
     backend = InMemoryBackend()
     job = Job(task_id="state.test", args=[], kwargs={})
@@ -25,6 +42,38 @@ async def test_job_state_tracking():
     await backend.update_job_state("test", job.id, State.ACTIVE)
     state = await backend.get_job_state("test", job.id)
     assert state == State.ACTIVE
+
+
+async def test_cancelled_waiting_job_is_not_listed_as_memory_waiting():
+    backend = InMemoryBackend()
+    queue = "memory-cancel-waiting"
+    job = Job(task_id="memory.cancel.waiting", args=[], kwargs={}, job_id="memory-cancel-waiting")
+
+    await backend.enqueue(queue, job.to_dict())
+
+    assert await backend.cancel_job(queue, job.id) is True
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    waiting = await backend.list_jobs(queue, State.WAITING)
+    assert all(item["id"] != job.id for item in waiting)
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_memory_marker():
+    backend = InMemoryBackend()
+    queue = "memory-cancel-active"
+    job = Job(task_id="memory.cancel.active", args=[], kwargs={}, job_id="memory-cancel-active")
+
+    await backend.enqueue(queue, job.to_dict())
+    payload = await backend.dequeue(queue)
+
+    assert payload is not None
+    assert await backend.cancel_job(queue, job.id) is True
+    assert await backend.is_job_cancelled(queue, job.id) is True
+
+    await backend.complete_active_job(queue, payload, {"ok": True})
+
+    assert await backend.get_job_state(queue, job.id) == "cancelled"
+    assert await backend.get_job_result(queue, job.id) is None
 
 
 async def test_save_and_get_job_result():
@@ -44,6 +93,21 @@ async def test_enqueue_delayed_and_get_due():
     await asyncio.sleep(0.25)
     due = await backend.get_due_delayed("test")
     assert any(j["id"] == job.id for j in due)
+
+
+async def test_promote_due_delayed_moves_job_to_waiting_atomically():
+    backend = InMemoryBackend()
+    queue = "memory-promote-delayed"
+    job = Job(task_id="delay.promote", args=[], kwargs={}, job_id="memory-promote")
+
+    await backend.enqueue_delayed(queue, job.to_dict(), time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == [job.id]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, job.id) == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["id"] == job.id
 
 
 async def test_move_to_dlq():

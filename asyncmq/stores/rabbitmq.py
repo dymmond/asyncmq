@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as aioredis
 
@@ -119,6 +119,15 @@ class RabbitMQJobStore(BaseJobStore):
             metadata of a job matching the specified status in the queue.
         """
         return await self._store.jobs_by_status(queue_name, status)
+
+    async def list_queues(self) -> list[str]:
+        """
+        Return queue names known to the underlying metadata store.
+        """
+        list_queues = getattr(self._store, "list_queues", None)
+        if not callable(list_queues):
+            return []
+        return cast(list[str], await list_queues())
 
     async def create_lock(self, key: str, ttl: int) -> Any:
         """

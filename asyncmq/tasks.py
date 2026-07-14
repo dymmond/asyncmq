@@ -7,6 +7,7 @@ import anyio
 import asyncmq
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.event import event_emitter
+from asyncmq.core.payload import validate_job_payload_size
 from asyncmq.jobs import Job
 
 # Global registry holding metadata for all functions registered as asyncmq tasks.
@@ -181,17 +182,27 @@ class TaskWrapper(Generic[P, R]):
         # If the job has dependencies, add them to the backend.
         backend = backend or asyncmq.monkay.settings.backend
 
-        if job.depends_on:
-            await backend.add_dependencies(self.queue, job.to_dict())
-
-        # Enqueue the job, either with a delay or immediately.
+        run_at: float | None = None
         if delay and delay > 0:
             run_at = time.time() + delay
             job.delay_until = run_at
-            await backend.enqueue_delayed(self.queue, job.to_dict(), run_at)
+
+        payload = job.to_dict()
+        validate_job_payload_size(
+            payload,
+            max_bytes=asyncmq.monkay.settings.max_job_payload_bytes,
+            dumps=asyncmq.monkay.settings.json_serializer.to_json,
+        )
+
+        if job.depends_on:
+            await backend.add_dependencies(self.queue, payload)
+
+        # Enqueue the job, either with a delay or immediately.
+        if run_at is not None:
+            await backend.enqueue_delayed(self.queue, payload, run_at)
             return None
         else:
-            return await backend.enqueue(self.queue, job.to_dict())
+            return await backend.enqueue(self.queue, payload)
 
     # Alias for enqueue
     delay = enqueue

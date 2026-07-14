@@ -12,6 +12,28 @@ from asyncmq.core.utils.dashboard import DashboardConfig
 config = DashboardConfig()
 
 
+class BrokenBackend:
+    async def health_check(self):
+        raise RuntimeError("backend unavailable")
+
+    async def list_queues(self):
+        raise RuntimeError("backend unavailable")
+
+
+class ExpensiveInspectionBackend:
+    def __init__(self):
+        self.health_checks = 0
+
+    async def health_check(self):
+        self.health_checks += 1
+
+    async def list_queues(self):
+        raise AssertionError("readiness must not enumerate queues")
+
+    async def list_workers(self):
+        raise AssertionError("readiness must not enumerate workers")
+
+
 @pytest.fixture(scope="package")
 def client():
     with TestClient(Lilya(routes=[Include(path="/", app=create_dashboard_app())])) as client:
@@ -53,3 +75,63 @@ def test_metrics_history_json(client):
     response = client.get(reverse("metrics-history", app=app))
     assert response.status_code == 200
     assert response.headers.get("content-type", "").startswith("application/json")
+
+
+def test_prometheus_metrics_endpoint(client):
+    settings.backend = RedisBackend()
+    response = client.get(reverse("metrics-prometheus", app=app))
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/plain")
+    assert "asyncmq_dashboard_ready 1" in response.text
+
+
+def test_health_endpoint(client):
+    response = client.get(reverse("health", app=app))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "asyncmq-dashboard"}
+
+
+def test_ready_endpoint_reports_backend_reachability(client):
+    settings.backend = RedisBackend()
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["backend"] == "RedisBackend"
+
+
+def test_ready_endpoint_uses_lightweight_backend_health_check(client):
+    backend = ExpensiveInspectionBackend()
+    settings.backend = backend
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "backend": "ExpensiveInspectionBackend",
+    }
+    assert backend.health_checks == 1
+
+
+def test_ready_endpoint_reports_backend_failure(client):
+    settings.backend = BrokenBackend()
+
+    response = client.get(reverse("ready", app=app))
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "error"
+    assert response.json()["backend"] == "BrokenBackend"
+    assert "RuntimeError" in response.json()["error"]
+
+
+def test_prometheus_metrics_endpoint_reports_backend_failure(client):
+    settings.backend = BrokenBackend()
+
+    response = client.get(reverse("metrics-prometheus", app=app))
+
+    assert response.status_code == 503
+    assert "asyncmq_dashboard_ready 0" in response.text
+    assert "RuntimeError" in response.text

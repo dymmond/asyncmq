@@ -25,6 +25,13 @@ Avoid embedding high-volume workers into the same process that handles your
 user-facing HTTP traffic unless you are deliberately optimizing for a small
 deployment footprint.
 
+For Docker and Kubernetes examples, see [Deployment](deployment.md).
+
+For dashboard deployments, wire platform probes to:
+
+- `/health` for process liveness
+- `/ready` for lightweight backend reachability
+
 ## Queue Design
 
 Split queues by operational profile, not by arbitrary code ownership.
@@ -72,13 +79,15 @@ Bootstrap the schema before first use.
 Good fit when your platform is already document-centric, but remember:
 
 - coordination locks are process-local
-- some queue-control guarantees are intentionally weaker across multiple processes
+- queue pause/resume state is persisted and shared by backend instances
+- deduplication and scheduler ownership coordination remain process-local
 
 ### RabbitMQ
 
 Best when AMQP broker delivery is the requirement, but remember:
 
 - AsyncMQ still needs a metadata store for job state, results, schedules, and locks
+- queue pause/resume state is shared through that metadata store
 - operational quality depends partly on that metadata store
 
 ### In-memory
@@ -163,6 +172,10 @@ Practical surfaces:
 - [Dashboard](../dashboard/dashboard.md)
 - [Queue inspection APIs](../features/queues.md#inspection-and-admin-apis)
 - [CLI reference](../reference/cli-reference.md)
+- `/metrics/prometheus` for Prometheus-compatible scrape metrics
+- `structured_logging=True` for JSON log ingestion
+- optional OpenTelemetry worker spans with queue, job id, task, priority,
+  retry count, completion status, and exception type attributes
 
 If you need durable long-term analytics, export metrics and audit information
 to your observability stack. AsyncMQ's built-in dashboard history is aimed at
@@ -189,8 +202,14 @@ operations, not long-term warehouse analytics.
 ### Stalled jobs
 
 1. confirm `enable_stalled_check=True`
-2. confirm `stalled_recovery_scheduler(...)` is actually running
-3. verify long-running handlers refresh heartbeats when needed
+2. confirm workers are running through `run_worker(...)`, `Queue.run()`, or `Worker.run()`
+3. verify long-running handlers are still renewing job heartbeats
+4. after a worker process is killed, wait at least `stalled_threshold` before
+   expecting another recovery loop to release the active claim
+5. inspect recovery logs for backend scan, requeue, or event-emission failures
+   if jobs remain active after the threshold
+6. after backend restarts, verify the backend persistence volume and any
+   metadata store retained active-job state before expecting automatic release
 
 ## Retention and Cleanup
 
@@ -200,6 +219,14 @@ Use queue admin APIs as part of operations hygiene:
 await queue.clean_jobs(grace=3600, limit=1000, state="completed")
 await queue.clean_jobs(grace=86400, limit=1000, state="failed")
 await queue.drain(include_delayed=True)
+```
+
+The CLI exposes the same queue-admin controls:
+
+```bash
+asyncmq queue clean emails --state completed --grace 3600 --limit 1000
+asyncmq queue drain emails --include-delayed
+asyncmq queue obliterate emails --force
 ```
 
 Recommended pattern:
@@ -219,6 +246,15 @@ Before deploying worker changes:
 2. confirm payload schema changes remain backward compatible with queued jobs
 3. confirm retry/backoff changes are acceptable for in-flight jobs
 4. confirm repeatable schedules will not duplicate work after restart
+
+For rolling worker restarts, prefer this order:
+
+1. pause the queue only when you need a queue-wide intake stop
+2. signal each worker process to drain so it stops claiming new jobs
+3. let in-flight jobs finish within the deployment drain window
+4. terminate any process that exceeds the drain window and rely on stalled
+   recovery/idempotent handlers for interrupted work
+5. start the replacement workers and confirm heartbeat freshness
 
 If a deploy changes task semantics in a non-backward-compatible way, drain or
 migrate queued jobs explicitly rather than hoping the old payload shape still

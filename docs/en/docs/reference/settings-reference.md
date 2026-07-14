@@ -6,11 +6,18 @@ Main settings class: `asyncmq.conf.global_settings.Settings`.
 
 - `debug: bool = False`
 - `logging_level: str = "INFO"`
+- `structured_logging: bool = False`
 - `worker_concurrency: int = 1`
+- `worker_idle_poll_interval: float = 0.05`
+- `worker_idle_poll_max_interval: float = 2.0`
 - `scan_interval: float = 1.0`
 - `heartbeat_ttl: int = 30`
+- `max_job_payload_bytes: int | None = 1_048_576`
 - `tasks: list[str] = []`
 - `secret_key: str | None = None`
+- `tracing_enabled: bool = False`
+- `tracing_tracer_name: str = "asyncmq"`
+- `tracing_span_prefix: str = "asyncmq.job"`
 
 ## Backend Configuration
 
@@ -36,7 +43,7 @@ MongoDB fields:
 - `stalled_threshold: float = 30.0`
 - `sandbox_enabled: bool = False`
 - `sandbox_default_timeout: float = 30.0`
-- `sandbox_ctx: str | None = "fork"`
+- `sandbox_ctx: str | None = "spawn"`
 
 ## Serialization and Logging
 
@@ -44,6 +51,13 @@ MongoDB fields:
 - `json_loads: Callable[[str], Any]`
 - `json_serializer` (property)
 - `logging_config` (property)
+
+## Tracing
+
+Set `tracing_enabled=True` to emit optional OpenTelemetry spans around worker
+job execution. AsyncMQ imports OpenTelemetry lazily; install `opentelemetry-api`
+and configure your exporter in the host application. Without OpenTelemetry
+installed, tracing is skipped without changing worker behavior.
 
 ## Worker Lifecycle Hooks
 
@@ -53,6 +67,13 @@ MongoDB fields:
 ## Dashboard
 
 - `dashboard_config` property returns `DashboardConfig`
+
+Dashboard CORS fields on `DashboardConfig`:
+
+- `cors_allow_origins: tuple[str, ...] = ()`
+- `cors_allow_methods: tuple[str, ...] = ("GET", "POST", "OPTIONS")`
+- `cors_allow_headers: tuple[str, ...]`
+- `cors_allow_credentials: bool = False`
 
 See also:
 - [Settings Guide](../features/settings.md)

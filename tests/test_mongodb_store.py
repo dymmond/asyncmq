@@ -10,11 +10,24 @@ class _DummyCollection:
         self.last_filter = None
         self.last_update = None
         self.last_upsert = None
+        self.created_indexes = []
 
     async def update_one(self, flt, update, upsert=False):  # type: ignore[no-untyped-def]
         self.last_filter = flt
         self.last_update = update
         self.last_upsert = upsert
+
+    async def create_index(self, index, **kwargs):  # type: ignore[no-untyped-def]
+        self.created_indexes.append((index, kwargs))
+
+
+async def test_connect_creates_stalled_heartbeat_index():
+    store = MongoDBStore.__new__(MongoDBStore)
+    store.collection = _DummyCollection()
+
+    await store.connect()
+
+    assert ([("status", 1), ("heartbeat", 1)], {"background": False}) in store.collection.created_indexes
 
 
 async def test_save_strips_mongo_id_from_set_payload():

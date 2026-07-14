@@ -10,8 +10,10 @@ from asyncmq import monkay
 from asyncmq.backends.base import BaseBackend
 from asyncmq.core.delayed_scanner import delayed_job_scanner
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
+from asyncmq.core.stalled import stalled_recovery_scheduler
+from asyncmq.logging import logger
 from asyncmq.rate_limiter import RateLimiter
-from asyncmq.workers import Worker, handle_job, process_job
+from asyncmq.workers import Worker, _worker_heartbeat_interval, handle_job, process_job
 
 
 async def worker_loop(queue_name: str, backend: BaseBackend | None = None) -> None:
@@ -74,6 +76,7 @@ async def run_worker(
     rate_interval: float = 1.0,
     repeatables: list[Any] | None = None,
     scan_interval: float | None = None,
+    drain_event: anyio.Event | None = None,
 ) -> None:
     """
     Launches and manages a worker process responsible for consuming and
@@ -111,6 +114,8 @@ async def run_worker(
                      Defaults to None.
         scan_interval: How often to poll for delayed and repeatable jobs.
                        If None, uses monkay.settings.scan_interval.
+        drain_event: Optional event used to stop claiming new jobs and exit
+                     after in-flight jobs finish.
     """
     # Use the provided backend or fall back to the default configured backend.
     backend = backend or monkay.settings.backend
@@ -160,21 +165,55 @@ async def run_worker(
             # If rate_limit is a positive integer, initialize the standard RateLimiter.
             rate_limiter = RateLimiter(rate_limit, rate_interval)
 
-        # Build the list of core asynchronous tasks that constitute the worker.
+        # Build the core asynchronous tasks that constitute the worker.
         # 1. The main process_job task that pulls jobs from the queue and handles them.
         # 2. The delayed_job_scanner task that monitors and re-enqueues delayed jobs.
         from asyncmq.schedulers import repeatable_scheduler
 
-        tasks: list[Any] = [
-            process_job(queue_name, limiter, backend=backend, rate_limiter=cast(Any, rate_limiter)),
-            delayed_job_scanner(queue_name, backend, interval=scan_interval),
-            repeatable_scheduler(queue_name, repeatables or [], backend=backend, interval=scan_interval),
-        ]
+        async def processor_loop() -> None:
+            await process_job(
+                queue_name,
+                limiter,
+                backend=backend,
+                rate_limiter=cast(Any, rate_limiter),
+                drain_event=drain_event,
+            )
+            if drain_event is not None and drain_event.is_set():
+                worker_scope.cancel()
 
-        # Use asyncio.gather to run all the created tasks concurrently.
-        # This function will wait for all tasks to complete (which, for these
-        # worker tasks, means running until cancelled or an error occurs).
-        await asyncio.gather(*tasks)
+        async def heartbeat_loop() -> None:
+            heartbeat_interval = _worker_heartbeat_interval(monkay.settings)
+            while True:
+                await anyio.sleep(heartbeat_interval)
+                try:
+                    await backend.register_worker(
+                        worker_id,
+                        queue_name,
+                        concurrency,
+                        time.time(),
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to renew worker heartbeat for worker %r on queue %r",
+                        worker_id,
+                        queue_name,
+                        exc_info=True,
+                    )
+
+        with anyio.CancelScope() as worker_scope:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(heartbeat_loop)
+                tg.start_soon(processor_loop)
+                tg.start_soon(delayed_job_scanner, queue_name, backend, scan_interval)
+                tg.start_soon(
+                    repeatable_scheduler,
+                    queue_name,
+                    repeatables or [],
+                    backend,
+                    scan_interval,
+                )
+                if monkay.settings.enable_stalled_check:
+                    tg.start_soon(stalled_recovery_scheduler, backend)
     except (anyio.get_cancelled_exc_class(), Exception):
         raise
     finally:

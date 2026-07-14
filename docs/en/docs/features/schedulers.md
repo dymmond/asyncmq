@@ -59,9 +59,13 @@ Or they can be created indirectly by:
 
 The delayed scanner:
 
-1. polls the backend for due delayed entries
-2. moves them back into the normal queue
+1. asks the backend to promote due delayed entries
+2. lets the backend move them back into the normal queue through its own
+   lifecycle transition
 3. sleeps for the configured interval
+
+Transient backend promotion errors are logged and retried on the next scan
+instead of stopping the scanner loop.
 
 `Queue.run()` and `run_worker(...)` start this scanner automatically.
 
@@ -140,6 +144,10 @@ When a schedule is due, the scheduler:
 
 Generated job instances are normal jobs. They still go through the standard
 worker lifecycle, retries, TTL, deduplication, events, and admin inspection.
+
+Transient enqueue or backend repeatable-store errors are logged and retried by
+later scheduler iterations. Local repeatable definitions advance their in-memory
+last-run marker only after a generated job is successfully enqueued.
 
 ## Scheduler Ownership
 
@@ -224,10 +232,15 @@ backend persists the underlying metadata.
 
 Practical expectations:
 
-- Redis and Postgres preserve durable schedules and delayed jobs well
+- Redis and Postgres promote due delayed jobs through atomic backend
+  transitions
+- MongoDB and in-memory promote due delayed jobs under their process-local
+  backend locks
 - MongoDB preserves schedules but uses process-local coordination
 - in-memory loses everything on process exit
-- RabbitMQ durability depends on the broker plus the chosen metadata store
+- RabbitMQ durability depends on the broker plus the chosen metadata store;
+  delayed promotion is backend-owned, but broker publish and metadata update
+  are not a single distributed transaction
 
 If a worker restarts:
 

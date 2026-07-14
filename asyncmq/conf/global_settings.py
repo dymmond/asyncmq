@@ -258,6 +258,13 @@ class Settings(BaseSettings):
     logging output. Defaults to "INFO".
     """
 
+    structured_logging: bool = False
+    """
+    Emits JSON-formatted logs from the built-in logging configuration.
+
+    Defaults to False to preserve the existing console format.
+    """
+
     _backend: BaseBackend | None = None
 
     version: str = __version__
@@ -393,14 +400,14 @@ class Settings(BaseSettings):
     Only relevant if `sandbox_enabled` is True. Defaults to 30.0 seconds.
     """
 
-    sandbox_ctx: str | None = "fork"
+    sandbox_ctx: str | None = "spawn"
     """
     Specifies the multiprocessing context method for the sandbox.
 
     Determines how new processes are created for sandboxed jobs. Possible
     values depend on the operating system but commonly include "fork",
     "spawn", or "forkserver". Only relevant if `sandbox_enabled` is True.
-    Defaults to "fork".
+    Defaults to "spawn".
     """
 
     worker_concurrency: int = 1
@@ -411,11 +418,54 @@ class Settings(BaseSettings):
     depending on the worker implementation and job types. Defaults to 1.
     """
 
+    worker_idle_poll_interval: float = 0.05
+    """
+    Initial sleep interval (in seconds) after a worker finds no runnable job.
+
+    Workers reset to this value as soon as they successfully claim a job.
+    Defaults to 0.05 seconds.
+    """
+
+    worker_idle_poll_max_interval: float = 2.0
+    """
+    Maximum adaptive idle sleep interval (in seconds) for empty worker polls.
+
+    This prevents large idle worker fleets from hammering backends with empty
+    dequeue attempts while preserving low-latency wakeups under normal load.
+    Defaults to 2.0 seconds.
+    """
+
     scan_interval: float = 1.0
     """
     The frequency (in seconds) at which the scheduler scans for delayed jobs.
     """
     heartbeat_ttl: int = 30
+
+    max_job_payload_bytes: int | None = 1_048_576
+    """
+    Maximum JSON-encoded job payload size accepted by public producer APIs.
+
+    Set to None to disable the producer-side guard. Defaults to 1 MiB.
+    """
+
+    tracing_enabled: bool = False
+    """
+    Enables optional OpenTelemetry job execution spans.
+
+    AsyncMQ imports OpenTelemetry lazily. If this is True but
+    ``opentelemetry-api`` is not installed, tracing is skipped without changing
+    worker behavior. Defaults to False.
+    """
+
+    tracing_tracer_name: str = "asyncmq"
+    """
+    Tracer name used when ``tracing_enabled`` is True. Defaults to ``asyncmq``.
+    """
+
+    tracing_span_prefix: str = "asyncmq.job"
+    """
+    Prefix used for worker execution span names. Defaults to ``asyncmq.job``.
+    """
 
     """
     A list of module paths in which to look for @task-decorated callables.
@@ -550,7 +600,7 @@ class Settings(BaseSettings):
         from asyncmq.core.utils.logging import StandardLoggingConfig
 
         # Returns a logging configuration object with the specified level.
-        return StandardLoggingConfig(level=self.logging_level)
+        return StandardLoggingConfig(level=self.logging_level, structured=self.structured_logging)
 
     @property
     def json_serializer(self) -> "JSONSerializer":

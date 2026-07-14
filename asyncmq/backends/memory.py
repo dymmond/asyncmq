@@ -11,7 +11,7 @@ from asyncmq.backends.base import (
 )
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
-from asyncmq.core.inspection import matches_job_type, normalize_job_type
+from asyncmq.core.inspection import has_pending_dependencies, matches_job_type, normalize_job_type
 from asyncmq.core.repeatables import normalize_repeatable_job_def, repeatable_identity
 from asyncmq.schedulers import compute_next_run
 
@@ -76,6 +76,26 @@ class InMemoryBackend(BaseBackend):
         """
         return await self.get_due_delayed(queue_name)
 
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        promoted: list[dict[str, Any]] = []
+        async with self.lock:
+            now = time.time()
+            remaining: list[tuple[float, dict[str, Any]]] = []
+            for run_at, payload in self.delayed.get(queue_name, []):
+                if run_at > now:
+                    remaining.append((run_at, payload))
+                    continue
+
+                job_id = str(payload["id"])
+                waiting_payload = {**payload, "status": State.WAITING, "delay_until": None, "updated_at": now}
+                self._insert_waiting_payload_locked(queue_name, waiting_payload)
+                promoted.append(waiting_payload)
+                self.job_states[(queue_name, job_id)] = State.WAITING
+                self.job_payloads[(queue_name, job_id)] = waiting_payload
+
+            self.delayed[queue_name] = remaining
+        return promoted
+
     async def enqueue(self, queue_name: str, payload: dict[str, Any]) -> str:
         """
         Asynchronously enqueues a job payload onto the specified queue.
@@ -89,16 +109,39 @@ class InMemoryBackend(BaseBackend):
                      and optionally a 'priority'.
         """
         async with self.lock:
-            # Get or create the list for the queue.
-            queue = self.queues.setdefault(queue_name, [])
-            # Append the new job payload to the list.
+            return self._store_waiting_payload_locked(queue_name, payload)
+
+    def _store_waiting_payload_locked(self, queue_name: str, payload: dict[str, Any]) -> str:
+        job_id = str(payload["id"])
+        job_key = (queue_name, job_id)
+        waiting_payload = {**payload, "status": State.WAITING}
+        queue = self.queues.setdefault(queue_name, [])
+        if job_key in self.job_payloads or job_key in self.job_states:
+            self.queues[queue_name] = [job for job in queue if str(job.get("id")) != job_id]
+        pending = set(waiting_payload.get("depends_on", []))
+        if pending:
+            child_key: _JobKey = (queue_name, job_id)
+            self.deps_pending[child_key] = pending
+            for parent_id in pending:
+                self.deps_children.setdefault((queue_name, parent_id), set()).add(job_id)
+        else:
+            self._insert_waiting_payload_locked(queue_name, waiting_payload)
+        self.job_states[(queue_name, job_id)] = State.WAITING
+        self.job_payloads[(queue_name, job_id)] = waiting_payload
+        return job_id
+
+    def _insert_waiting_payload_locked(self, queue_name: str, payload: dict[str, Any]) -> None:
+        queue = self.queues.setdefault(queue_name, [])
+        priority = payload.get("priority", 5)
+        if not queue:
             queue.append(payload)
-            # Sort the queue based on job priority (lower number is higher priority).
-            queue.sort(key=lambda job: job.get("priority", 5))
-            # Update the job's state to WAITING.
-            self.job_states[(queue_name, payload["id"])] = State.WAITING
-            self.job_payloads[(queue_name, payload["id"])] = {**payload, "status": State.WAITING}
-            return cast(str, payload["id"])
+            return
+
+        for index, queued in enumerate(queue):
+            if priority >= queued.get("priority", 5):
+                queue.insert(index, payload)
+                return
+        queue.append(payload)
 
     async def dequeue(self, queue_name: str) -> dict[str, Any] | None:
         """
@@ -117,11 +160,25 @@ class InMemoryBackend(BaseBackend):
         async with self.lock:
             # Get the list for the queue, defaulting to empty.
             queue = self.queues.get(queue_name, [])
-            # If the queue is not empty, pop and return the first job.
-            if queue:
-                job = queue.pop(0)
-                self.active_jobs[(queue_name, job["id"])] = job
-                return job
+            # If the queue is not empty, pop and return the first runnable job.
+            while queue:
+                job = queue.pop()
+                job_id = str(job["id"])
+                if job_id in self.cancelled.get(queue_name, set()):
+                    self._mark_cancelled_locked(queue_name, job_id, job)
+                    continue
+                stored = self.job_payloads.get((queue_name, job_id), job)
+                if has_pending_dependencies(stored):
+                    continue
+                now = time.time()
+                active_payload = {
+                    **stored,
+                    "status": State.ACTIVE,
+                    "active_since": stored.get("active_since", now),
+                    "updated_at": now,
+                }
+                self.active_jobs[(queue_name, job_id)] = active_payload
+                return {**stored, "active_since": active_payload["active_since"]}
             # Return None if the queue is empty.
             return None
 
@@ -176,6 +233,111 @@ class InMemoryBackend(BaseBackend):
         """
         self.heartbeats.pop((queue_name, job_id), None)
         self.active_jobs.pop((queue_name, job_id), None)
+
+    def _remove_job_memberships_locked(self, queue_name: str, job_id: str) -> None:
+        self.queues[queue_name] = [job for job in self.queues.get(queue_name, []) if str(job.get("id")) != job_id]
+        self.delayed[queue_name] = [
+            (run_at, job) for run_at, job in self.delayed.get(queue_name, []) if str(job.get("id")) != job_id
+        ]
+        self._remove_active_membership_locked(queue_name, job_id)
+
+    def _remove_active_membership_locked(self, queue_name: str, job_id: str) -> None:
+        self.active_jobs.pop((queue_name, job_id), None)
+        self.heartbeats.pop((queue_name, job_id), None)
+
+    def _store_lifecycle_payload_locked(
+        self,
+        queue_name: str,
+        payload: dict[str, Any],
+        status: str,
+        now: float,
+    ) -> dict[str, Any]:
+        job_id = str(payload["id"])
+        stored = {**payload, "status": status, "updated_at": now}
+        if status == State.COMPLETED:
+            stored["completed_at"] = now
+        elif status in {State.FAILED, State.EXPIRED}:
+            stored["failed_at"] = now
+
+        self.job_states[(queue_name, job_id)] = status
+        self.job_payloads[(queue_name, job_id)] = stored
+        return stored
+
+    def _mark_cancelled_locked(self, queue_name: str, job_id: str, payload: dict[str, Any] | None = None) -> None:
+        stored = dict(self.job_payloads.get((queue_name, job_id), payload or {"id": job_id}))
+        stored["id"] = job_id
+        stored["status"] = "cancelled"
+        stored["updated_at"] = time.time()
+        stored.pop("result", None)
+        self.cancelled.setdefault(queue_name, set()).add(job_id)
+        self.job_states[(queue_name, job_id)] = "cancelled"
+        self.job_payloads[(queue_name, job_id)] = stored
+        self.job_results.pop((queue_name, job_id), None)
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
+            self._remove_active_membership_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(
+                queue_name,
+                {**payload, "result": result},
+                State.COMPLETED,
+                now,
+            )
+            self.job_results[(queue_name, job_id)] = result
+            self.job_payloads[(queue_name, job_id)] = stored
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        await self._delay_active_job(queue_name, payload, run_at)
+
+    async def _delay_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
+            self._remove_active_membership_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(
+                queue_name,
+                {**payload, "delay_until": run_at},
+                State.DELAYED,
+                now,
+            )
+            self.delayed.setdefault(queue_name, []).append((run_at, stored))
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self._terminal_dlq_transition(queue_name, payload, State.FAILED)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        await self._terminal_dlq_transition(queue_name, payload, State.EXPIRED)
+
+    async def _terminal_dlq_transition(self, queue_name: str, payload: dict[str, Any], status: str) -> None:
+        job_id = str(payload["id"])
+        now = time.time()
+        async with self.lock:
+            if job_id in self.cancelled.get(queue_name, set()):
+                self._remove_active_membership_locked(queue_name, job_id)
+                self._mark_cancelled_locked(queue_name, job_id, payload)
+                return
+            self._remove_active_membership_locked(queue_name, job_id)
+            stored = self._store_lifecycle_payload_locked(queue_name, payload, status, now)
+            self.dlqs.setdefault(queue_name, []).append(stored)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload["id"])
+        async with self.lock:
+            self._remove_active_membership_locked(queue_name, job_id)
+            self._mark_cancelled_locked(queue_name, job_id, payload)
 
     async def enqueue_delayed(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
         """
@@ -382,7 +544,7 @@ class InMemoryBackend(BaseBackend):
             removed = self.active_jobs.pop((queue_name, job_id), None) is not None or removed
             self.heartbeats.pop((queue_name, job_id), None)
             # record cancellation
-            self.cancelled.setdefault(queue_name, set()).add(job_id)
+            self._mark_cancelled_locked(queue_name, job_id)
             return removed
 
     async def is_job_cancelled(self, queue_name: str, job_id: str) -> bool:
@@ -409,6 +571,8 @@ class InMemoryBackend(BaseBackend):
                 now = time.time()
                 payload["status"] = state
                 payload["updated_at"] = now
+                if state == State.ACTIVE:
+                    payload.setdefault("active_since", now)
                 if state == State.COMPLETED:
                     payload["completed_at"] = now
                 elif state in {State.FAILED, State.EXPIRED}:
@@ -511,7 +675,7 @@ class InMemoryBackend(BaseBackend):
             job_dict: The job data dictionary, expected to contain at least
                       an "id" key and an optional "depends_on" list of parent job IDs.
         """
-        child_job_id = job_dict["id"]
+        child_job_id = str(job_dict["id"])
         child_pend_key: _JobKey = (queue_name, child_job_id)
         # Get the set of parent job IDs this child depends on.
         parent_deps: set[str] = set(job_dict.get("depends_on", []))
@@ -520,17 +684,22 @@ class InMemoryBackend(BaseBackend):
         if not parent_deps:
             return  # Exit if no dependencies are specified.
 
-        # Store the set of parent IDs the child is waiting on.
-        self.deps_pending[child_pend_key] = parent_deps
-        payload = self.job_payloads.get(child_pend_key)
-        if payload is not None:
+        async with self.lock:
+            # Store the set of parent IDs the child is waiting on.
+            self.deps_pending[child_pend_key] = parent_deps
+            payload = self.job_payloads.get(child_pend_key, {**job_dict, "status": State.WAITING})
             payload["depends_on"] = sorted(parent_deps)
             payload["updated_at"] = time.time()
-        # For each parent ID, register the child as a dependent.
-        for parent_id in parent_deps:
-            parent_children_key: _JobKey = (queue_name, parent_id)
-            # Add the child job ID to the set of children waiting on this parent.
-            self.deps_children.setdefault(parent_children_key, set()).add(child_job_id)
+            self.job_payloads[child_pend_key] = payload
+            self.job_states[child_pend_key] = cast(str, payload.get("status", State.WAITING))
+            self.queues[queue_name] = [
+                queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != child_job_id
+            ]
+            # For each parent ID, register the child as a dependent.
+            for parent_id in parent_deps:
+                parent_children_key: _JobKey = (queue_name, parent_id)
+                # Add the child job ID to the set of children waiting on this parent.
+                self.deps_children.setdefault(parent_children_key, set()).add(child_job_id)
 
     async def resolve_dependency(self, queue_name: str, parent_id: str) -> None:
         """
@@ -545,38 +714,44 @@ class InMemoryBackend(BaseBackend):
             queue_name: The name of the queue the parent job belonged to.
             parent_id: The unique identifier of the job that just completed.
         """
+        ready_children: list[str] = []
         parent_children_key: _JobKey = (queue_name, parent_id)
-        # Get a list of child job IDs waiting on this parent.
-        children: list[str] = list(self.deps_children.get(parent_children_key, set()))
+        async with self.lock:
+            # Get a list of child job IDs waiting on this parent.
+            children: list[str] = list(self.deps_children.get(parent_children_key, set()))
 
-        # Iterate through each child job ID.
-        for child_id in children:
-            child_pend_key: _JobKey = (queue_name, child_id)
-            # Check if the child job is still in the pending dependencies tracking.
-            if child_pend_key in self.deps_pending:
-                # Remove the completed parent's ID from the child's pending set.
-                self.deps_pending[child_pend_key].discard(parent_id)
-                payload = self.job_payloads.get(child_pend_key)
-                if payload is not None:
-                    if self.deps_pending[child_pend_key]:
-                        payload["depends_on"] = sorted(self.deps_pending[child_pend_key])
-                    else:
-                        payload.pop("depends_on", None)
-                    payload["updated_at"] = time.time()
-                # Check if the child job now has no pending dependencies.
-                if not self.deps_pending[child_pend_key]:
-                    # If all dependencies are met, fetch the job data.
-                    raw: dict[str, Any] | None = self.job_payloads.get((queue_name, child_id))
-                    # If the job data was found.
-                    if raw:
-                        # Enqueue the child job.
-                        await self.enqueue(queue_name, {**raw, "depends_on": []})
-                        # Emit an event indicating the job is now ready.
-                        await event_emitter.emit("job:ready", {"id": child_id})
-                    # Delete the child's empty pending dependencies entry.
-                    del self.deps_pending[child_pend_key]
-        # Remove the parent's children tracking entry.
-        self.deps_children.pop(parent_children_key, None)
+            # Iterate through each child job ID.
+            for child_id in children:
+                child_pend_key: _JobKey = (queue_name, child_id)
+                # Check if the child job is still in the pending dependencies tracking.
+                if child_pend_key in self.deps_pending:
+                    # Remove the completed parent's ID from the child's pending set.
+                    self.deps_pending[child_pend_key].discard(parent_id)
+                    payload = self.job_payloads.get(child_pend_key)
+                    if payload is not None:
+                        if self.deps_pending[child_pend_key]:
+                            payload["depends_on"] = sorted(self.deps_pending[child_pend_key])
+                        else:
+                            payload.pop("depends_on", None)
+                        payload["updated_at"] = time.time()
+                    # Check if the child job now has no pending dependencies.
+                    if not self.deps_pending[child_pend_key]:
+                        # If all dependencies are met, fetch the job data.
+                        raw: dict[str, Any] | None = self.job_payloads.get((queue_name, child_id))
+                        # If the job data was found.
+                        if raw:
+                            waiting_payload = {**raw, "status": State.WAITING}
+                            waiting_payload.pop("depends_on", None)
+                            self._store_waiting_payload_locked(queue_name, waiting_payload)
+                            ready_children.append(child_id)
+                        # Delete the child's empty pending dependencies entry.
+                        del self.deps_pending[child_pend_key]
+            # Remove the parent's children tracking entry.
+            self.deps_children.pop(parent_children_key, None)
+
+        for child_id in ready_children:
+            # Emit an event indicating the job is now ready.
+            await event_emitter.emit("job:ready", {"id": child_id})
 
     async def pause_queue(self, queue_name: str) -> None:
         """
@@ -642,15 +817,8 @@ class InMemoryBackend(BaseBackend):
                   optionally a "priority" key.
         """
         async with self.lock:
-            # Get or create the list for the queue.
-            q = self.queues.setdefault(queue_name, [])
-            # Extend the queue list with the new jobs.
-            q.extend(jobs)
-            # Update the state for each new job to WAITING.
             for job in jobs:
-                self.job_states[(queue_name, job["id"])] = State.WAITING
-            # Sort the queue based on job priority after adding all jobs.
-            q.sort(key=lambda job: job.get("priority", 5))
+                self._store_waiting_payload_locked(queue_name, job)
 
     async def purge(self, queue_name: str, state: str, older_than: float | None = None) -> None:
         """
@@ -667,20 +835,7 @@ class InMemoryBackend(BaseBackend):
             older_than: An optional timestamp. This parameter is not fully
                         utilized in this in-memory implementation for all states.
         """
-        to_delete: list[_JobKey] = []
-        # Iterate through a copy of the job_states items to allow deletion during iteration.
-        for (qname, jid), st in list(self.job_states.items()):
-            # Check if the job matches the specified queue name and state.
-            if qname == queue_name and st == state:
-                # Add the job key to the list of keys to delete.
-                to_delete.append((qname, jid))
-
-        # Iterate through the list of job keys to delete.
-        for key in to_delete:
-            # Remove the job's state, result, and progress from the respective dictionaries.
-            self.job_states.pop(key, None)
-            self.job_results.pop(key, None)
-            self.job_progress.pop(key, None)
+        await self._purge_jobs_by_state(queue_name, state, older_than)
 
     async def emit_event(self, event: str, data: dict[str, Any]) -> None:
         """
@@ -814,7 +969,7 @@ class InMemoryBackend(BaseBackend):
             if normalized == "waiting":
                 return [
                     dict(self.job_payloads.get((queue_name, job["id"]), job))
-                    for job in self.queues.get(queue_name, [])
+                    for job in reversed(self.queues.get(queue_name, []))
                     if matches_job_type(self.job_payloads.get((queue_name, job["id"]), job), normalized)
                 ]
 
@@ -861,13 +1016,13 @@ class InMemoryBackend(BaseBackend):
                 if job["id"] == job_id:
                     # Remove the job from the DLQ.
                     dlq.remove(job)
+                    retry_payload = self._prepare_retry_payload(job, job_id)
                     # Add the job back to the main queue.
-                    self.queues.setdefault(queue_name, []).append(job)
+                    self._insert_waiting_payload_locked(queue_name, retry_payload)
                     # Update the job's state to WAITING.
                     self.job_states[(queue_name, job_id)] = State.WAITING
                     self.job_payloads[(queue_name, job_id)] = {
-                        **job,
-                        "status": State.WAITING,
+                        **retry_payload,
                         "updated_at": time.time(),
                     }
                     return True  # Indicate successful retry.
@@ -907,14 +1062,22 @@ class InMemoryBackend(BaseBackend):
             if len(self.dlqs[queue_name]) != orig_dlq:
                 removed = True
 
+            key = (queue_name, job_id)
+            if key in self.job_payloads or key in self.job_states:
+                removed = True
+
             if removed:
-                key = (queue_name, job_id)
                 self.job_states.pop(key, None)
                 self.job_results.pop(key, None)
                 self.job_progress.pop(key, None)
                 self.active_jobs.pop(key, None)
                 self.heartbeats.pop(key, None)
                 self.job_payloads.pop(key, None)
+                self.cancelled.get(queue_name, set()).discard(job_id)
+                self.deps_pending.pop(key, None)
+                self.deps_children.pop(key, None)
+                for children in self.deps_children.values():
+                    children.discard(job_id)
                 return True
 
             return False
@@ -979,6 +1142,14 @@ class InMemoryBackend(BaseBackend):
                     if payload:
                         stalled.append({"queue_name": q, "job_data": payload})
 
+            seen = {(entry["queue_name"], str(entry["job_data"]["id"])) for entry in stalled}
+            for (q, jid), payload in list(self.active_jobs.items()):
+                if (q, jid) in seen or (q, jid) in self.heartbeats:
+                    continue
+                active_since = payload.get("active_since") or payload.get("updated_at")
+                if isinstance(active_since, (int, float)) and float(active_since) < older_than:
+                    stalled.append({"queue_name": q, "job_data": payload})
+
         return stalled  # Return the list of identified stalled jobs
 
     async def reenqueue_stalled(self, queue_name: str, job_data: dict[str, Any]) -> None:
@@ -1001,14 +1172,31 @@ class InMemoryBackend(BaseBackend):
         # Acquire the lock to ensure safe concurrent modification of both self.queues
         # and self.heartbeats.
         async with self.lock:
-            # Append the job data back to the list associated with the queue_name.
-            # setdefault(queue_name, []) ensures that if the queue_name does not
-            # already exist as a key in self.queues, it is created with an empty
-            # list as its value before appending the job_data.
-            self.queues.setdefault(queue_name, []).append(job_data)
-            self.job_states[(queue_name, job_data["id"])] = State.WAITING
-            self.job_payloads[(queue_name, job_data["id"])] = {
-                **job_data,
+            job_id = str(job_data["id"])
+            if job_id in self.cancelled.get(queue_name, set()):
+                return
+            current_payload = self.active_jobs.get((queue_name, job_id)) or self.job_payloads.get((queue_name, job_id))
+            if not current_payload or current_payload.get("status") != State.ACTIVE:
+                return
+            expected_active_since = job_data.get("active_since")
+            current_active_since = current_payload.get("active_since")
+            if isinstance(expected_active_since, (int, float)):
+                if not isinstance(current_active_since, (int, float)):
+                    return
+                if abs(float(current_active_since) - float(expected_active_since)) > 0.000001:
+                    return
+            retry_payload = dict(current_payload)
+            retry_payload.pop("status", None)
+            retry_payload.pop("heartbeat", None)
+            retry_payload.pop("active_since", None)
+            retry_payload.pop("updated_at", None)
+            self.queues[queue_name] = [
+                queued for queued in self.queues.get(queue_name, []) if str(queued.get("id")) != job_id
+            ]
+            self._insert_waiting_payload_locked(queue_name, retry_payload)
+            self.job_states[(queue_name, job_id)] = State.WAITING
+            self.job_payloads[(queue_name, job_id)] = {
+                **retry_payload,
                 "status": State.WAITING,
                 "updated_at": time.time(),
             }
@@ -1020,8 +1208,8 @@ class InMemoryBackend(BaseBackend):
             # (e.g., by another process or cleanup task, or if 'id' is missing).
             # Note: Accessing job_data["id"] assumes 'id' key exists; a safer way
             # might be job_data.get("id").
-            self.heartbeats.pop((queue_name, job_data["id"]), None)
-            self.active_jobs.pop((queue_name, job_data["id"]), None)
+            self.heartbeats.pop((queue_name, job_id), None)
+            self.active_jobs.pop((queue_name, job_id), None)
 
     async def register_worker(
         self,

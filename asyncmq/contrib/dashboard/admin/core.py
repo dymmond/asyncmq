@@ -32,6 +32,13 @@ class AsyncMQAdmin:
         url_prefix: str | None = None,
         include_session: bool = True,
         include_cors: bool = True,
+        cors_allow_origins: tuple[str, ...] | None = None,
+        cors_allow_methods: tuple[str, ...] | None = None,
+        cors_allow_headers: tuple[str, ...] | None = None,
+        cors_allow_credentials: bool | None = None,
+        enforce_same_origin: bool = True,
+        require_admin: bool = True,
+        required_roles: tuple[str, ...] = (),
         login_path: str = "/login",
         allowlist: tuple[str, ...] = ("/login", "/logout", "/static", "/assets"),
     ) -> None:
@@ -43,8 +50,12 @@ class AsyncMQAdmin:
             backend: The authentication backend implementing `AuthBackend` methods (required if `enable_login` is True).
             url_prefix: The base URL path where the dashboard should be mounted (e.g., "/asyncmq").
                         Defaults to the value from `monkay.settings.dashboard_config`.
-            scheduler: The active `AsyncIOScheduler` instance to manage. If None, a new
-                       default scheduler is created (in-memory store).
+            enforce_same_origin: If True, reject authenticated unsafe requests
+                        whose Origin is missing or does not match the dashboard host.
+            require_admin: If True, authenticated users must expose admin
+                        privileges before dashboard access is allowed.
+            required_roles: Optional role names; when provided, authenticated
+                        users must have at least one of these roles.
 
         Raises:
             ValueError: If `enable_login` is True but no `backend` is provided.
@@ -61,6 +72,13 @@ class AsyncMQAdmin:
         # Extras
         self.include_session = include_session
         self.include_cors = include_cors
+        self.cors_allow_origins = cors_allow_origins
+        self.cors_allow_methods = cors_allow_methods
+        self.cors_allow_headers = cors_allow_headers
+        self.cors_allow_credentials = cors_allow_credentials
+        self.enforce_same_origin = enforce_same_origin
+        self.require_admin = require_admin
+        self.required_roles = required_roles
         self.login_path = login_path
         self.allowlist = allowlist
 
@@ -79,16 +97,26 @@ class AsyncMQAdmin:
         middlewares: list[DefineMiddleware] = []
 
         if self.include_cors:
-            # 1. Base Middleware Setup (CORS, Session, AuthGate)
-            middlewares = [
-                DefineMiddleware(
-                    CORSMiddleware,
-                    allow_origins=["*"],
-                    allow_methods=["*"],
-                    allow_headers=["*"],
-                    allow_credentials=True,
-                ),
-            ]
+            allow_origins = self.cors_allow_origins or config.cors_allow_origins
+            allow_methods = self.cors_allow_methods or config.cors_allow_methods
+            allow_headers = self.cors_allow_headers or config.cors_allow_headers
+            allow_credentials = (
+                self.cors_allow_credentials
+                if self.cors_allow_credentials is not None
+                else config.cors_allow_credentials
+            )
+            if "*" in allow_origins and allow_credentials:
+                raise ValueError("Dashboard CORS cannot combine wildcard origins with credentials.")
+            if allow_origins:
+                middlewares.append(
+                    DefineMiddleware(
+                        CORSMiddleware,
+                        allow_origins=list(allow_origins),
+                        allow_methods=list(allow_methods),
+                        allow_headers=list(allow_headers),
+                        allow_credentials=allow_credentials,
+                    )
+                )
 
         if self.include_session:
             middlewares.append(config.session_middleware)
@@ -101,6 +129,9 @@ class AsyncMQAdmin:
                     authenticate=self.backend.authenticate,
                     login_path=self.login_path,
                     allowlist=self.allowlist,
+                    enforce_same_origin=self.enforce_same_origin,
+                    require_admin=self.require_admin,
+                    required_roles=self.required_roles,
                 )
             )
 

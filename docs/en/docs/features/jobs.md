@@ -67,11 +67,15 @@ RabbitMQ metadata stores, and in-memory backends.
 
 When a handler raises an exception:
 
-1. the traceback is stored on the job payload
-2. `retries` is incremented
-3. the worker computes `next_retry_delay()`
-4. the job is re-enqueued into the delayed queue if attempts remain
-5. otherwise the job is marked `failed` and moved to the DLQ
+1. `last_attempt` records when the handler attempt started
+2. `last_error` and `error_traceback` are stored on the job payload
+3. `retries` is incremented
+4. the worker computes `next_retry_delay()`
+5. the job is re-enqueued into the delayed queue if attempts remain
+6. otherwise the job is marked `failed` and moved to the DLQ
+
+Manual retry APIs move failed jobs back to `waiting` and clear terminal result
+and error fields before the next execution attempt.
 
 Backoff supports several modes:
 
@@ -142,7 +146,8 @@ Workers will not execute the child until all parents have completed. While
 dependencies remain unresolved:
 
 - the job appears in `waiting-children` inspection views
-- runtime gating keeps it from executing
+- backends keep it out of runnable waiting queues
+- runtime gating remains a defensive guard for stale payloads
 - completion of a parent removes that parent id from the child payload
 
 Example:
@@ -215,6 +220,8 @@ them out. That keeps forward compatibility with newer runtime metadata.
 - Keep job arguments small; store large blobs externally and pass references.
 - Make handlers idempotent because retries, retries after restarts, and manual
   replays are normal.
+- Review [Delivery Semantics](../reference/delivery-semantics.md) before
+  making business guarantees based on queue behavior.
 - Use explicit `max_retries` and bounded backoff for external systems.
 - Use TTL for work that becomes harmful when stale.
 - Use queue inspection APIs to clean completed and failed jobs instead of

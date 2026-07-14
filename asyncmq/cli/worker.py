@@ -1,5 +1,6 @@
 import signal
 import time
+from typing import Any
 
 import anyio
 import click
@@ -16,6 +17,7 @@ from asyncmq.cli.utils import (
     get_centered_logo,
     get_print_banner,
     print_worker_banner,
+    rich_escape,
     run_cmd,
 )
 from asyncmq.logging import logger
@@ -40,9 +42,7 @@ def _worker_callback(ctx: click.Context) -> None:
     Args:
         ctx: The Click context object, passed automatically by Click.
     """
-    tokens = getattr(ctx, "protected_args", None)
-    if tokens is None:
-        tokens = ctx.args
+    tokens = getattr(ctx, "_protected_args", ()) or ctx.args
     if tokens and tokens[0] in ctx.command.commands:
         return
 
@@ -71,6 +71,7 @@ def _print_worker_help() -> None:
     # Add example commands.
     text.append("  asyncmq worker start myqueue --concurrency 2\n")
     text.append("  asyncmq worker start myqueue --concurrency 5\n")
+    text.append("  asyncmq worker inspect worker-123\n")
     # Print the text within a Rich Panel with a specific title and border style.
     console.print(Panel(text, title="Worker CLI", border_style="cyan"))
 
@@ -92,8 +93,6 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         concurrency: The number of worker instances to run concurrently.
                      Defaults to 1.
     """
-    from asyncmq.runners import start_worker
-
     # Ensure the queue name is not empty.
     if not queue:
         raise click.UsageError("Queue name cannot be empty")
@@ -110,7 +109,7 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         # Start the worker using anyio's run function.
         # The lambda function wraps the start_worker call to be compatible with anyio.run.
         log(f"Starting worker for queue '{queue}' with concurrency {concurrency}")
-        run_cmd(lambda: start_worker(queue_name=queue, concurrency=concurrency))
+        run_cmd(lambda: _run_worker_with_signals(queue_name=queue, concurrency=concurrency))
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Worker shutting down gracefully...[/bold yellow]")
     except anyio.get_cancelled_exc_class():
@@ -123,16 +122,30 @@ def start_worker(queue: str, concurrency: int | str | None = None) -> None:
         raise click.Abort() from e
 
 
-async def signal_handler(scope: anyio.CancelScope) -> None:
-    """Listens for signals and cancels the task group."""
-    with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
-        async for signum in signals:
-            if signum == signal.SIGINT:
-                console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C).[/yellow]")
-            else:
-                console.print(f"\n[yellow]Received signal {signum}.[/yellow]")
-            scope.cancel()  # Cancel the task group to initiate shutdown
-            return  # Exit the signal handler task
+async def _signal_drain_loop(drain_event: anyio.Event, signals: Any) -> None:
+    """Listens for process signals and requests cooperative worker drain."""
+    async for signum in signals:
+        if signum == signal.SIGINT:
+            console.print("\n[yellow]KeyboardInterrupt received (Ctrl+C). Draining worker...[/yellow]")
+        else:
+            console.print(f"\n[yellow]Received signal {signum}. Draining worker...[/yellow]")
+        drain_event.set()
+        return
+
+
+async def _run_worker_with_signals(queue_name: str, concurrency: int) -> None:
+    from asyncmq.runners import run_worker
+
+    drain_event = anyio.Event()
+    async with anyio.create_task_group() as tg:
+
+        async def worker_task() -> None:
+            await run_worker(queue_name=queue_name, concurrency=concurrency, drain_event=drain_event)
+            tg.cancel_scope.cancel()
+
+        tg.start_soon(worker_task)
+        with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
+            tg.start_soon(_signal_drain_loop, drain_event, signals)
 
 
 @click.command("list")
@@ -153,7 +166,34 @@ def list_workers() -> None:
     table.add_column("Last Heartbeat", style="yellow")
     for w in workers:
         heartbeat_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(w.heartbeat))
-        table.add_row(w.id, w.queue, str(w.concurrency), heartbeat_str)
+        table.add_row(rich_escape(w.id), rich_escape(w.queue), str(w.concurrency), heartbeat_str)
+    console.print(table)
+
+
+@click.command("inspect")
+@click.argument("worker_id")
+def inspect_worker(worker_id: str) -> None:
+    """
+    Inspect a single registered worker by ID.
+
+    Args:
+        worker_id: The unique identifier of the worker to inspect.
+    """
+    get_print_banner(WORKERS_LOGO, title="AsyncMQ Inspect Worker")
+    backend = asyncmq.monkay.settings.backend
+    workers = run_cmd(backend.list_workers) or []
+    worker = next((w for w in workers if str(w.id) == worker_id), None)
+    if worker is None:
+        console.print(f"[red]Worker '{rich_escape(worker_id)}' was not found.[/red]")
+        raise RuntimeError(f"Worker '{worker_id}' was not found.")
+
+    table = Table(title=f"Worker {rich_escape(worker_id)}")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("Worker ID", rich_escape(worker.id))
+    table.add_row("Queue", rich_escape(worker.queue))
+    table.add_row("Concurrency", str(worker.concurrency))
+    table.add_row("Last Heartbeat", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(worker.heartbeat)))
     console.print(table)
 
 
@@ -187,7 +227,8 @@ def register_worker(worker_id: str, queue: str, concurrency: int) -> None:
         )
     )
     console.print(
-        f":white_check_mark: Worker [bold]{worker_id}[/] registered on queue [bold]{queue}[/] with concurrency {concurrency}."
+        f":white_check_mark: Worker [bold]{rich_escape(worker_id)}[/] registered on queue "
+        f"[bold]{rich_escape(queue)}[/] with concurrency {concurrency}."
     )
 
 
@@ -206,11 +247,12 @@ def deregister_worker(worker_id: str) -> None:
     get_print_banner(WORKERS_LOGO, title="AsyncMQ Deregister Workers")
     backend = asyncmq.monkay.settings.backend
     run_cmd(lambda: backend.deregister_worker(worker_id))
-    console.print(f":white_check_mark: Worker [bold]{worker_id}[/] deregistered.")
+    console.print(f":white_check_mark: Worker [bold]{rich_escape(worker_id)}[/] deregistered.")
 
 
 worker_cli.add_command(start_worker)
 worker_cli.add_command(list_workers)
+worker_cli.add_command(inspect_worker)
 worker_cli.add_command(register_worker)
 worker_cli.add_command(deregister_worker)
 worker_app = worker_cli.cli

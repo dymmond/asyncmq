@@ -26,15 +26,19 @@ async def simple_task(x, y):
     return x + y
 
 
-counter = {"calls": 0}
-
-
 @task(queue="runner")
-def flaky_task():
-    counter["calls"] += 1
-    # First call sleeps past timeout
-    if counter["calls"] == 1:
-        time.sleep(settings.sandbox_default_timeout + 0.1)
+def flaky_task(marker_path: str, sleep_seconds: float):
+    try:
+        calls = int(open(marker_path).read())
+    except FileNotFoundError:
+        calls = 0
+
+    calls += 1
+    with open(marker_path, "w") as marker:
+        marker.write(str(calls))
+
+    if calls == 1:
+        time.sleep(sleep_seconds)
     return "recovered"
 
 
@@ -75,8 +79,11 @@ async def backend(request):
     elif name == "mongodb":
         db_name = f"test_asyncmq_{uuid4().hex}"
         b = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=db_name)
-        yield b
-        await b.store.client.drop_database(db_name)
+        try:
+            yield b
+        finally:
+            await b.store.client.drop_database(db_name)
+            b.store.client.close()
     elif name == "postgres":
         # Drop old and install schema
         await install_or_drop_postgres_backend(drop=True)
@@ -128,14 +135,15 @@ async def test_sandbox_execution_uses_run_handler(backend, monkeypatch):
     assert called["count"] == 1
 
 
-async def test_flaky_task_retries_and_recovers_under_sandbox(backend):
-    counter["calls"] = 0
+async def test_flaky_task_retries_and_recovers_under_sandbox(backend, tmp_path):
     settings.sandbox_enabled = True
-    settings.sandbox_default_timeout = 0.1
+    settings.sandbox_default_timeout = 1.0
 
     job_id = [k for k, v in TASK_REGISTRY.items() if v["func"] == flaky_task][0]
-    job = Job(task_id=job_id, args=[], kwargs={}, max_retries=1, backoff=0)
+    marker_path = tmp_path / f"{backend.__class__.__name__}-sandbox-retries.txt"
+    job = Job(task_id=job_id, args=[str(marker_path), 2.0], kwargs={}, max_retries=1, backoff=0)
     await backend.enqueue("runner", job.to_dict())
 
     result = await run_one_job("runner", backend, job.id, concurrency=1)
     assert result == "recovered"
+    assert marker_path.read_text() == "2"

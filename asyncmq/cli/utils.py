@@ -2,6 +2,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 
 import anyio
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
@@ -51,6 +52,10 @@ WORKERS_LOGO = r"""
 ██ ███ ██ ██    ██ ██   ██ ██  ██  ██      ██   ██      ██
  ███ ███   ██████  ██   ██ ██   ██ ███████ ██   ██ ███████
 """.rstrip()
+
+
+def rich_escape(value: Any) -> str:
+    return escape(str(value))
 
 
 def get_centered_logo(display_text: str = ASYNCMQ_LOGO) -> str:
@@ -133,8 +138,14 @@ def get_print_banner(
 
 def run_cmd(fn: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T | None:
     try:
-        return anyio.run(fn, *args, **kwargs)
+        if kwargs:
+
+            async def _call_with_kwargs() -> T:
+                return await fn(*args, **kwargs)
+
+            return anyio.run(_call_with_kwargs)
+        return anyio.run(fn, *args)
     except RuntimeError as e:
         if e.args and "Event loop is closed" in e.args[0]:
-            pass
-        return None
+            return None
+        raise

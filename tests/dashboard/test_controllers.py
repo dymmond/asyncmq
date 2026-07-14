@@ -11,6 +11,7 @@ from lilya.testclient import TestClient
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.application import create_dashboard_app
 from asyncmq.contrib.dashboard.audit import clear_audit_events
+from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
 
 
@@ -413,6 +414,22 @@ def test_metrics_history_endpoint_returns_snapshots(client, app):
     assert len(payload["history"]) >= 1
     first = payload["history"][0]
     assert {"throughput", "retries", "failures", "waiting", "active", "total_workers"}.issubset(first.keys())
+
+
+def test_prometheus_metrics_endpoint_returns_queue_and_worker_gauges(client, app):
+    response = client.get(url(app, "metrics-prometheus"))
+
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/plain")
+    assert 'asyncmq_queue_jobs{queue="emails",state="waiting"}' in response.text
+    assert 'asyncmq_queue_jobs{queue="reports",state="delayed"} 1' in response.text
+    assert "asyncmq_queue_total 2" in response.text
+    assert "asyncmq_worker_total 2" in response.text
+    assert "asyncmq_dashboard_ready 1" in response.text
+
+
+def test_prometheus_label_escape():
+    assert _prometheus_escape('team"one\\line\nbreak') == 'team\\"one\\\\line\\nbreak'
 
 
 def xtest_sse_headers(client, app):

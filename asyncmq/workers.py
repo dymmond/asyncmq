@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+import random
 import time
 import traceback
 import uuid
@@ -14,6 +15,12 @@ from asyncmq.backends.base import BaseBackend
 from asyncmq.core.enums import State
 from asyncmq.core.event import event_emitter
 from asyncmq.core.lifecycle import run_hooks, run_hooks_safely
+from asyncmq.core.stalled import stalled_recovery_scheduler
+from asyncmq.core.tracing import (
+    job_execution_span,
+    mark_job_span_completed,
+    mark_job_span_exception,
+)
 from asyncmq.exceptions import JobCancelled
 from asyncmq.jobs import Job
 from asyncmq.logging import logger
@@ -43,11 +50,115 @@ def autodiscover_tasks() -> None:
                 logger.warning(f"autodiscover failed importing {full_name!r}: {e}")
 
 
+async def _call_lifecycle_transition(backend: Any, name: str, *args: Any) -> bool:
+    transition = getattr(backend, name, None)
+    if callable(transition):
+        await transition(*args)
+        return True
+    return False
+
+
+async def _complete_active_job(backend: Any, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+    if await _call_lifecycle_transition(backend, "complete_active_job", queue_name, payload, result):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.COMPLETED)
+    await backend.save_job_result(queue_name, job_id, result)
+    await backend.ack(queue_name, job_id)
+
+
+async def _retry_active_job(backend: Any, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+    if await _call_lifecycle_transition(backend, "retry_active_job", queue_name, payload, run_at):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.DELAYED)
+    await backend.enqueue_delayed(queue_name, payload, run_at)
+    await backend.ack(queue_name, job_id)
+
+
+async def _defer_active_job(backend: Any, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+    if await _call_lifecycle_transition(backend, "defer_active_job", queue_name, payload, run_at):
+        return
+
+    await _retry_active_job(backend, queue_name, payload, run_at)
+
+
+async def _fail_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "fail_active_job", queue_name, payload):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.FAILED)
+    await backend.ack(queue_name, job_id)
+    await backend.move_to_dlq(queue_name, payload)
+
+
+async def _expire_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "expire_active_job", queue_name, payload):
+        return
+
+    job_id = str(payload["id"])
+    await backend.update_job_state(queue_name, job_id, State.EXPIRED)
+    await backend.ack(queue_name, job_id)
+    await backend.move_to_dlq(queue_name, payload)
+
+
+async def _cancel_active_job(backend: Any, queue_name: str, payload: dict[str, Any]) -> None:
+    if await _call_lifecycle_transition(backend, "cancel_active_job", queue_name, payload):
+        return
+
+    await backend.ack(queue_name, str(payload["id"]))
+
+
+def _heartbeat_renewal_interval(settings: Any) -> float:
+    threshold = max(float(settings.stalled_threshold), 0.1)
+    check_interval = max(float(settings.stalled_check_interval), 0.1)
+    return max(0.1, min(check_interval, threshold / 3))
+
+
+def _worker_heartbeat_interval(settings: Any) -> float:
+    ttl = max(float(settings.heartbeat_ttl), 0.01)
+    return max(ttl / 3, 0.01)
+
+
+def _worker_idle_poll_interval(settings: Any) -> float:
+    return max(float(getattr(settings, "worker_idle_poll_interval", 0.05)), 0.001)
+
+
+def _next_worker_idle_sleep(current: float, settings: Any) -> float:
+    maximum = max(float(getattr(settings, "worker_idle_poll_max_interval", 0.5)), _worker_idle_poll_interval(settings))
+    return min(max(current * 2, _worker_idle_poll_interval(settings)), maximum)
+
+
+async def _save_job_heartbeat_safely(
+    backend: BaseBackend,
+    queue_name: str,
+    job_id: str,
+    timestamp: float,
+    failure_count: int,
+) -> bool:
+    try:
+        await backend.save_heartbeat(queue_name, job_id, timestamp)
+    except Exception as exc:
+        if failure_count == 1 or failure_count % 10 == 0:
+            logger.warning(
+                f"Failed to renew heartbeat for job {job_id!r} in queue {queue_name!r} "
+                f"(failure #{failure_count}); continuing execution: {exc}",
+                exc_info=True,
+            )
+        return False
+    return True
+
+
 async def process_job(
     queue_name: str,
     limiter: CapacityLimiter,
     rate_limiter: RateLimiter | None = None,
     backend: BaseBackend | None = None,
+    *,
+    drain_event: anyio.Event | None = None,
 ) -> None:
     """
     Continuously processes jobs from a specified queue, respecting concurrency
@@ -65,6 +176,9 @@ async def process_job(
                       at which jobs are processed. Defaults to None.
         backend: An optional BaseBackend instance to interact with the queue
                  storage. Defaults to the backend specified in monkay.settings.
+        drain_event: Optional event used for cooperative worker draining. Once
+                     set, the loop stops claiming new jobs and returns after
+                     already-started job tasks finish.
     """
     # Use the provided backend or the one from settings
     settings = asyncmq.monkay.settings
@@ -72,30 +186,65 @@ async def process_job(
 
     # Create a task group to manage concurrent job handling tasks
     async with anyio.create_task_group() as tg:
+        idle_sleep = _worker_idle_poll_interval(settings)
         while True:
+            if drain_event is not None and drain_event.is_set():
+                return
+
             # Pause support: Check if the queue is currently paused
             if await backend.is_queue_paused(queue_name):
                 # If paused, wait for a bit before checking again
                 await anyio.sleep(settings.stalled_check_interval)
                 continue  # Skip to the next iteration
 
-            # Attempt to dequeue a raw job from the backend
-            raw_job = await backend.dequeue(queue_name)
-            if raw_job is None:
-                # If no job is available, wait briefly to avoid busy-looping
-                await anyio.sleep(0.1)
-                continue  # Skip to the next iteration
+            borrower = object()
+            acquired = False
+            rate_acquired = False
+            handed_off = False
+            await limiter.acquire_on_behalf_of(borrower)
+            acquired = True
+            try:
+                if drain_event is not None and drain_event.is_set():
+                    return
 
-            # If a job is dequeued, start a new task in the task group to handle it
-            # The _run_with_limits function will apply concurrency and rate limits
-            tg.start_soon(
-                _run_with_limits,
-                raw_job,
-                queue_name,
-                backend,
-                limiter,
-                rate_limiter,
-            )
+                if rate_limiter:
+                    await rate_limiter.acquire()
+                    rate_acquired = True
+
+                if drain_event is not None and drain_event.is_set():
+                    return
+
+                # Attempt to dequeue only after capacity and any rate-limit
+                # token are available. This prevents workers from hiding more
+                # jobs than they can execute.
+                raw_job = await backend.dequeue(queue_name)
+                if raw_job is None:
+                    if rate_acquired and rate_limiter:
+                        rate_limiter.refund_latest()
+                        rate_acquired = False
+                    # Back off empty polls to avoid a thundering herd of idle
+                    # workers hammering the backend during burst enqueue.
+                    await anyio.sleep(idle_sleep + random.uniform(0, idle_sleep * 0.1))
+                    idle_sleep = _next_worker_idle_sleep(idle_sleep, settings)
+                    continue  # Skip to the next iteration
+
+                idle_sleep = _worker_idle_poll_interval(settings)
+                # If a job is dequeued, start a new task in the task group to handle it.
+                # The _run_with_limits function owns the capacity token after handoff.
+                tg.start_soon(
+                    _run_with_limits,
+                    raw_job,
+                    queue_name,
+                    backend,
+                    limiter,
+                    borrower,
+                )
+                handed_off = True
+            finally:
+                if rate_acquired and not handed_off and rate_limiter:
+                    rate_limiter.refund_latest()
+                if acquired and not handed_off:
+                    limiter.release_on_behalf_of(borrower)
 
 
 async def _run_with_limits(
@@ -103,31 +252,26 @@ async def _run_with_limits(
     queue_name: str,
     backend: BaseBackend,
     limiter: CapacityLimiter,
-    rate_limiter: RateLimiter | None,
+    limiter_borrower: object,
 ) -> None:
     """
-    Applies concurrency and optional rate limits before calling handle_job.
+    Calls ``handle_job`` and releases the capacity token when it finishes.
 
-    This function is intended to be run within a task group. It acquires a
-    slot from the concurrency limiter and, if provided, acquires a token
-    from the rate limiter before proceeding to process the job.
+    This function is intended to be run within a task group. Capacity is
+    acquired before dequeue by ``process_job`` and released here after the job
+    attempt finishes.
 
     Args:
         raw_job: The raw job data as a dictionary.
         queue_name: The name of the queue the job originated from.
         backend: The backend instance used for queue operations.
-        limiter: The CapacityLimiter instance for concurrency control.
-        rate_limiter: An optional RateLimiter instance for rate control.
+        limiter: The CapacityLimiter instance whose borrowed token must be released.
+        limiter_borrower: The borrower object used to acquire the capacity token.
     """
-    # Acquire a slot from the concurrency limiter; this waits if the limit
-    # has been reached.
-    async with limiter:
-        # If a rate limiter is provided, acquire a token; this waits if the
-        # rate limit has been exceeded.
-        if rate_limiter:
-            await rate_limiter.acquire()
-        # Once limits are satisfied, proceed to handle the job logic
+    try:
         await handle_job(queue_name, raw_job, backend)
+    finally:
+        limiter.release_on_behalf_of(limiter_borrower)
 
 
 async def handle_job(
@@ -163,6 +307,7 @@ async def handle_job(
         if "id" not in normalized_job and raw_job.get("job_id") is not None:
             normalized_job["id"] = raw_job["job_id"]
 
+    initial_status = normalized_job.get("status")
     # Convert the raw job dictionary into a Job object
     job = Job.from_dict(normalized_job)
 
@@ -174,12 +319,11 @@ async def handle_job(
             if parent_state != State.COMPLETED:
                 # Parent not done yet, requeue this job slightly in the future to avoid hot loops.
                 job.status = State.DELAYED
-                await backend.enqueue_delayed(queue_name, job.to_dict(), time.time() + 0.05)
-                await backend.ack(queue_name, job.id)
+                await _defer_active_job(backend, queue_name, job.to_dict(), time.time() + 0.05)
                 return
 
     if await backend.is_job_cancelled(queue_name, job.id):
-        await backend.ack(queue_name, job.id)
+        await _cancel_active_job(backend, queue_name, job.to_dict())
         await event_emitter.emit("job:cancelled", job.to_dict())
         return
 
@@ -187,14 +331,9 @@ async def handle_job(
     if job.is_expired():
         # Update job status to EXPIRED
         job.status = State.EXPIRED
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
-        # Clear active/heartbeat bookkeeping before terminal routing.
-        await backend.ack(queue_name, job.id)
+        await _expire_active_job(backend, queue_name, job.to_dict())
         # Emit a job:expired event
         await event_emitter.emit("job:expired", job.to_dict())
-        # Move the expired job to the Dead Letter Queue (DLQ)
-        await backend.move_to_dlq(queue_name, job.to_dict())
         return  # Stop processing this job
 
     # 2) Delay handling: If the job is scheduled to run later
@@ -202,92 +341,120 @@ async def handle_job(
     if job.delay_until and time.time() < job.delay_until:
         # If delayed, re-enqueue the job into the delayed queue
         job.status = State.DELAYED
-        await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
-        await backend.ack(queue_name, job.id)
+        await _defer_active_job(backend, queue_name, job.to_dict(), job.delay_until)
         return  # Stop processing this job for now
 
     try:
         # 3) Mark active & start event: If the job is ready to be processed
         # Set job status to ACTIVE
         job.status = State.ACTIVE
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
+        job.last_attempt = time.time()
+        if initial_status != State.ACTIVE:
+            await backend.update_job_state(queue_name, job.id, job.status)
         # Emit a job:started event
         await event_emitter.emit("job:started", job.to_dict())
 
         if settings.enable_stalled_check:
             await backend.save_heartbeat(queue_name, job.id, time.time())
 
-        # Retrieve task metadata and the handler function from the registry
-        try:
-            meta = TASK_REGISTRY[job.task_id]
-        except KeyError:
-            # Try importing as a module named exactly job.task_id
-            try:
-                importlib.import_module(job.task_id)
-            except Exception:
-                pass
+        async def heartbeat_renewal_loop() -> None:
+            heartbeat_failures = 0
+            while True:
+                await anyio.sleep(_heartbeat_renewal_interval(settings))
+                saved = await _save_job_heartbeat_safely(
+                    backend,
+                    queue_name,
+                    job.id,
+                    time.time(),
+                    heartbeat_failures + 1,
+                )
+                heartbeat_failures = 0 if saved else heartbeat_failures + 1
 
-            # If that populated the registry, great.
-            if job.task_id in TASK_REGISTRY:
-                meta = TASK_REGISTRY[job.task_id]
-            else:
-                # Otherwise, import & reload its parent module
-                module_name, _, _ = job.task_id.rpartition(".")
-                if module_name:
+        with job_execution_span(settings, queue_name, job.to_dict()) as span:
+            try:
+                # Retrieve task metadata and the handler function from the registry
+                try:
+                    meta = TASK_REGISTRY[job.task_id]
+                except KeyError:
+                    # Try importing as a module named exactly job.task_id
                     try:
-                        m = importlib.import_module(module_name)
-                        importlib.reload(m)
+                        importlib.import_module(job.task_id)
                     except Exception:
                         pass
 
-                # One more lookup
-                if job.task_id in TASK_REGISTRY:
-                    meta = TASK_REGISTRY[job.task_id]
+                    # If that populated the registry, great.
+                    if job.task_id in TASK_REGISTRY:
+                        meta = TASK_REGISTRY[job.task_id]
+                    else:
+                        # Otherwise, import & reload its parent module
+                        module_name, _, _ = job.task_id.rpartition(".")
+                        if module_name:
+                            try:
+                                m = importlib.import_module(module_name)
+                                importlib.reload(m)
+                            except Exception:
+                                pass
+
+                        # One more lookup
+                        if job.task_id in TASK_REGISTRY:
+                            meta = TASK_REGISTRY[job.task_id]
+                        else:
+                            raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
+
+                handler = meta["func"]
+
+                # Mid-flight cancellation check
+                if await backend.is_job_cancelled(queue_name, job.id):
+                    raise JobCancelled()
+
+                async def execute_handler() -> Any:
+                    # Execute task (sandbox vs direct): run the task, potentially in a sandbox.
+                    if settings.sandbox_enabled:
+                        return await anyio.to_thread.run_sync(  # noqa
+                            cast(Any, sandbox.run_handler),
+                            job.task_id,
+                            tuple(job.args),  # sandbox expects tuple args
+                            job.kwargs,
+                            settings.sandbox_default_timeout,
+                        )
+                    return await handler(*job.args, **job.kwargs)
+
+                if settings.enable_stalled_check:
+                    async with anyio.create_task_group() as heartbeat_tg:
+                        heartbeat_tg.start_soon(heartbeat_renewal_loop)
+                        try:
+                            result = await execute_handler()
+                        finally:
+                            heartbeat_tg.cancel_scope.cancel()
                 else:
-                    raise RuntimeError(f"Task {job.task_id!r} not found in TASK_REGISTRY") from None
-
-        handler = meta["func"]
-
-        # Mid-flight cancellation check
-        if await backend.is_job_cancelled(queue_name, job.id):
-            raise JobCancelled()
-
-        # 4) Execute task (sandbox vs direct): Run the task, potentially in a sandbox
-        if settings.sandbox_enabled:
-            # If sandboxing is enabled, run the handler in a separate thread
-            # using the sandbox execution function.
-            result = await anyio.to_thread.run_sync(  # noqa
-                cast(Any, sandbox.run_handler),
-                job.task_id,
-                tuple(job.args),  # sandbox expects tuple args
-                job.kwargs,
-                settings.sandbox_default_timeout,
-            )
-        else:
-            result = await handler(*job.args, **job.kwargs)
+                    result = await execute_handler()
+            except JobCancelled as exc:
+                mark_job_span_exception(span, exc, final_status="cancelled")
+                raise
+            except Exception as exc:
+                mark_job_span_exception(span, exc, final_status="error")
+                raise
+            else:
+                mark_job_span_completed(span)
 
         # 5) Success path: If the task execution completed without exceptions
         # Set job status to COMPLETED
         job.status = State.COMPLETED
         # Store the result of the task execution
         job.result = result
-        # Update the state in the backend
-        await backend.update_job_state(queue_name, job.id, job.status)
-        # Save the job result in the backend
-        await backend.save_job_result(queue_name, job.id, result)
-        # Acknowledge successful processing in the backend
-        await backend.ack(queue_name, job.id)
+        job.last_error = None
+        job.error_traceback = None
+        await _complete_active_job(backend, queue_name, job.to_dict(), result)
         # Unblock dependent jobs waiting on this parent.
         resolve_dependency = getattr(backend, "resolve_dependency", None)
-        if callable(resolve_dependency):
+        if normalized_job.get("has_dependents") is not False and callable(resolve_dependency):
             await cast(Any, resolve_dependency)(queue_name, job.id)
         # Emit a job:completed event
         await event_emitter.emit("job:completed", job.to_dict())
 
     except JobCancelled:
         # Cancellation path
-        await backend.ack(queue_name, job.id)
+        await _cancel_active_job(backend, queue_name, job.to_dict())
         await event_emitter.emit("job:cancelled", job.to_dict())
 
     except Exception:
@@ -306,13 +473,9 @@ async def handle_job(
         if job.retries > job.max_retries:
             # If retries exhausted, set status to FAILED
             job.status = State.FAILED
-            # Update the state in the backend
-            await backend.update_job_state(queue_name, job.id, job.status)
-            await backend.ack(queue_name, job.id)
+            await _fail_active_job(backend, queue_name, job.to_dict())
             # Emit a job:failed event
             await event_emitter.emit("job:failed", job.to_dict())
-            # Move the failed job to the Dead Letter Queue (DLQ)
-            await backend.move_to_dlq(queue_name, job.to_dict())
         else:
             # If retries are still available, calculate the next retry delay
             delay = job.next_retry_delay()
@@ -320,11 +483,7 @@ async def handle_job(
             job.delay_until = time.time() + delay
             # Mark retriable failure as delayed before requeueing.
             job.status = State.DELAYED
-            # Update the state in the backend
-            await backend.update_job_state(queue_name, job.id, job.status)
-            # Enqueue the job into the delayed queue for a future retry
-            await backend.enqueue_delayed(queue_name, job.to_dict(), job.delay_until)
-            await backend.ack(queue_name, job.id)
+            await _retry_active_job(backend, queue_name, job.to_dict(), job.delay_until)
 
 
 class Worker:
@@ -348,11 +507,19 @@ class Worker:
         self.queue = queue if not isinstance(queue, str) else Queue(queue)
         self.id = str(uuid.uuid4())
         self._cancel_scope: anyio.CancelScope | None = None
+        self._drain_event: anyio.Event | None = None
+        self._stopped_event: anyio.Event | None = None
         self.concurrency = self._settings.worker_concurrency
-        self.heartbeat_interval = heartbeat_interval or self._settings.heartbeat_ttl
+        self.heartbeat_interval = (
+            heartbeat_interval if heartbeat_interval is not None else _worker_heartbeat_interval(self._settings)
+        )
 
     async def _run_with_scope(self) -> None:
         backend = asyncmq.monkay.settings.backend
+        drain_event = anyio.Event()
+        stopped_event = anyio.Event()
+        self._drain_event = drain_event
+        self._stopped_event = stopped_event
 
         if monkay.settings.tasks:
             # Trigger the auto discover tasks
@@ -378,40 +545,61 @@ class Worker:
         async def heartbeat_loop() -> None:
             while True:
                 await anyio.sleep(self.heartbeat_interval)
-                await backend.register_worker(
-                    worker_id=self.id,
-                    queue=self.queue.name,
-                    concurrency=self.concurrency,
-                    timestamp=time.time(),
-                )
+                try:
+                    await backend.register_worker(
+                        worker_id=self.id,
+                        queue=self.queue.name,
+                        concurrency=self.concurrency,
+                        timestamp=time.time(),
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to renew worker heartbeat for worker %r on queue %r",
+                        self.id,
+                        self.queue.name,
+                        exc_info=True,
+                    )
 
         try:
             async with anyio.create_task_group() as tg:
                 self._cancel_scope = tg.cancel_scope
+
+                async def processor_loop() -> None:
+                    await process_job(
+                        self.queue.name,
+                        CapacityLimiter(self.concurrency),
+                        None,
+                        backend,
+                        drain_event=drain_event,
+                    )
+                    if drain_event.is_set():
+                        tg.cancel_scope.cancel()
+
                 tg.start_soon(heartbeat_loop)
+                if monkay.settings.enable_stalled_check:
+                    tg.start_soon(stalled_recovery_scheduler, backend)
 
                 # Kick off the real processing loop—
                 # process_job will dequeue and handle jobs until cancelled.
-                tg.start_soon(
-                    process_job,
-                    self.queue.name,
-                    CapacityLimiter(self.concurrency),
-                    None,
-                    backend,
-                )
+                tg.start_soon(processor_loop)
 
                 # Keep this task group alive until cancellation.
                 await anyio.sleep(float("inf"))
         finally:
             self._cancel_scope = None
-            await backend.deregister_worker(self.id)
-            # Run the hooks on shutdown
-            await run_hooks_safely(
-                monkay.settings.worker_on_shutdown,
-                backend=backend,
-                worker_id=self.id,
-                queue=self.queue.name,
-            )
+            self._drain_event = None
+            try:
+                await backend.deregister_worker(self.id)
+                # Run the hooks on shutdown
+                await run_hooks_safely(
+                    monkay.settings.worker_on_shutdown,
+                    backend=backend,
+                    worker_id=self.id,
+                    queue=self.queue.name,
+                )
+            finally:
+                stopped_event.set()
+                self._stopped_event = None
 
     def start(self) -> None:
         """Blocking entrypoint."""
@@ -425,3 +613,18 @@ class Worker:
         """Cancel if running under start()."""
         if self._cancel_scope:
             self._cancel_scope.cancel()
+
+    async def drain(self) -> None:
+        """
+        Stop claiming new jobs and wait for this worker run to finish.
+
+        Draining is cooperative: already-running jobs are allowed to finish,
+        then the worker deregisters and runs shutdown hooks. If the worker is
+        not currently running, this method is a no-op.
+        """
+        drain_event = self._drain_event
+        stopped_event = self._stopped_event
+        if drain_event is None or stopped_event is None:
+            return
+        drain_event.set()
+        await stopped_event.wait()

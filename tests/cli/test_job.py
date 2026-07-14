@@ -53,6 +53,14 @@ def test_job_retry(monkeypatch, fake_backend):
     assert "Retrying job" in result.output
 
 
+def test_job_retry_escapes_rich_markup_identifiers(monkeypatch, fake_backend):
+    result = runner.invoke(app, ["job", "retry", "[red]job[/]", "--queue", "[blue]queue[/]"])
+
+    assert result.exit_code == 0
+    assert "[red]job[/]" in result.output
+    assert "[blue]queue[/]" in result.output
+
+
 def test_job_remove(monkeypatch, fake_backend):
     result = runner.invoke(app, ["job", "remove", "job1", "--queue", "queue1"])
     assert result.exit_code == 0

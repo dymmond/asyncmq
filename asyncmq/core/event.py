@@ -3,6 +3,8 @@ from typing import Any, Callable, Coroutine
 
 import anyio
 
+from asyncmq.logging import logger
+
 # Define a type alias for callbacks that can be either synchronous or asynchronous.
 # A synchronous callback takes Any and returns Any.
 # An asynchronous callback takes Any and returns an Awaitable that resolves to Any.
@@ -95,18 +97,20 @@ class EventEmitter:
         if not listeners:
             return
 
+        async def run_listener(cb: Callback) -> None:
+            try:
+                if inspect.iscoroutinefunction(cb):
+                    await cb(data)
+                else:
+                    await anyio.to_thread.run_sync(cb, data)
+            except Exception:
+                logger.error("Event listener failed for event %r", event, exc_info=True)
+
         # Create a TaskGroup to run callbacks concurrently.
         async with anyio.create_task_group() as tg:
             # Iterate through each registered callback.
             for cb in listeners:
-                # Check if the callback is an asynchronous function.
-                if inspect.iscoroutinefunction(cb):
-                    # If it's async, start it directly as a new task in the TaskGroup.
-                    tg.start_soon(cb, data)
-                else:
-                    # If it's synchronous, run it in a thread to avoid blocking
-                    # the main event loop, also started as a task.
-                    tg.start_soon(anyio.to_thread.run_sync, cb, data)
+                tg.start_soon(run_listener, cb)
 
 
 # The singleton instance of the `EventEmitter` class, providing a global event bus

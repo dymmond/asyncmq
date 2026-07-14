@@ -61,12 +61,20 @@ async def rabbitmq_backend(redis_backend):
 
     # 3) instantiate RabbitMQBackend with the job_store (not the RedisBackend!)
     backend = RabbitMQBackend(
-        rabbit_url="amqp://guest:guest@localhost:5672/", prefetch_count=1, redis_url="redis://localhost:6379"
+        rabbit_url="amqp://guest:guest@localhost:5672/",
+        prefetch_count=1,
+        redis_url="redis://localhost:6379",
+        max_priority=None,
     )
+    await backend._connect()
+    await backend._chan.queue_delete("queueA", if_unused=False, if_empty=False)
+    await backend._chan.queue_delete("queueB", if_unused=False, if_empty=False)
 
     yield backend
 
     # teardown: close RabbitMQ and flush Redis again
+    await backend._chan.queue_delete("queueA", if_unused=False, if_empty=False)
+    await backend._chan.queue_delete("queueB", if_unused=False, if_empty=False)
     await backend.close()
     await redis_backend.redis.flushdb()
 

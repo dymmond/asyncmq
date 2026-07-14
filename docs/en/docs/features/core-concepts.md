@@ -69,7 +69,13 @@ Typical transitions:
 
 If `enable_stalled_check=True`, workers write heartbeats for active jobs.
 
-Recovery loop is provided by `asyncmq.core.stalled.stalled_recovery_scheduler(...)` and must be started by your application if you want automatic re-enqueue of stale active jobs.
+`run_worker(...)`, `Queue.run()`, and `Worker.run()` start stalled recovery
+alongside processing when that setting is enabled. The lower-level
+`asyncmq.core.stalled.stalled_recovery_scheduler(...)` remains available for
+explicit recovery processes.
+
+For the full delivery contract, including duplicate delivery, ordering, and
+visibility timeout limits, see [Delivery Semantics](../reference/delivery-semantics.md).
 
 ## Where to Go Next
 

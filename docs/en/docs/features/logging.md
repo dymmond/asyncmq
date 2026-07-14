@@ -18,6 +18,24 @@ class AppSettings(Settings):
     logging_level = "DEBUG"
 ```
 
+## Structured JSON Logs
+
+Set `structured_logging=True` to make the built-in logging configuration emit
+one JSON object per log line:
+
+```python
+from asyncmq.conf.global_settings import Settings
+
+
+class AppSettings(Settings):
+    structured_logging = True
+```
+
+JSON log records include `timestamp`, `level`, `logger`, `module`, and
+`message`. Extra fields passed through the standard logging `extra={...}`
+mechanism are preserved. Exception information and `stack_info=True` output are
+included when they are attached to the log record.
+
 ## Custom Logging Backend
 
 Implement `LoggingConfig`:

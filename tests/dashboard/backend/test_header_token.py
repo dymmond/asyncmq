@@ -20,7 +20,7 @@ class HeaderTokenBackend(AuthBackend):
 
     async def authenticate(self, request: Request) -> dict | None:
         user = request.headers.get(self.header)
-        return {"id": user, "name": user} if user else None
+        return {"id": user, "name": user, "is_admin": True} if user else None
 
     async def login(self, request: Request) -> Response:
         # For header-only flows, just show a tiny page explaining how to auth.

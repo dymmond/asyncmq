@@ -32,12 +32,14 @@ from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.jwt import JWTAuthBackend
 
 backend = JWTAuthBackend(
-    secret="change-me-with-strong-secret",
+    secret="change-me-with-at-least-32-bytes",
     algorithms=["HS256"],
     audience=None,
     issuer=None,
     user_claim="sub",
     user_name_claim="name",
+    admin_claim="is_admin",
+    roles_claim="roles",
     leeway=0,
 )
 
@@ -46,7 +48,15 @@ admin = AsyncMQAdmin(enable_login=True, backend=backend)
 
 Behavior:
 
-- `authenticate()` decodes token and returns a user dict (`id`, `name`, `claims`) or `None`.
+- `authenticate()` decodes token and returns a dashboard `User` or `None`.
+- Tokens must carry `is_admin=true` by default, or the dashboard authorization
+  gate rejects the authenticated user.
+- Admin claims must be booleans or documented truthy strings such as `"true"`;
+  object and list claim values fail closed.
+- Role-based deployments can use `roles` claims with
+  `AsyncMQAdmin(require_admin=False, required_roles=("ops",))`.
+- Role claims must be a string or a list of role values; object claims are not
+  interpreted as roles.
 - `login()` returns informational HTML (JWT issuance is external to AsyncMQ).
 - `logout()` redirects to `/login`.
 
@@ -61,8 +71,13 @@ pip install pyjwt
 ```python
 import jwt
 
-payload = {"sub": "ops-user", "name": "Ops User"}
-token = jwt.encode(payload, "change-me-with-strong-secret", algorithm="HS256")
+payload = {
+    "sub": "ops-user",
+    "name": "Ops User",
+    "is_admin": True,
+    "roles": ["asyncmq:admin"],
+}
+token = jwt.encode(payload, "change-me-with-at-least-32-bytes", algorithm="HS256")
 print(token)
 ```
 
@@ -74,7 +89,7 @@ Authorization: Bearer <token>
 
 ### Hardening Checklist for JWT
 
-1. Use a secret of at least 32 bytes for HS256.
+1. Use a secret of at least 32 bytes for HS256; AsyncMQ rejects shorter HS* secrets.
 2. Set `audience` and `issuer` if tokens come from a central IdP.
 3. Keep token lifetimes short and rotate signing keys.
 4. Terminate TLS before any dashboard path.
@@ -93,7 +108,7 @@ from asyncmq.contrib.dashboard.admin.protocols import User
 
 def verify(username: str, password: str) -> User | None:
     if username == "admin" and password == "secret":
-        return User(id="admin", name="Admin", is_admin=True)
+        return User(id="admin", name="Admin", is_admin=True, roles=["asyncmq:admin"])
     return None
 
 
@@ -119,5 +134,6 @@ app.mount("/ops", admin.get_asgi_app(with_url_prefix=True))
 - Enforce HTTPS.
 - Rotate JWT/session secrets.
 - Keep auth backend errors opaque to clients.
+- Require explicit admin or operator roles for dashboard users.
 - Restrict dashboard exposure to trusted operator networks.
 - Review `/audit` regularly for sensitive actions.

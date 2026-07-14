@@ -10,6 +10,7 @@ from asyncmq import monkay
 from asyncmq.contrib.dashboard.controllers import (
     audit,
     dlq,
+    health,
     home,
     jobs,
     metrics,
@@ -46,6 +47,8 @@ def create_dashboard_app() -> ASGIApp:
                 routes=[
                     # Home / Dashboard Overview
                     RoutePath("/", home.DashboardController, methods=["GET"], name="dashboard"),
+                    RoutePath("/health", health.HealthController, methods=["GET"], name="health"),
+                    RoutePath("/ready", health.ReadinessController, methods=["GET"], name="ready"),
                     # Queues list & detail (with pause/resume)
                     RoutePath(
                         "/queues",
@@ -110,6 +113,12 @@ def create_dashboard_app() -> ASGIApp:
                         metrics.MetricsHistoryController,
                         methods=["GET"],
                         name="metrics-history",
+                    ),
+                    RoutePath(
+                        "/metrics/prometheus",
+                        metrics.PrometheusMetricsController,
+                        methods=["GET"],
+                        name="metrics-prometheus",
                     ),
                     RoutePath(
                         "/audit",

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import asyncmq
+from asyncmq.core.enums import State
 from asyncmq.core.inspection import paginate_jobs, sanitize_job_types
 
 if TYPE_CHECKING:
@@ -217,6 +218,90 @@ class BaseBackend(ABC):
             result: The result data of the job (can be any serializable type).
         """
         ...
+
+    async def complete_active_job(self, queue_name: str, payload: dict[str, Any], result: Any) -> None:
+        """
+        Complete an active job as one backend-owned lifecycle transition.
+
+        Storage backends should override this method when they can combine the
+        state update, result persistence, and active-job acknowledgement in one
+        atomic operation. The default implementation preserves the historical
+        multi-call behavior for backends that have not yet been hardened.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.COMPLETED)
+        await self.save_job_result(queue_name, job_id, result)
+        await self.ack(queue_name, job_id)
+
+    async def retry_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        """
+        Move an active job back to delayed retry storage.
+
+        Backends should override this to atomically remove active ownership,
+        persist the retried payload, and make the job visible at ``run_at``.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.DELAYED)
+        await self.enqueue_delayed(queue_name, payload, run_at)
+        await self.ack(queue_name, job_id)
+
+    async def defer_active_job(self, queue_name: str, payload: dict[str, Any], run_at: float) -> None:
+        """
+        Move an active job to delayed storage without changing retry counters.
+
+        This is used for dependency gating and future ``delay_until`` jobs.
+        """
+        await self.retry_active_job(queue_name, payload, run_at)
+
+    async def fail_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Move an active job to terminal failure and the dead-letter queue.
+
+        Backends should override this when failure state, active ownership, and
+        DLQ insertion can be committed atomically.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.FAILED)
+        await self.ack(queue_name, job_id)
+        await self.move_to_dlq(queue_name, payload)
+
+    async def expire_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Move an active job to expired terminal state and the dead-letter queue.
+        """
+        job_id = str(payload["id"])
+        await self.update_job_state(queue_name, job_id, State.EXPIRED)
+        await self.ack(queue_name, job_id)
+        await self.move_to_dlq(queue_name, payload)
+
+    async def cancel_active_job(self, queue_name: str, payload: dict[str, Any]) -> None:
+        """
+        Release active ownership for a job cancelled before or during execution.
+        """
+        await self.ack(queue_name, str(payload["id"]))
+
+    async def promote_due_delayed(self, queue_name: str) -> list[dict[str, Any]]:
+        """
+        Move due delayed jobs into the waiting queue through a backend-owned
+        lifecycle transition.
+
+        Concrete backends should override this when their storage can move jobs
+        atomically. The default preserves compatibility for minimal backends but
+        may remove delayed jobs before enqueueing them.
+        """
+        jobs = await self.pop_due_delayed(queue_name)
+        promoted: list[dict[str, Any]] = []
+        for payload in jobs:
+            waiting_payload = {**payload, "status": State.WAITING, "delay_until": None}
+            await self.enqueue(queue_name, waiting_payload)
+            promoted.append(waiting_payload)
+        return promoted
+
+    def _prepare_retry_payload(self, payload: dict[str, Any], job_id: str) -> dict[str, Any]:
+        retry_payload = {**payload, "id": job_id, "status": State.WAITING, "delay_until": None}
+        for key in ("result", "failed_at", "completed_at", "last_error", "error_traceback"):
+            retry_payload.pop(key, None)
+        return retry_payload
 
     @abstractmethod
     async def save_job_payload(self, queue_name: str, payload: dict[str, Any]) -> None:
@@ -446,16 +531,24 @@ class BaseBackend(ABC):
             A list of job IDs that were successfully enqueued, in the order
             they were provided in `job_dicts`.
         """
+        deps_by_child: dict[str, set[str]] = {}
+        for parent, child in dependency_links:
+            deps_by_child.setdefault(child, set()).add(parent)
+
         # Default fallback implementation: enqueue jobs sequentially
         created_ids: list[str] = []
         for jd in job_dicts:
-            created_ids.append(jd["id"])
+            job_id = jd["id"]
+            deps = set(jd.get("depends_on", [])) | deps_by_child.get(job_id, set())
+            if deps:
+                jd = {**jd, "depends_on": sorted(deps)}
+            created_ids.append(job_id)
             await self.enqueue(queue_name, jd)
 
         # Then register dependencies sequentially
-        for parent, child in dependency_links:
+        for child, parents in deps_by_child.items():
             # Add dependency for the child job on the parent job
-            await self.add_dependencies(queue_name, {"id": child, "depends_on": [parent]})
+            await self.add_dependencies(queue_name, {"id": child, "depends_on": sorted(parents)})
 
         return created_ids  # Return the list of IDs for the enqueued jobs.
 
@@ -832,6 +925,19 @@ class BaseBackend(ABC):
                 removed_ids.append(str(job_id))
         return removed_ids
 
+    async def _purge_jobs_by_state(self, queue_name: str, state: str, older_than: float | None = None) -> list[str]:
+        removed_ids: list[str] = []
+        for job in await self.list_jobs(queue_name, state):
+            if older_than is not None and self._job_cleanup_timestamp(job, state) >= older_than:
+                continue
+
+            job_id = job.get("id") or job.get("job_id")
+            if job_id is None:
+                continue
+            if await self.remove_job(queue_name, str(job_id)):
+                removed_ids.append(str(job_id))
+        return removed_ids
+
     async def obliterate_queue(self, queue_name: str, *, force: bool = False) -> list[str]:
         """
         Irreversibly remove all jobs and repeatable definitions for a queue.
@@ -864,6 +970,16 @@ class BaseBackend(ABC):
                 await remove_repeatable(queue_name, record.job_def)
 
         return removed_ids
+
+    async def health_check(self) -> None:
+        """
+        Performs a lightweight backend reachability check.
+
+        Backends with external services should override this with a cheap ping
+        or single-row query. The default is a no-op for in-process/custom
+        backends where construction itself is sufficient.
+        """
+        return None
 
     @abstractmethod
     async def queue_stats(self, queue_name: str) -> dict[str, int]: ...

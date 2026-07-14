@@ -35,6 +35,7 @@ await run_worker(
     rate_interval=1.0,
     repeatables=None,
     scan_interval=None,
+    drain_event=None,
 )
 ```
 
@@ -45,6 +46,12 @@ It wires together:
 - `repeatable_scheduler(...)` (only if repeatables are provided)
 - worker registration/deregistration
 - startup/shutdown hooks
+
+Pass an `anyio.Event` as `drain_event` when your process supervisor or
+application runtime needs cooperative draining. Once the event is set,
+`run_worker(...)` stops dequeueing new jobs, waits for in-flight jobs owned by
+that process to finish, cancels scheduler helper tasks, deregisters the worker,
+and returns.
 
 ## Choosing an Entry Point
 

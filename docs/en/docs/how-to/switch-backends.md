@@ -13,6 +13,9 @@ class AppSettings(Settings):
     backend = RedisBackend("redis://localhost:6379/0")
 ```
 
+For high worker fanout, tune `RedisBackend(max_connections=..., pool_timeout=...)`
+so Redis pressure waits at the client pool instead of failing immediately.
+
 ## InMemory -> Postgres
 
 ```python

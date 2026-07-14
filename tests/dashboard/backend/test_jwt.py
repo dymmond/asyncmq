@@ -9,6 +9,8 @@ from lilya.testclient.base import TestClient
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.jwt import JWTAuthBackend
 
+JWT_SECRET = "test-secret-for-asyncmq-jwt-32-bytes"
+
 
 @pytest.fixture
 def lilya_app_jwt_backend() -> Lilya:
@@ -17,7 +19,7 @@ def lilya_app_jwt_backend() -> Lilya:
     admin = AsyncMQAdmin(
         enable_login=True,
         backend=JWTAuthBackend(
-            secret="test-secret",
+            secret=JWT_SECRET,
             algorithms=["HS256"],
             audience=None,  # keep simple for tests
             issuer=None,
@@ -41,7 +43,9 @@ def _make_token(
     *,
     sub: str = "alice",
     name: str = "Alice",
-    secret: str = "test-secret",
+    is_admin: t.Any | None = True,
+    roles: t.Any | None = None,
+    secret: str = JWT_SECRET,
     exp_in_seconds: int = 300,
     audience: str | None = None,
     issuer: str | None = None,
@@ -53,6 +57,10 @@ def _make_token(
         "iat": now,
         "exp": now + exp_in_seconds,
     }
+    if is_admin is not None:
+        payload["is_admin"] = is_admin
+    if roles is not None:
+        payload["roles"] = roles
     if audience is not None:
         payload["aud"] = audience
     if issuer is not None:
@@ -67,6 +75,11 @@ def test_jwt_backend_blocks_without_header(client: TestClient):
     assert "/asyncmq/login" in response.headers.get("location", "")
 
 
+def test_jwt_backend_rejects_short_hmac_secret():
+    with pytest.raises(ValueError, match="at least 32 bytes"):
+        JWTAuthBackend(secret="test-secret", algorithms=["HS256"])
+
+
 def test_jwt_backend_accepts_valid_token(client: TestClient):
     token = _make_token()
     response = client.get("/asyncmq/", headers={"Authorization": f"Bearer {token}"})
@@ -75,6 +88,43 @@ def test_jwt_backend_accepts_valid_token(client: TestClient):
 
     # loose check — content depends on templates
     assert "Alice" in response.text or "Dashboard" in response.text
+
+
+def test_jwt_backend_rejects_token_without_admin_authorization(client: TestClient):
+    token = _make_token(is_admin=None)
+    response = client.get(
+        "/asyncmq/",
+        headers={"Authorization": f"Bearer {token}"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
+
+
+@pytest.mark.parametrize("is_admin", [["true"], {"value": True}])
+def test_jwt_backend_rejects_unsupported_admin_claim_shapes(client: TestClient, is_admin: t.Any):
+    token = _make_token(is_admin=is_admin)
+    response = client.get(
+        "/asyncmq/",
+        headers={"Authorization": f"Bearer {token}"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
+
+
+def test_jwt_backend_rejects_mapping_roles_claim_with_admin_key(client: TestClient):
+    token = _make_token(is_admin=False, roles={"admin": False})
+    response = client.get(
+        "/asyncmq/",
+        headers={"Authorization": f"Bearer {token}"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Dashboard user is not authorized"
 
 
 def test_jwt_backend_rejects_bad_token(client: TestClient):

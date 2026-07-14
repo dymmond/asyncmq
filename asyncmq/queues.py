@@ -15,6 +15,7 @@ from asyncmq.core.deduplication import (
 from asyncmq.core.inspection import infer_job_type
 from asyncmq.core.job_ids import validate_custom_job_id
 from asyncmq.core.locks import acquire_backend_lock, release_backend_lock
+from asyncmq.core.payload import validate_job_payload_size
 from asyncmq.jobs import Job
 from asyncmq.runners import run_worker
 
@@ -78,6 +79,13 @@ class Queue:
         self.rate_interval: float = rate_interval
         self.scan_interval: float = scan_interval if scan_interval is not None else self._settings.scan_interval
 
+    def _validate_payload_size(self, payload: dict[str, Any]) -> None:
+        validate_job_payload_size(
+            payload,
+            max_bytes=self._settings.max_job_payload_bytes,
+            dumps=self._settings.json_serializer.to_json,
+        )
+
     def _job_id_lock_key(self, job_id: str | None) -> str | None:
         """
         Return the backend lock key used to serialize custom job-id checks.
@@ -118,9 +126,13 @@ class Queue:
         """
         if delay is not None:
             job.delay_until = time.time() + delay
-            await self.backend.enqueue_delayed(self.name, job.to_dict(), job.delay_until)
+            payload = job.to_dict()
+            self._validate_payload_size(payload)
+            await self.backend.enqueue_delayed(self.name, payload, job.delay_until)
             return
-        await self.backend.enqueue(self.name, job.to_dict())
+        payload = job.to_dict()
+        self._validate_payload_size(payload)
+        await self.backend.enqueue(self.name, payload)
 
     async def _find_deduplication_owner(self, deduplication_id: str) -> dict[str, Any] | None:
         """
@@ -589,6 +601,7 @@ class Queue:
             payload = job.to_dict()
             job_id = job.id
 
+        self._validate_payload_size(payload)
         await self.backend.enqueue(self.name, payload)
         return cast(str, job_id)
 
@@ -615,6 +628,7 @@ class Queue:
             # Ensure the run_at is present if caller minted their own id/payload
             payload["delay_until"] = run_at
 
+        self._validate_payload_size(payload)
         await self.backend.enqueue_delayed(self.name, payload, run_at)
         return cast(str, job_id)
 

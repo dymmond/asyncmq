@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from asyncmq.backends.postgres import PostgresBackend
@@ -21,23 +23,42 @@ async def backend():
 
 async def test_cancel_job_postgres(backend):
     queue, job_id = "q1", "p1"
+    delayed_id = "p1-delayed"
+    await backend.enqueue(queue, {"id": job_id, "task": "waiting"})
+    await backend.enqueue_delayed(queue, {"id": delayed_id, "task": "delayed"}, 9999999999)
+
     # Act
     result = await backend.cancel_job(queue, job_id)
     assert result is True
+    delayed_result = await backend.cancel_job(queue, delayed_id)
+    assert delayed_result is True
 
     # Verify row in cancelled_jobs
     cancel_table = settings.postgres_cancelled_jobs_table_name
     async with backend.pool.acquire() as conn:
-        row = await conn.fetchrow(
+        rows = await conn.fetch(
             f"""
             SELECT job_id
               FROM {cancel_table}
-             WHERE queue_name = $1 AND job_id = $2
+             WHERE queue_name = $1 AND job_id = ANY($2::text[])
             """,
             queue,
-            job_id,
+            [job_id, delayed_id],
         )
-    assert row["job_id"] == job_id
+    assert {row["job_id"] for row in rows} == {job_id, delayed_id}
+    assert await backend.get_job(queue, job_id) is None
+    assert await backend.get_job(queue, delayed_id) is None
+
+
+async def test_remove_job_clears_postgres_cancellation_marker(backend):
+    queue, job_id = "q1", "p1-remove-cancelled"
+    await backend.enqueue(queue, {"id": job_id, "task": "waiting"})
+    assert await backend.cancel_job(queue, job_id) is True
+    assert await backend.is_job_cancelled(queue, job_id) is True
+
+    assert await backend.remove_job(queue, job_id) is True
+
+    assert await backend.is_job_cancelled(queue, job_id) is False
 
 
 async def test_retry_job_postgres(backend):
@@ -56,7 +77,7 @@ async def test_retry_job_postgres(backend):
             """,
             queue,
             job_id,
-            "{}",
+            json.dumps({"id": job_id, "status": "failed", "result": "old", "last_error": "old failure"}),
             "failed",
         )
 
@@ -68,7 +89,7 @@ async def test_retry_job_postgres(backend):
     async with backend.pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""
-            SELECT status
+            SELECT status, data
               FROM {jobs_table}
              WHERE job_id = $1 AND queue_name = $2
             """,
@@ -76,6 +97,10 @@ async def test_retry_job_postgres(backend):
             queue,
         )
     assert row["status"] == "waiting"
+    data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+    assert data["status"] == "waiting"
+    assert "result" not in data
+    assert "last_error" not in data
 
 
 async def test_remove_job_postgres(backend):

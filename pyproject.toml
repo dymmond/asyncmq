@@ -38,7 +38,7 @@ classifiers = [
 ]
 dependencies = [
     "croniter>=6.0.0,<7.0.0",
-    "lilya[standard]>=0.24.3",
+    "lilya[standard]>=0.27.0",
     "sayer>=0.7.4",
     "redis>=7.0.0",
 ]
@@ -125,6 +125,12 @@ clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
+benchmark = "pytest benchmarks/ --codspeed"
+benchmark_plan = "python -m benchmarks.plan --json"
+benchmark_competitors = "python -m benchmarks.plan --json --require-competitors"
+benchmark_prepare = "python -m benchmarks.competitive --targets all --prepare-envs --inventory --json"
+benchmark_compare = "python -m benchmarks.competitive --targets asyncmq --inventory --json"
+benchmark_load = "python -m benchmarks.load_asyncmq --json"
 check_types = "ty check --error-on-warning asyncmq"
 lint = "hatch fmt --check -- --exclude docs_src && ty check --error-on-warning asyncmq"
 format = "hatch fmt -- --exclude docs_src && hatch fmt --check -- --exclude docs_src && ty check --error-on-warning asyncmq"
@@ -221,6 +227,8 @@ replace-imports-with-any = [
     "jwt",
     "jwt.**",
     "lilya.templating.**",
+    "pymongo",
+    "pymongo.**",
     "redis.**",
 ]
 

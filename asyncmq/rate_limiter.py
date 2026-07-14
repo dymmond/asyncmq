@@ -85,6 +85,14 @@ class RateLimiter:
         # After waiting (if any), acquire the token by adding the current time.
         self.timestamps.append(anyio.current_time())
 
+    def refund_latest(self) -> None:
+        """
+        Return the most recently acquired token when no rate-limited operation
+        was actually started.
+        """
+        if self.timestamps:
+            self.timestamps.pop()
+
     async def schedule_job(self, job: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
         """
         Acquires a token from the rate limiter and then executes the provided

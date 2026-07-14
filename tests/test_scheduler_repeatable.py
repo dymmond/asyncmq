@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import anyio
 import pytest
 
 from asyncmq import monkay
@@ -216,6 +217,59 @@ async def test_repeatable_scheduler_preserves_sandbox_setting():
         assert monkay.settings.sandbox_enabled is True
     finally:
         monkay.settings.sandbox_enabled = previous
+
+
+async def test_repeatable_scheduler_survives_transient_local_enqueue_failure():
+    class FlakyEnqueueBackend(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.enqueue_calls = 0
+            self.enqueued_ids: list[str] = []
+
+        async def enqueue(self, queue_name: str, payload: dict) -> str:
+            self.enqueue_calls += 1
+            if self.enqueue_calls == 1:
+                raise RuntimeError("temporary enqueue outage")
+            self.enqueued_ids.append(str(payload["id"]))
+            return await super().enqueue(queue_name, payload)
+
+    backend = FlakyEnqueueBackend()
+    jobs = [{"task_id": get_task_id(noop), "args": [], "kwargs": {}, "every": 0.01, "queue": "repeatable"}]
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(repeatable_scheduler, "repeatable", jobs, backend, 0.01)
+        with anyio.fail_after(1):
+            while not backend.enqueued_ids:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert backend.enqueue_calls >= 2
+
+
+async def test_repeatable_scheduler_survives_transient_backend_repeatable_failure():
+    class FlakyBackendRepeatables(InMemoryBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.due_calls = 0
+
+        async def get_due_repeatables(self, queue_name: str) -> list:
+            self.due_calls += 1
+            if self.due_calls == 1:
+                raise RuntimeError("temporary repeatable store outage")
+            return []
+
+        async def list_repeatables(self, queue_name: str) -> list:
+            return []
+
+    backend = FlakyBackendRepeatables()
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(repeatable_scheduler, "repeatable", [], backend, 0.01)
+        with anyio.fail_after(1):
+            while backend.due_calls < 2:
+                await anyio.sleep(0.01)
+        tg.cancel_scope.cancel()
+
+    assert backend.due_calls >= 2
 
 
 async def test_repeatable_scheduler_coordinates_backend_repeatables_with_lock():

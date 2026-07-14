@@ -26,7 +26,13 @@ async def test_cancel_job(backend):
 
 
 async def test_retry_job(backend):
-    job = {"id": "j2"}
+    job = {
+        "id": "j2",
+        "status": State.FAILED,
+        "result": "old",
+        "last_error": "old failure",
+        "error_traceback": "old traceback",
+    }
     backend.dlqs.setdefault("q1", []).append(job.copy())
 
     result = await backend.retry_job("q1", "j2")
@@ -34,6 +40,11 @@ async def test_retry_job(backend):
     assert result is True
     assert any(j["id"] == "j2" for j in backend.queues.get("q1", []))
     assert all(j["id"] != "j2" for j in backend.dlqs.get("q1", []))
+    retried = await backend.dequeue("q1")
+    assert retried["status"] == State.WAITING
+    assert "result" not in retried
+    assert "last_error" not in retried
+    assert "error_traceback" not in retried
 
 
 async def test_remove_job(backend):

@@ -11,7 +11,13 @@ from sayer import Sayer
 
 import asyncmq
 from asyncmq.backends.base import DelayedInfo, RepeatableInfo  # Import for type hints
-from asyncmq.cli.utils import QUEUES_LOGO, get_centered_logo, get_print_banner, run_cmd
+from asyncmq.cli.utils import (
+    QUEUES_LOGO,
+    get_centered_logo,
+    get_print_banner,
+    rich_escape,
+    run_cmd,
+)
 
 console = Console()
 
@@ -40,9 +46,7 @@ def _queue_callback(ctx: click.Context) -> None:
              by the Click library and contains information about the current
              invocation, including the invoked subcommand.
     """
-    tokens = getattr(ctx, "protected_args", None)
-    if tokens is None:
-        tokens = ctx.args
+    tokens = getattr(ctx, "_protected_args", ()) or ctx.args
     if tokens and tokens[0] in ctx.command.commands:
         return
 
@@ -108,7 +112,7 @@ def list_queues() -> None:
             # If queues were found, iterate through the list and print each queue name
             # prefixed with a bullet point.
             for queue in queues:
-                console.print(f"• {queue}")
+                console.print(f"• {rich_escape(queue)}")
         else:
             # If the list of queues is empty, print a message indicating no queues were found.
             console.print("[yellow]No queues found.[/yellow]")
@@ -142,7 +146,7 @@ def pause_queue(queue: str) -> None:
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message indicating that the queue has been paused.
-    console.print(f"[bold red]Paused queue '{queue}'.[/bold red]")
+    console.print(f"[bold red]Paused queue '{rich_escape(queue)}'.[/bold red]")
 
 
 @click.command("resume")
@@ -169,7 +173,7 @@ def resume_queue(queue: str) -> None:
     # Print a banner for the queue operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a confirmation message indicating that the queue has been resumed.
-    console.print(f"[bold green]Resumed queue '{queue}'.[/bold green]")
+    console.print(f"[bold green]Resumed queue '{rich_escape(queue)}'.[/bold green]")
 
 
 @click.command("info")
@@ -195,7 +199,7 @@ def info_queue(queue: str) -> None:
     # Print a banner for the queue information operation.
     get_print_banner(QUEUES_LOGO, title="AsyncMQ Queues")
     # Print a message indicating that data fetching is in progress for the specified queue.
-    console.print(f"[cyan]Fetching info about queue '{queue}'...[/cyan]\n")
+    console.print(f"[cyan]Fetching info about queue '{rich_escape(queue)}'...[/cyan]\n")
 
     # Fetch the paused status of the queue asynchronously using anyio.run.
     # This calls the backend's is_queue_paused method.
@@ -224,7 +228,7 @@ def info_queue(queue: str) -> None:
 
     # Build a nice Rich table to display the fetched queue information.
     table = Table(
-        title=f"Queue '{queue}' Info",  # Title of the table.
+        title=f"Queue '{rich_escape(queue)}' Info",  # Title of the table.
         show_header=True,  # Display column headers.
         header_style="bold magenta",  # Styling for the headers.
     )
@@ -280,9 +284,9 @@ def cli_list_delayed(queue: str) -> None:
         payload_json = json.dumps(job.payload, ensure_ascii=False)
         # Add a row to the table with the job's information.
         table.add_row(
-            job.job_id,  # Job ID from the DelayedInfo instance.
+            rich_escape(job.job_id),  # Job ID from the DelayedInfo instance.
             human_run_at,  # Formatted run_at timestamp.
-            payload_json,  # JSON string of the job payload.
+            rich_escape(payload_json),  # JSON string of the job payload.
         )
     # Print the completed Rich Table to the console.
     console.print(table)
@@ -318,10 +322,68 @@ def cli_remove_delayed(queue: str, job_id: str | int) -> None:
     # Check the boolean result returned by remove_delayed.
     if ok:
         # If True, print a success message with a check mark emoji and the job ID.
-        console.print(f":white_check_mark: Removed delayed job [bold]{job_id}[/]")
+        console.print(f":white_check_mark: Removed delayed job [bold]{rich_escape(job_id)}[/]")
     else:
         # If False, print a failure message with a cross mark emoji and the job ID.
-        console.print(f":cross_mark: No delayed job found with ID [bold]{job_id}[/]")
+        console.print(f":cross_mark: No delayed job found with ID [bold]{rich_escape(job_id)}[/]")
+
+
+def _print_removed_jobs(action: str, queue: str, removed: list[str]) -> None:
+    count = len(removed)
+    console.print(f"[bold green]{action} removed {count} job(s) from queue '{rich_escape(queue)}'.[/bold green]")
+    if removed:
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Job ID", style="dim", overflow="fold")
+        for job_id in removed:
+            table.add_row(rich_escape(job_id))
+        console.print(table)
+
+
+@click.command("drain")
+@click.argument("queue")
+@click.option("--include-delayed", is_flag=True, help="Also remove delayed jobs.")
+def cli_drain_queue(queue: str, include_delayed: bool) -> None:
+    """
+    Removes queued jobs that have not started execution yet.
+    """
+    from asyncmq.queues import Queue
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Drain Queue")
+    q = Queue(queue)
+    removed = run_cmd(q.drain, include_delayed=include_delayed) or []
+    _print_removed_jobs("Drain", queue, removed)
+
+
+@click.command("clean")
+@click.argument("queue")
+@click.option("--state", required=True, help="Job state bucket to clean.")
+@click.option("--grace", default=0.0, type=float, show_default=True, help="Minimum job age in seconds.")
+@click.option("--limit", default=1000, type=int, show_default=True, help="Maximum jobs to remove; 0 means no limit.")
+def cli_clean_queue(queue: str, state: str, grace: float, limit: int) -> None:
+    """
+    Removes old jobs from a specific state bucket using grace and limit controls.
+    """
+    from asyncmq.queues import Queue
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Clean Queue")
+    q = Queue(queue)
+    removed = run_cmd(q.clean_jobs, grace=grace, limit=limit, state=state) or []
+    _print_removed_jobs("Clean", queue, removed)
+
+
+@click.command("obliterate")
+@click.argument("queue")
+@click.option("--force", is_flag=True, help="Allow removal when active jobs still exist.")
+def cli_obliterate_queue(queue: str, force: bool) -> None:
+    """
+    Irreversibly removes all jobs and repeatable definitions for a queue.
+    """
+    from asyncmq.queues import Queue
+
+    get_print_banner(QUEUES_LOGO, title="AsyncMQ Obliterate Queue")
+    q = Queue(queue)
+    removed = run_cmd(q.obliterate, force=force) or []
+    _print_removed_jobs("Obliterate", queue, removed)
 
 
 @click.command("list-repeatables")
@@ -365,7 +427,7 @@ def cli_list_repeatables(queue: str) -> None:
         status = "[yellow]paused[/]" if rpt.paused else "[green]active[/]"
         # Add a row to the table with the repeatable job's information.
         table.add_row(
-            job_def_json,  # JSON string of the job definition.
+            rich_escape(job_def_json),  # JSON string of the job definition.
             human_next_run,  # Formatted next_run timestamp.
             status,  # Status string.
         )
@@ -405,7 +467,7 @@ def cli_pause_repeatable(queue: str, job_def_json: str | Any) -> None:
     # passing the job definition dictionary.
     run_cmd(q.pause_repeatable, job_def)
     # Print a confirmation message with a pause emoji and the job definition.
-    console.print(f":pause_button: Paused repeatable [bold]{job_def}[/]")
+    console.print(f":pause_button: Paused repeatable [bold]{rich_escape(job_def)}[/]")
 
 
 @click.command("resume-repeatable")
@@ -445,7 +507,7 @@ def cli_resume_repeatable(queue: str, job_def_json: str | Any) -> None:
     human = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_run))
     # Print a confirmation message with a forward arrow emoji, the job definition,
     # and the human-readable next run time.
-    console.print(f":arrow_forward: Resumed repeatable [bold]{job_def}[/], next run at [bold]{human}[/]")
+    console.print(f":arrow_forward: Resumed repeatable [bold]{rich_escape(job_def)}[/], next run at [bold]{human}[/]")
 
 
 queue_cli.add_command(list_queues)
@@ -454,6 +516,9 @@ queue_cli.add_command(resume_queue)
 queue_cli.add_command(info_queue)
 queue_cli.add_command(cli_list_delayed)
 queue_cli.add_command(cli_remove_delayed)
+queue_cli.add_command(cli_drain_queue)
+queue_cli.add_command(cli_clean_queue)
+queue_cli.add_command(cli_obliterate_queue)
 queue_cli.add_command(cli_list_repeatables)
 queue_cli.add_command(cli_pause_repeatable)
 queue_cli.add_command(cli_resume_repeatable)

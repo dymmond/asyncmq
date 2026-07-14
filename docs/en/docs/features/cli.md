@@ -32,6 +32,7 @@ asyncmq job cancel default <job_id>
 
 asyncmq worker start default --concurrency 4
 asyncmq worker list
+asyncmq worker inspect <worker_id>
 asyncmq worker register <worker_id> default --concurrency 2
 asyncmq worker deregister <worker_id>
 ```

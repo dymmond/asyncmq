@@ -1,14 +1,51 @@
+import asyncio
 import time
 
+import aio_pika
 import pytest
 import pytest_asyncio
 
 from asyncmq.backends.rabbitmq import RabbitMQBackend
+from asyncmq.core.enums import State
 from asyncmq.stores.redis_store import RedisJobStore
 
 pytestmark = pytest.mark.asyncio
 
 RABBIT_URL = "amqp://guest:guest@localhost/"
+RABBIT_TEST_QUEUES = (
+    "test_q",
+    "test_q.dlq",
+    "test_q_priority_0_9",
+    "test_q_promote_delayed",
+    "test_q_stalled_restart",
+    "test_q_stalled_without_first_heartbeat",
+    "test_q_stalled_completed",
+    "test_q_remote_remove",
+    "test_q_remote_remove.dlq",
+    "test_list_state",
+    "test_list_state.dlq",
+    "test_filters",
+    "test_filters.dlq",
+    "test_case",
+    "wrong_status",
+)
+
+
+async def delete_rabbitmq_test_queues() -> None:
+    connection = await aio_pika.connect_robust(RABBIT_URL)
+    try:
+        channel = await connection.channel()
+        for queue_name in RABBIT_TEST_QUEUES:
+            await channel.queue_delete(queue_name, if_unused=False, if_empty=False)
+    finally:
+        await connection.close()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_rabbitmq_test_queues():
+    await delete_rabbitmq_test_queues()
+    yield
+    await delete_rabbitmq_test_queues()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -23,14 +60,9 @@ async def redis_store(redis):
 @pytest_asyncio.fixture(scope="function")
 async def backend(redis_store):
     # Create RabbitMQ backend with Redis-based metadata store
-    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store)
-    # Purge any pre-existing test queues
-    await backend.drain_queue("test_q")
-    await backend.drain_queue("test_q.dlq")
+    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
     yield backend
     # Cleanup after test
-    await backend.drain_queue("test_q")
-    await backend.drain_queue("test_q.dlq")
     await backend.close()
 
 
@@ -49,12 +81,36 @@ async def test_enqueue_and_dequeue_immediate(backend, redis_store):
     assert state["status"] == "completed"
 
 
+async def test_dequeue_respects_priority_then_fifo(redis_store):
+    queue = "test_q_priority_0_9"
+    backend = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store)
+    await backend.drain_queue(queue)
+
+    try:
+        low = {"id": "rabbit-low", "task": "low", "priority": 10}
+        first = {"id": "rabbit-first", "task": "first", "priority": 1}
+        second = {"id": "rabbit-second", "task": "second", "priority": 1}
+
+        await backend.enqueue(queue, low)
+        await backend.enqueue(queue, first)
+        await backend.enqueue(queue, second)
+
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-first"
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-second"
+        assert (await backend.dequeue(queue))["payload"]["id"] == "rabbit-low"
+
+        await backend.drain_queue(queue)
+    finally:
+        await backend.close()
+
+
 async def test_move_to_dlq(backend):
     payload = {"id": "j2", "task": "fail_me"}
     await backend.move_to_dlq("test_q", payload)
     dlq_job = await backend.dequeue("test_q.dlq")
     assert dlq_job is not None
     assert dlq_job["payload"]["task"] == "fail_me"
+    await backend.ack("test_q.dlq", dlq_job["job_id"])
 
 
 async def test_delayed_jobs(backend):
@@ -64,6 +120,21 @@ async def test_delayed_jobs(backend):
 
     due = await backend.get_due_delayed("test_q")
     assert any(di.job_id == "j3" and di.payload["task"] == "delayed" for di in due)
+
+
+async def test_promote_due_delayed_publishes_rabbitmq_job_before_clearing_delayed_metadata(backend):
+    queue = "test_q_promote_delayed"
+    await backend.drain_queue(queue)
+    payload = {"id": "rabbit-promote", "task": "promote", "priority": 1}
+
+    await backend.enqueue_delayed(queue, payload, run_at=time.time() - 1)
+    promoted = await backend.promote_due_delayed(queue)
+
+    assert [item["id"] for item in promoted] == ["rabbit-promote"]
+    assert await backend.list_delayed(queue) == []
+    assert await backend.get_job_state(queue, "rabbit-promote") == State.WAITING
+    dequeued = await backend.dequeue(queue)
+    assert dequeued["payload"]["id"] == "rabbit-promote"
 
 
 async def test_list_and_remove_delayed(backend):
@@ -125,6 +196,224 @@ async def test_cancel_remove_retry_and_is_cancelled(backend, redis_store):
     assert await backend.retry_job("test_q", "j6")
 
 
+async def test_cancel_job_suppresses_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "cancel-ready", "task": "cancel"}
+    await backend.enqueue("test_q", payload)
+
+    assert await backend.cancel_job("test_q", "cancel-ready") is True
+
+    stored = await redis_store.load("test_q", "cancel-ready")
+    assert stored["status"] == "cancelled"
+    assert stored["payload"]["status"] == "cancelled"
+    assert await backend.dequeue("test_q") is None
+    assert await backend.is_job_cancelled("test_q", "cancel-ready") is True
+
+
+async def test_cancelled_active_job_completion_does_not_overwrite_rabbitmq_marker(redis_store):
+    queue_name = "test_q"
+    job_id = "cancel-active-complete"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "cancel-active"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.cancel_job(queue_name, job_id) is True
+        await owner.complete_active_job(queue_name, claimed["payload"], {"ok": True})
+
+        stored = await redis_store.load(queue_name, job_id)
+        assert stored["status"] == "cancelled"
+        assert stored["payload"]["status"] == "cancelled"
+        assert "result" not in stored
+        assert (queue_name, job_id) not in owner._in_flight
+    finally:
+        await owner.close()
+        await admin.close()
+
+
+async def test_remove_job_removes_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "remove-ready", "task": "remove"}
+    await backend.enqueue("test_q", payload)
+
+    assert await backend.remove_job("test_q", "remove-ready") is True
+
+    assert await redis_store.load("test_q", "remove-ready") is None
+    assert await backend.dequeue("test_q") is None
+
+
+async def test_remove_job_removes_ready_dlq_delivery(backend, redis_store):
+    payload = {"id": "remove-dlq", "task": "remove", "status": State.FAILED}
+    await backend.move_to_dlq("test_q", payload)
+
+    assert await backend.remove_job("test_q", "remove-dlq") is True
+
+    assert await redis_store.load("test_q", "remove-dlq") is None
+    assert await backend.dequeue("test_q.dlq") is None
+
+
+async def test_remove_job_acks_local_in_flight_delivery(backend, redis_store):
+    payload = {"id": "remove-active", "task": "remove"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+    assert message is not None
+    assert ("test_q", "remove-active") in backend._in_flight
+
+    assert await backend.remove_job("test_q", "remove-active") is True
+
+    assert ("test_q", "remove-active") not in backend._in_flight
+    assert await redis_store.load("test_q", "remove-active") is None
+    assert await backend.dequeue("test_q") is None
+
+
+async def test_remove_job_suppresses_remote_in_flight_redelivery(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-remote-active"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    redelivered = None
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+        assert (await redis_store.load(queue_name, job_id))["status"] == State.ACTIVE
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        assert await redis_store.load(queue_name, job_id) is None
+
+        await owner.close()
+        for _ in range(20):
+            redelivered = await observer.dequeue(queue_name)
+            if redelivered is not None:
+                break
+            await asyncio.sleep(0.05)
+
+        assert redelivered is None
+        assert await redis_store.load(queue_name, job_id) is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_job_id_reuse_ignores_old_redelivery(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-remote-reuse"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    delivered = None
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "generation": "old"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await admin.enqueue(queue_name, {"id": job_id, "generation": "new"})
+
+        await owner.close()
+        for _ in range(20):
+            delivered = await observer.dequeue(queue_name)
+            if delivered is not None:
+                break
+            await asyncio.sleep(0.05)
+
+        assert delivered is not None
+        assert delivered["payload"]["generation"] == "new"
+        await observer.ack(queue_name, job_id)
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_active_job_completion_does_not_recreate_metadata(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-then-complete"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "complete-after-remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await owner.complete_active_job(queue_name, claimed["payload"], {"ok": True})
+
+        assert (queue_name, job_id) not in owner._in_flight
+        assert await redis_store.load(queue_name, job_id) is None
+        assert await observer.dequeue(queue_name) is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_removed_active_job_failure_does_not_recreate_dlq_metadata(redis_store):
+    queue_name = "test_q_remote_remove"
+    job_id = "remove-then-fail"
+    owner = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    admin = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    try:
+        await owner.enqueue(queue_name, {"id": job_id, "task": "fail-after-remove"})
+        claimed = await owner.dequeue(queue_name)
+        assert claimed is not None
+
+        assert await admin.remove_job(queue_name, job_id) is True
+        await owner.fail_active_job(queue_name, {**claimed["payload"], "last_error": "boom"})
+
+        assert (queue_name, job_id) not in owner._in_flight
+        assert await redis_store.load(queue_name, job_id) is None
+        assert await observer.dequeue(f"{queue_name}.dlq") is None
+    finally:
+        await owner.close()
+        await admin.close()
+        await observer.close()
+
+
+async def test_retry_job_publishes_clean_waiting_payload(backend, redis_store):
+    payload = {
+        "id": "rabbit-retry-clean",
+        "task": "retry",
+        "status": State.FAILED,
+        "result": "old",
+        "last_error": "old failure",
+        "error_traceback": "old traceback",
+    }
+    await redis_store.save("test_q", "rabbit-retry-clean", {"id": "rabbit-retry-clean", "payload": payload})
+
+    assert await backend.retry_job("test_q", "rabbit-retry-clean")
+
+    message = await backend.dequeue("test_q")
+    assert message["payload"]["id"] == "rabbit-retry-clean"
+    assert message["payload"]["status"] == State.WAITING
+    assert "result" not in message["payload"]
+    assert "last_error" not in message["payload"]
+    assert "error_traceback" not in message["payload"]
+
+
+async def test_retry_job_removes_matching_dlq_delivery(backend):
+    payload = {"id": "rabbit-retry-dlq", "task": "retry-from-dlq", "status": State.FAILED}
+    await backend.move_to_dlq("test_q", payload)
+
+    assert await backend.retry_job("test_q", "rabbit-retry-dlq") is True
+
+    retried = await backend.dequeue("test_q")
+    assert retried is not None
+    assert retried["payload"]["id"] == "rabbit-retry-dlq"
+    await backend.ack("test_q", retried["job_id"])
+
+    assert await backend.dequeue("test_q.dlq") is None
+
+
 async def test_worker_registration_and_listing(backend):
     await backend.register_worker("w1", "test_q", 2, time.time())
     workers = await backend.list_workers()
@@ -142,9 +431,33 @@ async def test_queue_stats_and_drain(backend):
     assert stats["message_count"] >= 3
     assert {"waiting", "delayed", "failed"} <= set(stats)
 
-    await backend.drain_queue("test_q")
+    removed = await backend.drain_queue("test_q")
+    assert set(removed) == {"s0", "s1", "s2"}
     stats2 = await backend.queue_stats("test_q")
     assert stats2["message_count"] == 0
+    assert await backend.list_jobs("test_q", State.WAITING) == []
+
+
+async def test_drain_queue_include_delayed_removes_delayed_metadata(backend):
+    await backend.enqueue_delayed("test_q", {"id": "delayed-drain", "task": "later"}, run_at=time.time() + 60)
+
+    assert await backend.drain_queue("test_q") == []
+    assert [item.job_id for item in await backend.list_delayed("test_q")] == ["delayed-drain"]
+
+    removed = await backend.drain_queue("test_q", include_delayed=True)
+
+    assert removed == ["delayed-drain"]
+    assert await backend.list_delayed("test_q") == []
+
+
+async def test_purge_removes_ready_broker_delivery(backend, redis_store):
+    payload = {"id": "purge-ready", "task": "purge"}
+    await backend.enqueue("test_q", payload)
+
+    await backend.purge("test_q", State.WAITING)
+
+    assert await redis_store.load("test_q", "purge-ready") is None
+    assert await backend.dequeue("test_q") is None
 
 
 async def test_ack_does_not_force_completed_state(backend):
@@ -204,6 +517,201 @@ async def test_save_and_get_job_result(backend):
     assert result["answer"] == 42
 
 
+async def test_complete_active_job_saves_result_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-complete", "task": "complete"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-complete") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-complete", time.time())
+    await backend.complete_active_job("test_q", message["payload"], {"ok": True})
+
+    entry = await redis_store.load("test_q", "life-complete")
+    assert entry["status"] == "completed"
+    assert entry["result"] == {"ok": True}
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-complete") not in backend._in_flight
+
+
+async def test_retry_active_job_saves_delayed_entry_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-retry", "task": "retry"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-retry") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-retry", time.time())
+    run_at = time.time() + 60
+    await backend.retry_active_job("test_q", {**message["payload"], "retries": 1}, run_at)
+
+    entry = await redis_store.load("test_q", "life-retry")
+    assert entry["status"] == "delayed"
+    assert entry["run_at"] == pytest.approx(run_at)
+    assert entry["payload"]["delay_until"] == pytest.approx(run_at)
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-retry") not in backend._in_flight
+
+
+async def test_fail_active_job_publishes_dlq_and_acks_in_flight_message(backend, redis_store):
+    payload = {"id": "life-fail", "task": "fail"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "life-fail") in backend._in_flight
+
+    await backend.save_heartbeat("test_q", "life-fail", time.time())
+    await backend.fail_active_job("test_q", {**message["payload"], "status": "failed"})
+
+    entry = await redis_store.load("test_q", "life-fail")
+    assert entry["status"] == "failed"
+    assert "heartbeat" not in entry
+    assert ("test_q", "life-fail") not in backend._in_flight
+
+    dlq_job = await backend.dequeue("test_q.dlq")
+    assert dlq_job is not None
+    assert dlq_job["payload"]["id"] == "life-fail"
+    await backend.ack("test_q.dlq", dlq_job["job_id"])
+
+
+async def test_reenqueue_stalled_acks_in_flight_delivery(backend, redis_store):
+    payload = {"id": "stalled-release", "task": "recover"}
+    await backend.enqueue("test_q", payload)
+    message = await backend.dequeue("test_q")
+
+    assert message is not None
+    assert ("test_q", "stalled-release") in backend._in_flight
+
+    await backend.update_job_state("test_q", "stalled-release", "active")
+    await backend.save_heartbeat("test_q", "stalled-release", time.time() - 10)
+
+    stalled = await backend.fetch_stalled_jobs(time.time() - 1)
+    entry = next(item for item in stalled if item["job_data"]["id"] == "stalled-release")
+    await backend.reenqueue_stalled("test_q", entry["job_data"])
+
+    assert ("test_q", "stalled-release") not in backend._in_flight
+    state = await backend.get_job_state("test_q", "stalled-release")
+    assert state == "waiting"
+
+    recovered = await backend.dequeue("test_q")
+    assert recovered is not None
+    assert recovered["payload"]["id"] == "stalled-release"
+
+
+async def test_reenqueue_stalled_after_restart_publishes_recovery_delivery(redis_store):
+    queue = "test_q_stalled_restart"
+    job_id = "stalled-restart"
+    payload = {"id": job_id, "task": "recover-after-restart"}
+    producer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    recovery = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    await producer.drain_queue(queue)
+    try:
+        await producer.enqueue(queue, payload)
+        message = await producer.dequeue(queue)
+        assert message is not None
+        assert (queue, job_id) in producer._in_flight
+
+        await producer.update_job_state(queue, job_id, State.ACTIVE)
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        assert queue in await recovery.list_queues()
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        assert await recovery.get_job_state(queue, job_id) == State.WAITING
+        recovered = await recovery.dequeue(queue)
+        assert recovered is not None
+        assert recovered["payload"]["id"] == job_id
+        await recovery.complete_active_job(queue, recovered["payload"], {"ok": True})
+
+        await producer.close()
+
+        for _ in range(10):
+            duplicate = await recovery.dequeue(queue)
+            assert duplicate is None
+            await asyncio.sleep(0.1)
+    finally:
+        await producer.close()
+        await recovery.drain_queue(queue)
+        await recovery.close()
+
+
+async def test_reenqueue_stalled_does_not_requeue_completed_snapshot(redis_store):
+    queue = "test_q_stalled_completed"
+    job_id = "stalled-completed"
+    payload = {"id": job_id, "task": "recover-completed-race"}
+    producer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    recovery = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    await producer.drain_queue(queue)
+    try:
+        await producer.enqueue(queue, payload)
+        message = await producer.dequeue(queue)
+        assert message is not None
+        old = time.time() - 10
+        await producer.save_heartbeat(queue, job_id, old)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+
+        await producer.complete_active_job(queue, message["payload"], {"ok": True})
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        stored = await redis_store.load(queue, job_id)
+        assert stored["status"] == State.COMPLETED
+        assert stored["result"] == {"ok": True}
+        duplicate = await recovery.dequeue(queue)
+        assert duplicate is None
+    finally:
+        await producer.close()
+        await recovery.drain_queue(queue)
+        await recovery.close()
+
+
+async def test_stalled_recovery_releases_active_delivery_without_first_heartbeat(redis_store):
+    queue = "test_q_stalled_without_first_heartbeat"
+    job_id = "stalled-without-first-heartbeat"
+    payload = {"id": job_id, "task": "recover-before-heartbeat"}
+    producer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    recovery = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+
+    await producer.drain_queue(queue)
+    try:
+        await producer.enqueue(queue, payload)
+        message = await producer.dequeue(queue)
+        assert message is not None
+        assert (queue, job_id) in producer._in_flight
+
+        old = time.time() - 10
+        entry = await redis_store.load(queue, job_id)
+        entry.pop("heartbeat", None)
+        entry["active_since"] = old
+        entry["status"] = State.ACTIVE
+        entry["payload"].pop("heartbeat", None)
+        entry["payload"]["active_since"] = old
+        entry["payload"]["status"] = State.ACTIVE
+        await redis_store.save(queue, job_id, entry)
+
+        stalled = await recovery.fetch_stalled_jobs(old + 1)
+        entry = next(item for item in stalled if item["queue_name"] == queue and item["job_data"]["id"] == job_id)
+        await recovery.reenqueue_stalled(queue, entry["job_data"])
+
+        recovered = await recovery.dequeue(queue)
+        assert recovered is not None
+        assert recovered["payload"]["id"] == job_id
+        await recovery.complete_active_job(queue, recovered["payload"], {"ok": True})
+    finally:
+        await producer.close()
+        await recovery.drain_queue(queue)
+        await recovery.close()
+
+
 async def test_bulk_enqueue(backend):
     jobs = [
         {"id": "j9", "task": "bulk1"},
@@ -225,6 +733,19 @@ async def test_pause_resume(backend):
     # Resume
     await backend.resume_queue("test_pause")
     assert await backend.is_queue_paused("test_pause") is False
+
+
+async def test_pause_state_is_shared_between_backend_instances(backend, redis_store):
+    queue = "test_pause_cross_instance"
+    observer = RabbitMQBackend(rabbit_url=RABBIT_URL, job_store=redis_store, max_priority=None)
+    try:
+        await backend.pause_queue(queue)
+        assert await observer.is_queue_paused(queue) is True
+
+        await observer.resume_queue(queue)
+        assert await backend.is_queue_paused(queue) is False
+    finally:
+        await observer.close()
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])

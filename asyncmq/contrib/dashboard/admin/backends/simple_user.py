@@ -99,6 +99,7 @@ class SimpleUsernamePasswordBackend(AuthBackend):
             "id": user.id,
             "name": user.name,
             "is_admin": user.is_admin,
+            "roles": list(user.roles),
             **user.extra,  # Merge any extra user data
         }
 

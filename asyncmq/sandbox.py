@@ -92,7 +92,7 @@ def _worker_entry(task_id: str, args: list[Any], kwargs: dict[str, Any], out_q: 
         out_q.put(("error", payload))
 
 
-def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: float, fallback: bool = True) -> Any:
+def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: float, fallback: bool = False) -> Any:
     """
     Runs the specified task handler in a sandboxed subprocess with a timeout.
 
@@ -110,7 +110,8 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
         timeout: The maximum number of seconds to wait for the subprocess
                  to complete.
         fallback: If True, execute the task in the current process if the
-                  subprocess times out. Defaults to True.
+                  subprocess times out. Defaults to False so sandbox timeout
+                  isolation fails closed unless a caller explicitly opts in.
 
     Returns:
         The result returned by the task handler function upon successful
@@ -123,8 +124,8 @@ def run_handler(task_id: str, args: list[Any], kwargs: dict[str, Any], timeout: 
                       subprocess reports an error during execution.
     """
     settings = asyncmq.monkay.settings
-    # Get the multiprocessing context, defaulting to 'fork' if not specified
-    ctx = mp.get_context(settings.sandbox_ctx or "fork")
+    # Get the multiprocessing context, defaulting to 'spawn' if not specified.
+    ctx = mp.get_context(settings.sandbox_ctx or "spawn")
     # Create a queue for communication between the parent and child processes
     out_q = ctx.Queue()
     # Create a new process targeting _worker_entry with necessary arguments

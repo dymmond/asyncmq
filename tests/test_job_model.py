@@ -21,8 +21,11 @@ def test_job_to_from_dict():
     job = Job(task_id="test.serialize", args=[1, 2], kwargs={"key": "value"})
     job.status = State.ACTIVE
     job.result = 42
+    job.last_error = "boom"
+    job.error_traceback = "Traceback..."
     job.priority = 2
     job.depends_on = ["abc"]
+    job.active_since = 123.456
     d = job.to_dict()
     clone = Job.from_dict(d)
     assert clone.task_id == job.task_id
@@ -30,8 +33,12 @@ def test_job_to_from_dict():
     assert clone.kwargs == job.kwargs
     assert clone.status == job.status
     assert clone.result == job.result
+    assert clone.last_error == job.last_error
+    assert clone.error_traceback == job.error_traceback
     assert clone.priority == job.priority
     assert clone.depends_on == job.depends_on
+    assert clone.active_since == job.active_since
+    assert clone.to_dict()["active_since"] == job.active_since
 
 
 def test_job_expiration():
