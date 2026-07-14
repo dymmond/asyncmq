@@ -204,6 +204,60 @@ Set `enforce_same_origin=False` only when a trusted reverse proxy or identity
 gateway performs equivalent request-origin enforcement before traffic reaches
 AsyncMQ.
 
+## Reverse Proxy
+
+The dashboard is prefix-aware through Lilya's mount/root-path handling. A
+validated Nginx proof lives in `tests/dashboard/nginx/` and exercises login,
+static assets, queue actions, workers, and failed-job diagnostics at:
+
+```text
+/operations/asyncmq/
+```
+
+The validated pattern is:
+
+- public URL: `/operations/asyncmq/`
+- upstream dashboard route: `/asyncmq/`
+- ASGI root path: `/operations`
+- dashboard URL prefix: `/asyncmq`
+
+Run an equivalent local proof with:
+
+```shell
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767 \
+  --root-path /operations
+
+docker compose -f tests/dashboard/nginx/docker-compose.yml up
+hatch -e test run python tests/dashboard/nginx/proof.py
+```
+
+The Nginx location used by the proof strips only the public root path:
+
+```nginx
+location /operations/asyncmq/ {
+    proxy_pass http://upstream_asyncmq/asyncmq/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;
+}
+```
+
+For HTTPS termination, keep the public host and scheme in forwarded headers and
+configure `trusted_proxies` with the proxy peer addresses. AsyncMQ ignores
+forged forwarded origin headers from untrusted clients.
+
+For Traefik, HAProxy, Caddy, and Kubernetes ingress controllers, the same rules
+apply: preserve the public `Host`, set the forwarded scheme/port, pass the ASGI
+root path expected by the application server, and do not trust forwarded
+headers from arbitrary direct clients.
+
 ## High-Value Workflows
 
 ### 1. Find and retry a bad job quickly

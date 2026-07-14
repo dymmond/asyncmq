@@ -26,6 +26,7 @@ example, with the default `/asyncmq` prefix, `/health` is served at
 | `/metrics/prometheus` | `GET` | Prometheus text exposition for dashboard-visible queue and worker gauges |
 | `/audit` | `GET` | Queue/job action audit trail view |
 | `/events` | `GET` | Server-Sent Events stream |
+| `/events/history` | `GET` | Bounded local runtime event history view |
 
 ## Job List Query Parameters
 

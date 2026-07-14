@@ -41,6 +41,7 @@
   on long pages.
 - Dashboard reverse-proxy proof now includes a validated Nginx subpath browser
   harness.
+- Dashboard documentation now includes the validated Nginx subpath proxy pattern.
 
 ### Fixed
 
