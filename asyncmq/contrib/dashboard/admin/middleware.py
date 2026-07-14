@@ -162,17 +162,13 @@ class AuthGateMiddleware:
 
         forwarded_trusted = self._trusts_forwarded_headers(request)
         host = (
-            _first_header_value(request.headers.get("x-forwarded-host"))
-            if forwarded_trusted
-            else None
+            _first_header_value(request.headers.get("x-forwarded-host")) if forwarded_trusted else None
         ) or request.headers.get("host")
         if not host:
             return False
 
         scheme = (
-            _first_header_value(request.headers.get("x-forwarded-proto"))
-            if forwarded_trusted
-            else None
+            _first_header_value(request.headers.get("x-forwarded-proto")) if forwarded_trusted else None
         ) or request.scope.get("scheme", "http")
         port = request.headers.get("x-forwarded-port") if forwarded_trusted else None
         return origin == _origin_from_parts(str(scheme), host, port)

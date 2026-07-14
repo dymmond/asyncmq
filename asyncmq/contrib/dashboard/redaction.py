@@ -31,9 +31,13 @@ def redact_for_display(value: Any, *, depth: int = 0) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             text_key = str(key)
-            redacted[text_key] = "[redacted]" if is_sensitive_key(text_key) else redact_for_display(
-                item,
-                depth=depth + 1,
+            redacted[text_key] = (
+                "[redacted]"
+                if is_sensitive_key(text_key)
+                else redact_for_display(
+                    item,
+                    depth=depth + 1,
+                )
             )
         return redacted
     if isinstance(value, list):

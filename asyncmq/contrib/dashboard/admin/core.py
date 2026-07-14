@@ -87,9 +87,7 @@ class AsyncMQAdmin:
         # Extras
         self.include_security = include_security
         self.content_security_policy = (
-            content_security_policy
-            if content_security_policy is not None
-            else DASHBOARD_CONTENT_SECURITY_POLICY
+            content_security_policy if content_security_policy is not None else DASHBOARD_CONTENT_SECURITY_POLICY
         )
         self.include_session = include_session
         self.include_cors = include_cors

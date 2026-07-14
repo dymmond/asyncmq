@@ -115,9 +115,7 @@ class WorkerController(DashboardMixin, TemplateController):
             "heartbeat_iso": _format_timestamp_iso(heartbeat),
             "heartbeat_raw": heartbeat,
             "heartbeat_age_seconds": age_seconds or 0,
-            "heartbeat_age_label": f"{_format_duration(age_seconds)} ago"
-            if age_seconds is not None
-            else "unknown",
+            "heartbeat_age_label": f"{_format_duration(age_seconds)} ago" if age_seconds is not None else "unknown",
             "health_status": health_status,
             "health_label": health_label,
             "health_detail": health_detail,
