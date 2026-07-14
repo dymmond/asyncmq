@@ -282,10 +282,15 @@ def test_modern_dashboard_shell_renders_component_navigation(client: TestClient)
     assert "/static/css/asyncmq.css" in response.text
     assert "Operations Console" in response.text
     assert "linear-gradient(90deg, #17200f 0 280px, transparent 280px)" in css
+    assert ".amq-body {\n  height: 100vh;" in css
+    assert "overflow: hidden;" in css
+    assert ".amq-shell {\n  display: grid;\n  grid-template-columns: 280px minmax(0, 1fr);\n  height: 100dvh;" in css
     assert ".amq-sidebar {\n  position: fixed;" in css
     assert "width: 280px;" in css
     assert "height: 100dvh;" in css
     assert ".amq-workspace {\n  grid-column: 2;" in css
+    assert "overflow-y: auto;" in css
+    assert ".amq-workspace {\n    height: auto;\n    overflow: visible;" in css
 
 
 def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
