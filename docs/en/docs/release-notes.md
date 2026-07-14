@@ -28,6 +28,8 @@
 - Dashboard repeatables now use redacted definitions and safer forms/actions.
 - Dashboard login, loading, flash, and 404 states now match the operations
   console.
+- Dashboard failed-job diagnostics now expose root cause, exception chain, and
+  copyable redacted evidence.
 
 ### Fixed
 

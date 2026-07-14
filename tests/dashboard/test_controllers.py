@@ -15,6 +15,7 @@ from asyncmq.contrib.dashboard.application import create_dashboard_app
 from asyncmq.contrib.dashboard.audit import clear_audit_events, record_audit_event
 from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
+from asyncmq.contrib.dashboard.redaction import redact_text_for_display
 from asyncmq.core.event import event_emitter
 from asyncmq.core.inspection import JobInspectionPage
 
@@ -367,6 +368,8 @@ def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(clien
     assert response.status_code == 200
     assert b"send-reminder" in response.content
     assert b"Failure Diagnostics" in response.content
+    assert b"Root cause" in response.content
+    assert b"Exception chain" in response.content
     assert b"Exception" in response.content
     assert b"RuntimeError" in response.content
     assert b"Frames" in response.content
@@ -374,10 +377,57 @@ def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(clien
     assert b"asyncmq/workers.py" in response.content
     assert b"Line 418 in process_job" in response.content
     assert b"tasks/reminder.py" in response.content
+    assert b"Copy traceback" in response.content
+    assert b'data-clipboard-target="raw-traceback"' in response.content
     assert b"Redacted diagnostic bundle" in response.content
+    assert b'id="diagnostic-bundle"' in response.content
     assert b"Traceback (most recent call last)" in response.content
     assert b"[redacted]" in response.content
     assert b"secret-token" not in response.content
+
+
+def test_job_detail_redacts_inline_traceback_secrets(client, app):
+    class SecretTracebackBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self._jobs[("emails", "failed")].append(
+                {
+                    "id": "f-secret",
+                    "task_id": "send-secret",
+                    "kwargs": {"password": "secret-token"},
+                    "last_error": "RuntimeError: token=secret-token failed",
+                    "error_traceback": (
+                        "Traceback (most recent call last):\n"
+                        '  File "tasks/secret.py", line 7, in send_secret\n'
+                        '    raise RuntimeError("password=\\"secret-token\\" failed")\n'
+                        "RuntimeError: token=secret-token failed"
+                    ),
+                    "created_at": self._now - 10,
+                }
+            )
+
+    settings.backend = SecretTracebackBackend()
+
+    response = client.get(url(app, "job-detail", name="emails", job_id="f-secret"))
+
+    assert response.status_code == 200
+    assert "secret-token" not in response.text
+    assert "token=[redacted]" in response.text
+    assert "password=" in response.text
+    assert "[redacted]" in response.text
+
+
+def test_text_redaction_handles_common_inline_secret_shapes():
+    redacted = redact_text_for_display(
+        'password="secret-token" token=abc123 {"api_key": "live-key"} authorization: Bearer'
+    )
+
+    assert "secret-token" not in redacted
+    assert "abc123" not in redacted
+    assert "live-key" not in redacted
+    assert "Bearer" not in redacted
+    assert 'password="[redacted]"' in redacted
+    assert "token=[redacted]" in redacted
 
 
 def test_job_detail_missing_job_returns_404(client, app):

@@ -44,6 +44,27 @@
     });
   }
 
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_error) {
+        // Fall back to the textarea path when browser permissions block clipboard writes.
+      }
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-1000px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+
   function registerAlpineComponents() {
     document.addEventListener("alpine:init", () => {
       window.Alpine.data("asyncmqDismissible", () => ({
@@ -66,6 +87,27 @@
         },
         toggle() {
           this.visible = !this.visible;
+        },
+      }));
+
+      window.Alpine.data("asyncmqClipboard", () => ({
+        label: "Copy",
+        defaultLabel: "Copy",
+        init() {
+          this.defaultLabel = this.$el.dataset.clipboardLabel || "Copy";
+          this.label = this.defaultLabel;
+        },
+        async copy() {
+          const targetId = this.$el.dataset.clipboardTarget;
+          const target = targetId ? document.getElementById(targetId) : null;
+          if (!target) {
+            return;
+          }
+          await copyTextToClipboard(target.innerText || target.textContent || "");
+          this.label = "Copied";
+          window.setTimeout(() => {
+            this.label = this.defaultLabel;
+          }, 1500);
         },
       }));
     });

@@ -227,6 +227,7 @@ def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: T
 def test_operator_controls_keep_visible_focus_and_table_scopes(client: TestClient):
     """Keep keyboard focus and audit-table semantics visible to operators."""
     css = package_static_root().joinpath("css/asyncmq.css").read_text()
+    js = package_static_root().joinpath("js/asyncmq.js").read_text()
     response = client.get("/audit")
 
     assert response.status_code == 200
@@ -234,6 +235,10 @@ def test_operator_controls_keep_visible_focus_and_table_scopes(client: TestClien
     assert ".amq-nav-link:focus-visible" in css
     assert ".amq-logout-button:focus-visible" in css
     assert ".amq-diagnostic-section summary:focus-visible" in css
+    assert ".amq-root-cause" in css
+    assert ".amq-exception-chain" in css
+    assert "asyncmqClipboard" in js
+    assert "navigator.clipboard" in js
     assert css.count("box-shadow: 0 0 0 3px rgba(203, 220, 56, .42)") >= 6
     assert '<th scope="col">Time</th>' in response.text
     assert '<th scope="col">Details</th>' in response.text

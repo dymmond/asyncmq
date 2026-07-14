@@ -18,6 +18,7 @@ from asyncmq.contrib.dashboard.mixins import DashboardMixin
 from asyncmq.contrib.dashboard.redaction import (
     is_sensitive_key,
     redact_for_display,
+    redact_text_for_display,
     to_pretty_json,
 )
 from asyncmq.contrib.dashboard.urls import dashboard_path_for
@@ -57,6 +58,43 @@ def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:
         if head and ("Error" in head or "Exception" in head or "." in head):
             return head
     return "Unknown"
+
+
+def extract_exception_chain(error_message: Any, traceback_text: str | None) -> list[str]:
+    """Extract exception-chain summary lines from runtime-owned traceback text."""
+    candidates: list[str] = []
+    if traceback_text:
+        for line in traceback_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Traceback"):
+                continue
+            if stripped.startswith('File "') or line.startswith(("    ", "\t")):
+                continue
+            if stripped.startswith(("During handling", "The above exception")):
+                candidates.append(stripped)
+                continue
+            head = stripped.split(":", 1)[0].strip()
+            if head and ("Error" in head or "Exception" in head or "." in head):
+                candidates.append(stripped)
+
+    if error_message:
+        candidates.append(str(error_message).strip())
+
+    chain: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            chain.append(candidate)
+            seen.add(candidate)
+    return chain
+
+
+def extract_root_cause(error_message: Any, traceback_text: str | None) -> str:
+    """Return the last concrete exception line available for operator triage."""
+    for line in reversed(extract_exception_chain(error_message, traceback_text)):
+        if not line.startswith(("During handling", "The above exception")):
+            return line
+    return str(error_message or "Unknown")
 
 
 def extract_traceback_frames(traceback_text: str | None) -> list[dict[str, str]]:
@@ -526,9 +564,13 @@ class JobDetailController(DashboardMixin, TemplateController):
         state = str(job.get("status") or job.get("state") or backend_state or "unknown")
         result = job.get("result") if "result" in job else backend_result
         task_id = str(job.get("task_id") or job.get("task") or job.get("name") or "n/a")
-        traceback_text = self._extract_traceback(job)
-        error_message = job.get("last_error") or job.get("error") or job.get("exception")
+        raw_traceback_text = self._extract_traceback(job)
+        raw_error_message = job.get("last_error") or job.get("error") or job.get("exception")
+        traceback_text = redact_text_for_display(raw_traceback_text) if raw_traceback_text else None
+        error_message = redact_text_for_display(str(raw_error_message)) if raw_error_message else raw_error_message
         exception_type = infer_exception_type(error_message, traceback_text)
+        root_cause = extract_root_cause(error_message, traceback_text)
+        exception_chain = extract_exception_chain(error_message, traceback_text)
         traceback_frames = extract_traceback_frames(traceback_text)
         traceback_frame_count = count_traceback_frames(traceback_text)
         diagnostic_bundle = self._build_diagnostics_bundle(
@@ -564,6 +606,8 @@ class JobDetailController(DashboardMixin, TemplateController):
                 "result_json": self._to_pretty_json(result) if result is not None else None,
                 "error_message": error_message,
                 "exception_type": exception_type,
+                "root_cause": root_cause,
+                "exception_chain": exception_chain,
                 "traceback_frame_count": traceback_frame_count,
                 "traceback_frames": traceback_frames,
                 "traceback_frames_truncated": traceback_frame_limit_reached(traceback_text, traceback_frames),

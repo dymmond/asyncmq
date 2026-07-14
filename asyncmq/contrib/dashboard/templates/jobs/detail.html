@@ -78,10 +78,40 @@
         {% if error_message or traceback_text %}
           <article class="amq-card amq-failure-card">
             <div class="amq-card-header">
-              <h2 class="amq-card-title">Failure Diagnostics</h2>
-              {{ status_badge("failed", "Failure") }}
+              <div>
+                <h2 class="amq-card-title">Failure Diagnostics</h2>
+                <p class="amq-card-meta">Runtime-owned error evidence</p>
+              </div>
+              <div class="amq-actions">
+                {{ status_badge("failed", "Failure") }}
+                {% if traceback_text %}
+                  <button type="button"
+                          class="amq-button"
+                          x-data="asyncmqClipboard"
+                          x-on:click="copy"
+                          x-text="label"
+                          data-clipboard-label="Copy traceback"
+                          data-clipboard-target="raw-traceback">
+                    Copy traceback
+                  </button>
+                {% endif %}
+                <button type="button"
+                        class="amq-button"
+                        x-data="asyncmqClipboard"
+                        x-on:click="copy"
+                        x-text="label"
+                        data-clipboard-label="Copy diagnostics"
+                        data-clipboard-target="diagnostic-bundle">
+                  Copy diagnostics
+                </button>
+              </div>
             </div>
             <div class="amq-card-body amq-failure-panel">
+              <div class="amq-root-cause">
+                <span>Root cause</span>
+                <strong class="amq-mono">{{ root_cause }}</strong>
+              </div>
+
               <div class="amq-failure-summary" aria-label="Failure summary">
                 <div class="amq-kv">
                   <span>Exception</span>
@@ -100,6 +130,20 @@
                   <strong>{{ failed_at }}</strong>
                 </div>
               </div>
+
+              {% if exception_chain %}
+                <details open class="amq-diagnostic-section">
+                  <summary>Exception chain</summary>
+                  <ol class="amq-exception-chain">
+                    {% for line in exception_chain %}
+                      <li>
+                        <span class="amq-stack-index">{{ loop.index }}</span>
+                        <code>{{ line }}</code>
+                      </li>
+                    {% endfor %}
+                  </ol>
+                </details>
+              {% endif %}
 
               {% if error_message %}
                 <div class="amq-error-callout">
@@ -135,13 +179,13 @@
                 {% endif %}
                 <details {% if not traceback_frames %}open{% endif %} class="amq-diagnostic-section">
                   <summary>Raw traceback</summary>
-                  <pre class="amq-pre amq-traceback">{{ traceback_text }}</pre>
+                  <pre id="raw-traceback" class="amq-pre amq-traceback">{{ traceback_text }}</pre>
                 </details>
               {% endif %}
 
               <details class="amq-diagnostic-section">
                 <summary>Redacted diagnostic bundle</summary>
-                <pre class="amq-pre">{{ diagnostics_json }}</pre>
+                <pre id="diagnostic-bundle" class="amq-pre">{{ diagnostics_json }}</pre>
               </details>
             </div>
           </article>

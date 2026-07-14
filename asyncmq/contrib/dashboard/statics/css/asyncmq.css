@@ -1053,6 +1053,30 @@ a.btn {
   gap: 8px;
 }
 
+.amq-root-cause {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  color: #7f1d1d;
+  background: #fff7f7;
+  border: 1px solid #f2c3bf;
+  border-left: 4px solid var(--amq-danger);
+  border-radius: var(--amq-radius);
+}
+
+.amq-root-cause span {
+  color: #991b1b;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.amq-root-cause strong {
+  overflow-wrap: anywhere;
+  font-size: .95rem;
+}
+
 .amq-error-callout {
   display: grid;
   gap: 8px;
@@ -1099,6 +1123,34 @@ a.btn {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.amq-exception-chain {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.amq-exception-chain li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  background: #fffafa;
+  border: 1px solid #f2c3bf;
+  border-radius: var(--amq-radius);
+}
+
+.amq-exception-chain code {
+  min-width: 0;
+  color: #7f1d1d;
+  font-size: .83rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .amq-stack-frame {
