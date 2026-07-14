@@ -45,7 +45,7 @@
           <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
         </select>
         <select name="size" class="amq-select">
-          {% for option in [20, 50, 100] %}
+          {% for option in page_sizes %}
             <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
           {% endfor %}
         </select>

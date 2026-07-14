@@ -14,6 +14,7 @@ from asyncmq.contrib.dashboard.application import create_dashboard_app
 from asyncmq.contrib.dashboard.audit import clear_audit_events
 from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
+from asyncmq.core.inspection import JobInspectionPage
 
 
 class FakeBackend:
@@ -467,6 +468,59 @@ def test_job_list_search_filters(client, app):
     assert response.status_code == 200
     assert b"w1" in response.content
     assert b"w2" not in response.content
+
+
+def test_job_list_uses_backend_inspection_contract(client, app):
+    class InspectingBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int, str, str, str, str]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("dashboard should consume inspect_jobs when available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size, q, task, job_id, sort))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": "inspect-1",
+                        "task_id": "send-welcome",
+                        "status": state,
+                        "created_at": self._now,
+                        "payload": {"message": q},
+                    }
+                ],
+                total=42,
+                page=page,
+                size=size,
+                total_pages=3,
+            )
+
+    backend = InspectingBackend()
+    settings.backend = backend
+
+    response = client.get(
+        url(app, "queue-jobs", name="emails")
+        + "?state=failed&page=2&size=999&q=needle&task=send&sort=oldest"
+    )
+
+    assert response.status_code == 200
+    assert "inspect-1" in response.text
+    assert "42 failed jobs found" in response.text
+    assert "Page 2 of 3" in response.text
+    assert backend.inspect_calls == [("emails", "failed", 2, 20, "needle", "send", "", "oldest")]
 
 
 def test_audit_page_reflects_job_action(client, app):

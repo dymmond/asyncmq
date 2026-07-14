@@ -17,9 +17,16 @@ from asyncmq.contrib.dashboard.engine import templates
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 from asyncmq.contrib.dashboard.urls import dashboard_path_for
+from asyncmq.core.inspection import (
+    JobInspectionPage,
+    extract_job_task,
+    extract_job_timestamp,
+    inspect_job_page,
+)
 
 RawJobData = dict[str, Any]
 FormattedJob = dict[str, Any]
+JOB_PAGE_SIZES: tuple[int, ...] = (20, 50, 100)
 JOB_STATE_TABS: list[tuple[str, str]] = [
     ("waiting", "Waiting"),
     ("active", "Active"),
@@ -97,9 +104,15 @@ class QueueJobController(DashboardMixin, TemplateController):
 
         try:
             page: int = max(1, int(request.query_params.get("page", 1)))
-            size: int = max(1, int(request.query_params.get("size", 20)))
         except ValueError:
-            page, size = 1, 20
+            page = 1
+
+        try:
+            size: int = int(request.query_params.get("size", 20))
+        except ValueError:
+            size = 20
+        if size not in JOB_PAGE_SIZES:
+            size = 20
 
         q: str = request.query_params.get("q", "").strip()
         task: str = request.query_params.get("task", "").strip()
@@ -111,30 +124,10 @@ class QueueJobController(DashboardMixin, TemplateController):
         return state, page, size, q, task, job_id, sort
 
     def _extract_job_timestamp(self, raw_job: RawJobData) -> float:
-        ts: Any = raw_job.get("run_at") or raw_job.get("created_at") or raw_job.get("timestamp") or 0
-        try:
-            return float(ts)
-        except (TypeError, ValueError):
-            return 0.0
+        return extract_job_timestamp(raw_job)
 
     def _extract_job_task(self, raw_job: RawJobData) -> str:
-        task: Any = raw_job.get("task_id") or raw_job.get("task") or raw_job.get("name") or ""
-        return str(task)
-
-    def _job_matches_filters(self, raw_job: RawJobData, *, q: str, task: str, job_id: str) -> bool:
-        if job_id and job_id not in str(raw_job.get("id") or ""):
-            return False
-
-        task_value = self._extract_job_task(raw_job)
-        if task and task.lower() not in task_value.lower():
-            return False
-
-        if q:
-            searchable: str = json.dumps(raw_job, sort_keys=True, default=str).lower()
-            if q.lower() not in searchable:
-                return False
-
-        return True
+        return extract_job_task(raw_job)
 
     @staticmethod
     def _build_query_string(**params: Any) -> str:
@@ -185,28 +178,49 @@ class QueueJobController(DashboardMixin, TemplateController):
         job_id: str,
         sort: str,
     ) -> tuple[list[FormattedJob], int, int, int]:
-        """Fetches jobs for the given state, applies pagination, and calculates page counts."""
+        """Fetch jobs through the backend-owned inspection contract."""
         backend: Any = monkay.settings.backend
 
-        # Fetch all jobs for the given state
+        inspect_jobs = getattr(backend, "inspect_jobs", None)
+        if callable(inspect_jobs):
+            try:
+                inspected: JobInspectionPage = await inspect_jobs(
+                    queue,
+                    state,
+                    page=page,
+                    size=size,
+                    q=q,
+                    task=task,
+                    job_id=job_id,
+                    sort=sort,
+                )
+            except Exception:
+                inspected = JobInspectionPage(jobs=[], total=0, page=1, size=size, total_pages=1)
+        else:
+            try:
+                all_jobs: list[RawJobData] = await backend.list_jobs(queue, state)
+            except Exception:
+                all_jobs = []
+            inspected = inspect_job_page(
+                all_jobs,
+                page=page,
+                size=size,
+                q=q,
+                task=task,
+                job_id=job_id,
+                sort=sort,
+            )
+
         try:
-            all_jobs: list[RawJobData] = await backend.list_jobs(queue, state)
+            page_jobs = list(inspected.jobs)
+            total = int(inspected.total)
+            total_pages = max(1, int(inspected.total_pages))
+            page = min(max(1, int(inspected.page)), total_pages)
         except Exception:
-            all_jobs = []
-
-        filtered_jobs: list[RawJobData] = [
-            job for job in all_jobs if self._job_matches_filters(job, q=q, task=task, job_id=job_id)
-        ]
-        filtered_jobs.sort(key=self._extract_job_timestamp, reverse=sort == "newest")
-        total: int = len(filtered_jobs)
-
-        total_pages: int = max(1, (total + size - 1) // size)
-        page = min(page, total_pages)
-
-        # Apply pagination slice
-        start: int = (page - 1) * size
-        end: int = start + size
-        page_jobs: list[RawJobData] = filtered_jobs[start:end]
+            page_jobs = []
+            total = 0
+            total_pages = 1
+            page = 1
 
         # Format the sliced jobs
         jobs: list[FormattedJob] = [self._format_job_data(raw, state=state) for raw in page_jobs]
@@ -278,6 +292,7 @@ class QueueJobController(DashboardMixin, TemplateController):
                 "total_pages": total_pages,
                 "state": state,
                 "tabs": JOB_STATE_TABS,
+                "page_sizes": JOB_PAGE_SIZES,
                 "q": q,
                 "task": task,
                 "job_id": job_id,

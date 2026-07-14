@@ -38,6 +38,8 @@
   row-level AJAX routes.
 - Dashboard responses now include strict security headers and a CSP without
   inline script or style allowances.
+- Dashboard job lists now consume a runtime-owned inspection page contract and
+  clamp page sizes.
 
 ## 0.8.1
 
