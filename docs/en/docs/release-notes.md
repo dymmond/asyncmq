@@ -40,6 +40,7 @@
   inline script or style allowances.
 - Dashboard job lists now consume a runtime-owned inspection page contract and
   clamp page sizes.
+- Dashboard sidebar rail now spans long operator pages consistently.
 
 ## 0.8.1
 

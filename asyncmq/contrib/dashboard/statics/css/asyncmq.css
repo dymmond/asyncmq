@@ -39,6 +39,7 @@ a.btn {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100vh;
+  background: linear-gradient(90deg, #17200f 0 280px, transparent 280px);
 }
 
 .amq-sidebar {
@@ -952,6 +953,7 @@ a.btn {
 @media (max-width: 900px) {
   .amq-shell {
     display: block;
+    background: transparent;
   }
 
   .amq-sidebar {

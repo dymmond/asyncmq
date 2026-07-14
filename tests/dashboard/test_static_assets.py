@@ -143,6 +143,7 @@ def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
 def test_modern_dashboard_shell_renders_component_navigation(client: TestClient):
     """Render the shared operations shell with desktop and mobile navigation."""
     response = client.get("/queues")
+    css = package_static_root().joinpath("css/asyncmq.css").read_text()
 
     assert response.status_code == 200
     assert 'class="amq-shell"' in response.text
@@ -152,6 +153,7 @@ def test_modern_dashboard_shell_renders_component_navigation(client: TestClient)
     assert '<h1 class="amq-page-title">Queues</h1>' in response.text
     assert "/static/css/asyncmq.css" in response.text
     assert "Operations Console" in response.text
+    assert "linear-gradient(90deg, #17200f 0 280px, transparent 280px)" in css
 
 
 def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
