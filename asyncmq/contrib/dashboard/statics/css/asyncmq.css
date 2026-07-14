@@ -1438,6 +1438,11 @@ a.btn {
   gap: 6px;
 }
 
+.amq-pagination-count {
+  color: var(--amq-ink);
+  font-weight: 760;
+}
+
 .amq-pagination-link,
 .amq-pagination-current {
   display: inline-flex;

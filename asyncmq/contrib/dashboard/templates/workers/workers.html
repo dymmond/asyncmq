@@ -91,11 +91,11 @@
     <p class="amq-card-meta">
       {% if total > 0 %}
       Showing
-      <span class="font-medium">{{ (page - 1) * size + 1 }}</span>
+      <strong class="amq-pagination-count">{{ (page - 1) * size + 1 }}</strong>
       to
-      <span class="font-medium">{{ (page - 1) * size + workers|length }}</span>
+      <strong class="amq-pagination-count">{{ (page - 1) * size + workers|length }}</strong>
       of
-      <span class="font-medium">{{ total }}</span>
+      <strong class="amq-pagination-count">{{ total }}</strong>
       results
       {% else %}
       No results found

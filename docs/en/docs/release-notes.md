@@ -32,6 +32,8 @@
   copyable redacted evidence.
 - Dashboard runtime events now label local retention scope and expose copyable
   redacted row data.
+- Dashboard templates now complete the migration to the native operations-console
+  component classes.
 
 ### Fixed
 

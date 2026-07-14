@@ -170,6 +170,24 @@ def test_not_found_and_shared_feedback_use_operations_styles(client: TestClient)
     assert ".amq-loading-overlay.hidden" in static_root.joinpath("css/asyncmq.css").read_text()
 
 
+def test_dashboard_templates_do_not_keep_legacy_tailwind_utility_markup():
+    """Keep operator templates on the AsyncMQ component classes after modernization."""
+    template_root = resources.files("asyncmq.contrib.dashboard").joinpath("templates")
+    legacy_markers = (
+        "font-medium",
+        "bg-gray-",
+        "text-gray-",
+        "rounded-lg",
+        "shadow-soft",
+        "space-y-",
+    )
+
+    for template in template_root.rglob("*.html"):
+        text = template.read_text()
+        for marker in legacy_markers:
+            assert marker not in text, f"{template} still contains {marker!r}"
+
+
 def test_modern_dashboard_shell_renders_component_navigation(client: TestClient):
     """Render the shared operations shell with desktop and mobile navigation."""
     response = client.get("/queues")
