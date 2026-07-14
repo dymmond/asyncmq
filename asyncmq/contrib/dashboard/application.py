@@ -70,6 +70,12 @@ def create_dashboard_app() -> ASGIApp:
                         name="queue-jobs",
                     ),
                     RoutePath(
+                        "/queues/{name}/jobs/{job_id}",
+                        jobs.JobDetailController,
+                        methods=["GET"],
+                        name="job-detail",
+                    ),
+                    RoutePath(
                         "/queues/{name}/jobs/{job_id}/{action}",
                         jobs.JobActionController,
                         methods=["POST"],

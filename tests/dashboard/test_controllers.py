@@ -42,14 +42,18 @@ class FakeBackend:
                     "id": "f1",
                     "task_id": "send-welcome",
                     "args": ["a"],
-                    "kwargs": {"x": 1},
+                    "kwargs": {"x": 1, "api_token": "secret-token"},
+                    "last_error": "ValueError: welcome failed",
+                    "error_traceback": "Traceback (most recent call last):\nValueError: welcome failed",
                     "created_at": self._now - 60,
                 },
                 {
                     "id": "f2",
                     "task_id": "send-reminder",
                     "args": [],
-                    "kwargs": {},
+                    "kwargs": {"password": "secret-token"},
+                    "last_error": "RuntimeError: reminder failed",
+                    "error_traceback": "Traceback (most recent call last):\nRuntimeError: reminder failed",
                     "created_at": self._now - 30,
                 },
             ],
@@ -112,6 +116,27 @@ class FakeBackend:
     # jobs API
     async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
         return list(self._jobs.get((queue, state), []))
+
+    async def get_job(self, queue: str, job_id: str) -> dict[str, Any] | None:
+        for (current_queue, _state), jobs in self._jobs.items():
+            if current_queue != queue:
+                continue
+            for job in jobs:
+                if job.get("id") == job_id:
+                    return dict(job)
+        return None
+
+    async def get_job_state(self, queue: str, job_id: str) -> str | None:
+        for (current_queue, state), jobs in self._jobs.items():
+            if current_queue != queue:
+                continue
+            if any(job.get("id") == job_id for job in jobs):
+                return state
+        return None
+
+    async def get_job_result(self, queue: str, job_id: str) -> Any | None:
+        job = await self.get_job(queue, job_id)
+        return job.get("result") if job else None
 
     async def retry_job(self, queue: str, job_id: str) -> bool:
         bucket = self._jobs.get((queue, "failed"), [])
@@ -311,6 +336,32 @@ def test_job_action_endpoint_exists(client, app):
     response = client.post(action_url)
 
     assert response.status_code == 200
+
+
+def test_job_detail_uses_runtime_job_contract_and_redacts_sensitive_values(client, app):
+    response = client.get(url(app, "job-detail", name="emails", job_id="f2"))
+
+    assert response.status_code == 200
+    assert b"send-reminder" in response.content
+    assert b"Failure Diagnostics" in response.content
+    assert b"Traceback (most recent call last)" in response.content
+    assert b"[redacted]" in response.content
+    assert b"secret-token" not in response.content
+
+
+def test_job_detail_missing_job_returns_404(client, app):
+    response = client.get(url(app, "job-detail", name="emails", job_id="missing-job"))
+
+    assert response.status_code == 404
+
+
+def test_job_action_html_mode_redirects_to_detail_with_message(client, app):
+    jobs_url = url(app, "queue-jobs", name="emails") + "?state=failed"
+    action_url = url(app, "job-action", name="emails", job_id="f2", action="remove")
+    response = client.post(action_url, data={"_response": "html", "return_to": jobs_url})
+
+    assert response.status_code == 200
+    assert b"completed" in response.content
 
 
 def test_repeatables_list(client, app):

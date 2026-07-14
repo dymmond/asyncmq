@@ -13,6 +13,8 @@ from lilya.templating.controllers import TemplateController
 
 from asyncmq import monkay
 from asyncmq.contrib.dashboard.audit import record_audit_event
+from asyncmq.contrib.dashboard.engine import templates
+from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
 
 RawJobData = dict[str, Any]
@@ -25,6 +27,57 @@ JOB_STATE_TABS: list[tuple[str, str]] = [
     ("delayed", "Delayed"),
     ("repeatable", "Repeatable"),
 ]
+JOB_DETAIL_STATES: tuple[str, ...] = tuple(key for key, _ in JOB_STATE_TABS)
+SENSITIVE_KEY_PARTS: tuple[str, ...] = (
+    "authorization",
+    "api_key",
+    "apikey",
+    "credential",
+    "password",
+    "private_key",
+    "secret",
+    "token",
+)
+MAX_DISPLAY_STRING_LENGTH = 4000
+MAX_REDACTION_DEPTH = 8
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Return whether a metadata key should be redacted before display."""
+    lowered = key.lower()
+    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
+
+
+def redact_for_display(value: Any, *, depth: int = 0) -> Any:
+    """Return a bounded, redacted copy of runtime-owned job data."""
+    if depth > MAX_REDACTION_DEPTH:
+        return "[nested data omitted]"
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            text_key = str(key)
+            redacted[text_key] = "[redacted]" if is_sensitive_key(text_key) else redact_for_display(
+                item,
+                depth=depth + 1,
+            )
+        return redacted
+    if isinstance(value, list):
+        return [redact_for_display(item, depth=depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return [redact_for_display(item, depth=depth + 1) for item in value]
+    if isinstance(value, str) and len(value) > MAX_DISPLAY_STRING_LENGTH:
+        return f"{value[:MAX_DISPLAY_STRING_LENGTH]}...[truncated]"
+    return value
+
+
+def to_pretty_json(value: Any) -> str:
+    """Serialize redacted display data as stable indented JSON."""
+    return json.dumps(
+        redact_for_display(value),
+        indent=2,
+        sort_keys=True,
+        default=str,
+    )
 
 
 class QueueJobController(DashboardMixin, TemplateController):
@@ -114,6 +167,7 @@ class QueueJobController(DashboardMixin, TemplateController):
             "status": raw_job.get("status") or state,
             "task_id": self._extract_job_task(raw_job) or "n/a",
             "payload": raw_job,  # Full object for tojson() inspection
+            "payload_json": to_pretty_json(raw_job),
             "run_at": raw_job.get("run_at"),  # Original timestamp (optional)
             "created_at": created,  # Formatted string
         }
@@ -306,12 +360,156 @@ class QueueJobController(DashboardMixin, TemplateController):
         return RedirectResponse(f"{redirect_path}{redirect_query}", status_code=302)
 
 
+class JobDetailController(DashboardMixin, TemplateController):
+    """
+    Renders a runtime-owned job detail page for a single queue job.
+
+    The controller consumes backend inspection contracts (`get_job`,
+    `get_job_state`, and `get_job_result`) and only falls back to bounded
+    state-bucket inspection when a backend-shaped test double does not expose
+    point lookup helpers.
+    """
+
+    template_name: str = "jobs/detail.html"
+
+    async def _load_job(self, backend: Any, queue: str, job_id: str) -> RawJobData | None:
+        """Load a job from the backend's native point lookup or inspection buckets."""
+        if hasattr(backend, "get_job"):
+            try:
+                job = await backend.get_job(queue, job_id)
+            except Exception:
+                job = None
+            if isinstance(job, dict):
+                return dict(job)
+
+        for state in JOB_DETAIL_STATES:
+            try:
+                jobs = await backend.list_jobs(queue, state)
+            except Exception:
+                jobs = []
+            for job in jobs:
+                current_id = job.get("id") or job.get("job_id")
+                if current_id is not None and str(current_id) == job_id:
+                    loaded = dict(job)
+                    loaded.setdefault("state", state)
+                    return loaded
+        return None
+
+    async def _get_backend_value(self, backend: Any, method: str, queue: str, job_id: str) -> Any:
+        """Safely call an optional backend inspection method."""
+        if not hasattr(backend, method):
+            return None
+        try:
+            return await getattr(backend, method)(queue, job_id)
+        except Exception:
+            return None
+
+    def _is_sensitive_key(self, key: str) -> bool:
+        """Return whether a metadata key should be redacted before display."""
+        return is_sensitive_key(key)
+
+    def _redact_for_display(self, value: Any, *, depth: int = 0) -> Any:
+        """Return a bounded, redacted copy of runtime-owned job data."""
+        return redact_for_display(value, depth=depth)
+
+    def _to_pretty_json(self, value: Any) -> str:
+        """Serialize redacted display data as stable indented JSON."""
+        return to_pretty_json(value)
+
+    def _format_time(self, value: Any) -> str:
+        """Format numeric timestamps while preserving backend-provided strings."""
+        if value in (None, ""):
+            return "-"
+        try:
+            return dt.datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OSError):
+            return str(value)
+
+    def _extract_traceback(self, job: RawJobData) -> str | None:
+        """Extract the most specific traceback-like field available on a job."""
+        for key in ("error_traceback", "traceback", "stacktrace", "stack", "last_error"):
+            value = job.get(key)
+            if value:
+                return str(value)
+        return None
+
+    async def get(self, request: Request) -> Response:
+        """
+        Render a single job detail page with metadata, payload, result, and diagnostics.
+        """
+        queue: str = request.path_params["name"]
+        job_id: str = request.path_params["job_id"]
+        backend: Any = monkay.settings.backend
+        job = await self._load_job(backend, queue, job_id)
+
+        if job is None:
+            context = await self.get_context_data(request)
+            context.update({"title": "Job Not Found", "url_prefix": context["url_prefix"]})
+            return templates.get_template_response(request, "404.html", context=context, status_code=404)
+
+        backend_state = await self._get_backend_value(backend, "get_job_state", queue, job_id)
+        backend_result = await self._get_backend_value(backend, "get_job_result", queue, job_id)
+        state = str(job.get("status") or job.get("state") or backend_state or "unknown")
+        result = job.get("result") if "result" in job else backend_result
+        task_id = str(job.get("task_id") or job.get("task") or job.get("name") or "n/a")
+        traceback_text = self._extract_traceback(job)
+
+        context: dict[str, Any] = await super().get_context_data(request)
+        context.update(
+            {
+                "title": f"Job {job_id}",
+                "active_page": "queues",
+                "page_header": f"Job {job_id}",
+                "queue": queue,
+                "job": job,
+                "job_id": job_id,
+                "task_id": task_id,
+                "state": state,
+                "created_at": self._format_time(job.get("created_at") or job.get("timestamp")),
+                "run_at": self._format_time(job.get("run_at") or job.get("delay_until")),
+                "last_attempt": self._format_time(job.get("last_attempt")),
+                "retries": job.get("retries", job.get("retry_count", "-")),
+                "max_retries": job.get("max_retries", "-"),
+                "depends_on": job.get("depends_on") or [],
+                "args_json": self._to_pretty_json(job.get("args", [])),
+                "kwargs_json": self._to_pretty_json(job.get("kwargs", {})),
+                "payload_json": self._to_pretty_json(job),
+                "result_json": self._to_pretty_json(result) if result is not None else None,
+                "error_message": job.get("last_error") or job.get("error") or job.get("exception"),
+                "traceback_text": traceback_text,
+                "return_to": str(request.url_path_for("job-detail", name=queue, job_id=job_id)),
+                "jobs_url": str(request.url_path_for("queue-jobs", name=queue)),
+                "queue_url": str(request.url_path_for("queue-detail", name=queue)),
+            }
+        )
+        return await self.render_template(request, context=context)
+
+
 class JobActionController(Controller):
     """
     Handles single-job actions (retry, remove, cancel) via dedicated AJAX endpoints.
     """
 
-    async def post(self, request: Request, job_id: str, action: str) -> JSONResponse:
+    def _safe_return_to(self, request: Request, fallback: str, candidate: str | None) -> str:
+        """Return a same-origin relative redirect target for HTML form actions."""
+        if candidate and candidate.startswith("/") and not candidate.startswith("//"):
+            return candidate
+        referer = request.headers.get("referer")
+        if referer:
+            request_origin = f"{request.url.scheme}://{request.url.netloc}"
+            if referer.startswith(request_origin):
+                return referer[len(request_origin) :] or fallback
+        return fallback
+
+    async def _form_response_mode(self, request: Request) -> tuple[bool, str | None]:
+        """Read optional HTML form response controls without affecting JSON callers."""
+        content_type = request.headers.get("content-type", "")
+        if "application/x-www-form-urlencoded" not in content_type and "multipart/form-data" not in content_type:
+            return False, None
+        form = await request.form()
+        return form.get("_response") == "html", form.get("return_to")
+
+    async def post(self, request: Request, job_id: str, action: str) -> JSONResponse | RedirectResponse:
         """
         Performs a single action on a job and returns a JSON status response.
 
@@ -326,6 +524,8 @@ class JobActionController(Controller):
         queue: str = request.path_params["name"]
         backend: Any = monkay.settings.backend
         canonical_action = "remove" if action == "delete" else action
+        html_response, return_to = await self._form_response_mode(request)
+        fallback = str(request.url_path_for("job-detail", name=queue, job_id=job_id))
 
         try:
             if canonical_action == "retry":
@@ -344,6 +544,9 @@ class JobActionController(Controller):
                     job_id=job_id,
                     error="Unknown action",
                 )
+                if html_response:
+                    add_message(request, "error", "Unknown job action.")
+                    return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
                 return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
         except Exception as e:
             record_audit_event(
@@ -355,6 +558,9 @@ class JobActionController(Controller):
                 job_id=job_id,
                 error=str(e),
             )
+            if html_response:
+                add_message(request, "error", f"Job {canonical_action} failed: {e}")
+                return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
         record_audit_event(
@@ -364,4 +570,7 @@ class JobActionController(Controller):
             queue=queue,
             job_id=job_id,
         )
+        if html_response:
+            add_message(request, "success", f"Job '{job_id}' {canonical_action} completed.")
+            return RedirectResponse(self._safe_return_to(request, fallback, return_to), status_code=303)
         return JSONResponse({"ok": True})

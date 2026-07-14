@@ -617,6 +617,10 @@ a.btn {
   box-shadow: var(--amq-shadow);
 }
 
+.amq-filter-panel .amq-field-wide {
+  grid-column: span 2;
+}
+
 .amq-input,
 .amq-select {
   width: 100%;
@@ -627,6 +631,152 @@ a.btn {
   background: var(--amq-surface);
   border: 1px solid var(--amq-border-strong);
   border-radius: var(--amq-radius);
+}
+
+.amq-pill-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.amq-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 11px;
+  color: var(--amq-ink-soft);
+  font-size: .84rem;
+  font-weight: 740;
+  text-decoration: none;
+  background: var(--amq-surface);
+  border: 1px solid var(--amq-border);
+  border-radius: 999px;
+}
+
+.amq-pill:hover,
+.amq-pill:focus-visible {
+  color: var(--amq-ink);
+  background: var(--amq-surface-muted);
+  outline: none;
+}
+
+.amq-pill.is-active {
+  color: #17200f;
+  background: var(--amq-green);
+  border-color: #aebb24;
+}
+
+.amq-job-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.amq-job-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: var(--amq-surface);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+  box-shadow: var(--amq-shadow);
+}
+
+.amq-job-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.amq-job-title {
+  margin: 0;
+  color: var(--amq-ink);
+  font-size: 1rem;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.amq-job-subtitle {
+  margin-top: 4px;
+  color: var(--amq-muted);
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+
+.amq-job-snippet {
+  max-height: 220px;
+  padding: 12px;
+  color: var(--amq-ink-soft);
+  overflow: auto;
+  background: var(--amq-surface-muted);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+}
+
+.amq-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, .6fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.amq-detail-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.amq-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.amq-pre {
+  max-height: 440px;
+  padding: 13px;
+  color: var(--amq-ink-soft);
+  font-size: .82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow: auto;
+  background: #fbfcf7;
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+}
+
+.amq-traceback {
+  color: #7f1d1d;
+  background: #fff7f7;
+  border-color: #f2c3bf;
+}
+
+.amq-confirm {
+  display: grid;
+  gap: 10px;
+}
+
+.amq-confirm summary {
+  width: fit-content;
+  list-style: none;
+}
+
+.amq-confirm summary::-webkit-details-marker {
+  display: none;
+}
+
+.amq-confirm-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--amq-surface-muted);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+}
+
+.amq-confirm-panel p {
+  color: var(--amq-muted);
+  font-size: .84rem;
 }
 
 .amq-input:focus,
@@ -727,9 +877,15 @@ a.btn {
   .amq-stat-grid,
   .amq-overview-hero,
   .amq-grid-2,
+  .amq-detail-grid,
+  .amq-job-grid,
   .amq-queue-grid,
   .amq-filter-panel {
     grid-template-columns: 1fr;
+  }
+
+  .amq-filter-panel .amq-field-wide {
+    grid-column: auto;
   }
 
   .amq-section-header,
