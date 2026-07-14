@@ -39,6 +39,8 @@
 - Dashboard job inspection now has regression proof for bounded 100k-job pages.
 - Dashboard desktop navigation now stays fixed with logout pinned at the bottom
   on long pages.
+- Dashboard reverse-proxy proof now includes a validated Nginx subpath browser
+  harness.
 
 ### Fixed
 
