@@ -355,6 +355,19 @@
       if (!queue) {
         return;
       }
+      ["waiting", "active", "delayed", "failed", "completed"].forEach((state) => {
+        const value = root.querySelector(`.${state}`);
+        if (value) {
+          value.textContent = queue[state] ?? 0;
+        }
+      });
+      const badge = root.querySelector("[data-queue-status] .amq-badge");
+      if (badge) {
+        badge.textContent = queue.paused ? "Paused" : "Running";
+        badge.className = queue.paused
+          ? "amq-badge amq-badge--warning"
+          : "amq-badge amq-badge--success";
+      }
       data.labels.push(new Date().toLocaleTimeString());
       data.datasets[0].data.push(queue.waiting);
       data.datasets[1].data.push(queue.active);

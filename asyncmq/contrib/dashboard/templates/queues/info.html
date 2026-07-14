@@ -1,99 +1,122 @@
 {% extends "layout.html" %}
+{% from "shared/components.html" import icon, status_badge %}
 {% block content %}
-<div class="amq-page" data-asyncmq-queue-detail data-events-url="{{ url_prefix }}/events" data-queue-name="{{ queue }}">
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
-  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
-  <a href="{{ url_prefix }}/queues"
-         class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition">
-        ← Back to Queues
-    </a>
-</div>
-
-  <div class="grid lg:grid-cols-2 gap-6 mb-6">
-    <!-- Controls & Counts Card -->
-    <div class="bg-white rounded-lg shadow p-6">
-      <h2 class="text-lg font-semibold mb-4">Controls</h2>
-      <form method="post" class="mb-6">
-        {% if paused %}
-          <button name="action" value="resume"
-                  class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-            Resume Queue
-          </button>
-        {% else %}
-          <button name="action" value="pause"
-                  class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-            Pause Queue
-          </button>
-        {% endif %}
-      </form>
-
-      <h2 class="text-lg font-semibold mb-4">Job Counts</h2>
-      <div class="grid grid-cols-2 gap-4">
-        <div class="flex justify-between">
-          <span class="font-medium text-gray-700">Waiting:</span>
-          <span class="waiting text-gray-900">{{ counts.waiting }}</span>
+  <div class="amq-page" data-asyncmq-queue-detail data-events-url="{{ url_prefix }}/events" data-queue-name="{{ queue }}">
+    <section class="amq-section">
+      <div class="amq-section-header">
+        <div>
+          <h2 class="amq-section-title">{{ queue }}</h2>
+          <p class="amq-section-meta">Runtime queue state, operational controls, and live count history</p>
         </div>
-        <div class="flex justify-between">
-          <span class="font-medium text-gray-700">Active:</span>
-          <span class="active text-gray-900">{{ counts.active }}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="font-medium text-gray-700">Delayed:</span>
-          <span class="delayed text-gray-900">{{ counts.delayed }}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="font-medium text-gray-700">Failed:</span>
-          <span class="failed text-red-600">{{ counts.failed }}</span>
-        </div>
-        <div class="flex justify-between col-span-2">
-          <span class="font-medium text-gray-700">Completed:</span>
-          <span class="completed text-green-600">{{ counts.completed }}</span>
+        <div class="amq-actions">
+          <a href="{{ url_prefix }}/queues" class="amq-button">Back to Queues</a>
+          <a href="{{ url_prefix }}/queues/{{ queue }}/jobs" class="amq-button amq-button--primary">Inspect Jobs</a>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Real-Time Chart Card -->
-    <div class="bg-white rounded-lg shadow p-6 flex flex-col">
-      <h2 class="text-lg font-semibold mb-4">Real-Time Job Counts</h2>
-      <div class="flex-1 h-64">
-        <canvas id="queue-chart" class="w-full h-full"></canvas>
-      </div>
-    </div>
+    <section class="amq-queue-detail-hero">
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Queue State</h2>
+          <span data-queue-status>
+            {% if paused %}
+              {{ status_badge("paused", "Paused") }}
+            {% else %}
+              {{ status_badge("running", "Running") }}
+            {% endif %}
+          </span>
+        </div>
+        <div class="amq-card-body amq-queue-control-body">
+          <p class="amq-queue-control-copy">
+            Pause and resume are executed by the configured AsyncMQ backend. The dashboard only reports the backend result.
+          </p>
+          <form method="post" class="amq-actions">
+            {% if paused %}
+              <button name="action" value="resume" class="amq-button amq-button--primary">
+                Resume Queue
+              </button>
+            {% else %}
+              <button name="action" value="pause" class="amq-button amq-button--danger">
+                Pause Queue
+              </button>
+            {% endif %}
+          </form>
+        </div>
+      </article>
+
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Current Job Counts</h2>
+          <span class="amq-card-meta">Server rendered, then refreshed from queue events</span>
+        </div>
+        <div class="amq-card-body amq-queue-state-grid" aria-label="Queue counts">
+          <div class="amq-queue-state">
+            <span>Waiting</span>
+            <strong class="waiting">{{ counts.waiting }}</strong>
+          </div>
+          <div class="amq-queue-state amq-queue-state--warning">
+            <span>Active</span>
+            <strong class="active">{{ counts.active }}</strong>
+          </div>
+          <div class="amq-queue-state">
+            <span>Delayed</span>
+            <strong class="delayed">{{ counts.delayed }}</strong>
+          </div>
+          <div class="amq-queue-state amq-queue-state--danger">
+            <span>Failed</span>
+            <strong class="failed">{{ counts.failed }}</strong>
+          </div>
+          <div class="amq-queue-state amq-queue-state--success">
+            <span>Completed</span>
+            <strong class="completed">{{ counts.completed }}</strong>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="amq-grid-2">
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Live Count History</h2>
+          <span class="amq-card-meta">Last 20 queue events</span>
+        </div>
+        <div class="amq-card-body amq-chart-panel amq-chart-panel--queue">
+          <canvas id="queue-chart"></canvas>
+        </div>
+      </article>
+
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Queue Operations</h2>
+          <span class="amq-card-meta">Runtime-backed views</span>
+        </div>
+        <div class="amq-card-body amq-quick-grid">
+          <a href="{{ url_prefix }}/queues/{{ queue }}/jobs" class="amq-quick-card">
+            <span class="amq-quick-icon">{{ icon("queues") }}</span>
+            <span>
+              <strong class="amq-quick-title">All Jobs</strong>
+              <span class="amq-quick-meta">Search and filter queued work</span>
+            </span>
+          </a>
+          <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables" class="amq-quick-card">
+            <span class="amq-quick-icon">{{ icon("metrics") }}</span>
+            <span>
+              <strong class="amq-quick-title">Repeatable Jobs</strong>
+              <span class="amq-quick-meta">Inspect scheduled definitions</span>
+            </span>
+          </a>
+          <a href="{{ url_prefix }}/queues/{{ queue }}/dlq" class="amq-quick-card amq-quick-card--warning">
+            <span class="amq-quick-icon">{{ icon("audit") }}</span>
+            <span>
+              <strong class="amq-quick-title">Dead Letter</strong>
+              <span class="amq-quick-meta">Review failed terminal jobs</span>
+            </span>
+          </a>
+        </div>
+      </article>
+    </section>
+
+    <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
   </div>
-
-  <!-- Modern Quick-Links Grid -->
-  <div class="bg-white rounded-lg shadow p-6 mb-6">
-    <h2 class="text-lg font-semibold mb-4">Quick Actions</h2>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <!-- All Jobs -->
-      <a href="{{ url_prefix }}/queues/{{ queue }}/jobs"
-         class="flex items-center p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg shadow-sm transition">
-        <svg class="w-6 h-6 text-indigo-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h8V6H5z" />
-        </svg>
-        <span class="font-medium text-indigo-700">All Jobs</span>
-      </a>
-
-      <!-- Repeatables -->
-      <a href="{{ url_prefix }}/queues/{{ queue }}/repeatables"
-         class="flex items-center p-4 bg-green-50 hover:bg-green-100 rounded-lg shadow-sm transition">
-        <svg class="w-6 h-6 text-green-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M5 4a1 1 0 011-1h7a4 4 0 014 4v1a1 1 0 11-2 0V7a2 2 0 00-2-2H6a1 1 0 01-1-1zm9 12a1 1 0 01-1 1H6a4 4 0 01-4-4v-1a1 1 0 112 0v1a2 2 0 002 2h7a1 1 0 011 1zm-1-6a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 11-2 0v-.59l-2.29 2.3a1 1 0 01-1.42-1.42L14.59 11H14a1 1 0 01-1-1zM3 7a1 1 0 011 1v.59l2.29-2.3a1 1 0 111.42 1.42L5.41 10H6a1 1 0 110 2H3a1 1 0 01-1-1V8a1 1 0 011-1z" />
-        </svg>
-        <span class="font-medium text-green-700">Repeatable Jobs</span>
-      </a>
-
-      <!-- Dead-Letter Queue -->
-      <a href="{{ url_prefix }}/queues/{{ queue }}/dlq"
-         class="flex items-center p-4 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm transition">
-        <svg class="w-6 h-6 text-red-600 mr-3" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M10 3a1 1 0 00-1 1v6H3a1 1 0 100 2h6v6a1 1 0 102 0v-6h6a1 1 0 100-2h-6V4a1 1 0 00-1-1z" />
-        </svg>
-        <span class="font-medium text-red-700">Dead-Letter Queue</span>
-      </a>
-    </div>
-  </div>
-
-  <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
-</div>
 {% endblock %}

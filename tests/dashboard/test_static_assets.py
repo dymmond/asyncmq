@@ -132,7 +132,7 @@ def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
     response = admin_client.get(f"{prefix}/login")
 
     assert response.status_code == 200
-    assert f'{prefix}/static/favicon.ico' in response.text
+    assert f"{prefix}/static/favicon.ico" in response.text
     assert f"{prefix}/static/css/tailwind-4.3.2.min.css" in response.text
     assert f"{prefix}/static/vendor/alpinejs/alpine-csp-3.15.12.min.js" in response.text
     assert "cdn.tailwindcss.com" not in response.text
@@ -209,8 +209,13 @@ def test_queue_pages_use_packaged_live_update_components(client: TestClient):
     assert 'data-asyncmq-queues data-events-url="/asyncmq/events"' in queue_list.text
     assert 'data-asyncmq-queue-detail data-events-url="/asyncmq/events"' in queue_detail.text
     assert 'data-queue-name="critical-email"' in queue_detail.text
+    assert 'class="amq-queue-detail-hero"' in queue_detail.text
+    assert '<h1 class="text-3xl font-semibold mb-6">' not in queue_detail.text
+    assert 'class="flex items-center p-4' not in queue_detail.text
     assert "setupQueueListLive" in js
     assert "setupQueueDetailLive" in js
+    assert "root.querySelector(`.${state}`)" in js
+    assert 'root.querySelector("[data-queue-status] .amq-badge")' in js
 
 
 def test_metrics_page_uses_packaged_live_update_components(client: TestClient):
@@ -219,7 +224,7 @@ def test_metrics_page_uses_packaged_live_update_components(client: TestClient):
     js = package_static_root().joinpath("js/asyncmq.js").read_text()
 
     assert response.status_code == 200
-    assert 'data-asyncmq-metrics' in response.text
+    assert "data-asyncmq-metrics" in response.text
     assert 'data-history-url="/asyncmq/metrics/history?limit=60"' in response.text
     assert 'class="amq-table amq-metrics-table"' in response.text
     assert '<template id="metrics-history-data">' in response.text

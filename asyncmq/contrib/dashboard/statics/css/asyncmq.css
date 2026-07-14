@@ -329,6 +329,7 @@ a.btn {
 .amq-stat-card,
 .amq-card,
 .amq-table-wrap {
+  min-width: 0;
   background: var(--amq-surface);
   border: 1px solid var(--amq-border);
   border-radius: var(--amq-radius);
@@ -398,6 +399,13 @@ a.btn {
 
 .amq-chart-panel {
   height: 18rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.amq-chart-panel canvas {
+  display: block;
+  max-width: 100%;
 }
 
 .amq-overview-hero .amq-chart-panel {
@@ -579,6 +587,145 @@ a.btn {
   border: 1px solid var(--amq-border);
   border-radius: var(--amq-radius);
   box-shadow: var(--amq-shadow);
+}
+
+.amq-queue-detail-hero {
+  display: grid;
+  grid-template-columns: minmax(260px, .62fr) minmax(0, 1.38fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.amq-queue-control-body {
+  display: grid;
+  align-content: space-between;
+  min-height: 128px;
+  gap: 16px;
+}
+
+.amq-queue-control-copy {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--amq-muted);
+  font-size: .9rem;
+  line-height: 1.55;
+}
+
+.amq-queue-state-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.amq-queue-state {
+  display: grid;
+  gap: 9px;
+  min-height: 94px;
+  padding: 12px;
+  background: var(--amq-surface-muted);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+}
+
+.amq-queue-state span {
+  color: var(--amq-muted);
+  font-size: .72rem;
+  font-weight: 760;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.amq-queue-state strong {
+  color: var(--amq-ink);
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.amq-queue-state--success {
+  background: #f1fbf2;
+  border-color: #bde7c5;
+}
+
+.amq-queue-state--warning {
+  background: #fff9e9;
+  border-color: #f5d489;
+}
+
+.amq-queue-state--danger {
+  background: #fff7f7;
+  border-color: #f2c3bf;
+}
+
+.amq-chart-panel--queue {
+  min-height: 320px;
+}
+
+.amq-chart-panel--queue canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.amq-quick-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.amq-quick-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  color: var(--amq-ink);
+  text-decoration: none;
+  background: var(--amq-surface-muted);
+  border: 1px solid var(--amq-border);
+  border-radius: var(--amq-radius);
+}
+
+.amq-quick-card:hover,
+.amq-quick-card:focus-visible {
+  background: #fbfcf7;
+  border-color: var(--amq-border-strong);
+  outline: none;
+}
+
+.amq-quick-card:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
+}
+
+.amq-quick-card--warning {
+  background: #fff9e9;
+  border-color: #f5d489;
+}
+
+.amq-quick-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  color: #17200f;
+  background: var(--amq-green);
+  border-radius: var(--amq-radius);
+}
+
+.amq-quick-title,
+.amq-quick-meta {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.amq-quick-title {
+  font-size: .94rem;
+  font-weight: 770;
+}
+
+.amq-quick-meta {
+  margin-top: 3px;
+  color: var(--amq-muted);
+  font-size: .8rem;
+  line-height: 1.35;
 }
 
 .amq-queue-card-header {
@@ -1178,7 +1325,8 @@ a.btn {
 
 @media (max-width: 1180px) {
   .amq-stat-grid,
-  .amq-queue-grid {
+  .amq-queue-grid,
+  .amq-queue-state-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1212,6 +1360,8 @@ a.btn {
   .amq-job-grid,
   .amq-failure-summary,
   .amq-queue-grid,
+  .amq-queue-detail-hero,
+  .amq-queue-state-grid,
   .amq-filter-panel {
     grid-template-columns: 1fr;
   }

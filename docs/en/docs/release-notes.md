@@ -23,6 +23,7 @@
 - Dashboard operator controls now have stronger keyboard focus visibility.
 - Dashboard runtime events now expose a bounded, redacted local event history.
 - Dashboard metrics now use the reusable operations-console components.
+- Dashboard queue details now show live count tiles and clearer operations.
 
 ### Fixed
 

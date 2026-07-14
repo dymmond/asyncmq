@@ -50,8 +50,8 @@ class FakeBackend:
                     "last_error": "ValueError: welcome failed",
                     "error_traceback": (
                         "Traceback (most recent call last):\n"
-                        "  File \"tasks/welcome.py\", line 10, in send_welcome\n"
-                        "    raise ValueError(\"welcome failed\")\n"
+                        '  File "tasks/welcome.py", line 10, in send_welcome\n'
+                        '    raise ValueError("welcome failed")\n'
                         "ValueError: welcome failed"
                     ),
                     "created_at": self._now - 60,
@@ -64,10 +64,10 @@ class FakeBackend:
                     "last_error": "RuntimeError: reminder failed",
                     "error_traceback": (
                         "Traceback (most recent call last):\n"
-                        "  File \"asyncmq/workers.py\", line 418, in process_job\n"
+                        '  File "asyncmq/workers.py", line 418, in process_job\n'
                         "    await task(*job.args, **job.kwargs)\n"
-                        "  File \"tasks/reminder.py\", line 22, in send_reminder\n"
-                        "    raise RuntimeError(\"reminder failed\")\n"
+                        '  File "tasks/reminder.py", line 22, in send_reminder\n'
+                        '    raise RuntimeError("reminder failed")\n'
                         "RuntimeError: reminder failed"
                     ),
                     "created_at": self._now - 30,
@@ -293,8 +293,12 @@ def test_queue_detail_counts(client, app):
     assert response.status_code == 200
 
     # labels visible on page
-    for label in (b"waiting", b"active", b"delayed", b"failed", b"completed"):
+    for label in (b"Waiting", b"Active", b"Delayed", b"Failed", b"Completed"):
         assert label in response.content
+    assert 'class="amq-queue-detail-hero"' in response.text
+    assert "amq-queue-state-grid" in response.text
+    assert "data-queue-status" in response.text
+    assert '<canvas id="queue-chart">' in response.text
 
 
 def test_queue_pause_and_resume_actions_via_queue_detail(client, app):
@@ -438,8 +442,8 @@ def test_dlq_list(client, app):
 
     assert response.status_code == 200
     assert b"emails" in response.content
-    assert 'data-asyncmq-dlq' in response.text
-    assert 'data-dlq-select-all' in response.text
+    assert "data-asyncmq-dlq" in response.text
+    assert "data-dlq-select-all" in response.text
     assert "retry-btn-dlq" not in response.text
     assert "remove-btn-dlq" not in response.text
     assert "fetch(" not in response.text
@@ -536,8 +540,7 @@ def test_job_list_uses_backend_inspection_contract(client, app):
     settings.backend = backend
 
     response = client.get(
-        url(app, "queue-jobs", name="emails")
-        + "?state=failed&page=2&size=999&q=needle&task=send&sort=oldest"
+        url(app, "queue-jobs", name="emails") + "?state=failed&page=2&size=999&q=needle&task=send&sort=oldest"
     )
 
     assert response.status_code == 200
@@ -581,7 +584,7 @@ def test_audit_page_formats_failed_actions_with_collapsible_details(client, app)
     assert "backend refused" in audit_response.text
     assert "&lt;broker down&gt;" in audit_response.text
     assert "<broker down>" not in audit_response.text
-    assert "<details class=\"amq-diagnostic-section amq-audit-details\">" in audit_response.text
+    assert '<details class="amq-diagnostic-section amq-audit-details">' in audit_response.text
 
 
 def test_runtime_events_page_uses_event_history_and_redacts_sensitive_values(client, app):
