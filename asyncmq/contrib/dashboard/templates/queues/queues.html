@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% from "shared/components.html" import empty_state, stat_card, status_badge %}
 {% block content %}
-  <div class="amq-page">
+  <div class="amq-page" data-asyncmq-queues data-events-url="{{ url_prefix }}/events">
     <section class="amq-stat-grid" aria-label="Queue summary">
       {{ stat_card("Queues", total_queues or 0, "total-queues", "accent") }}
       {{ stat_card("Workers", total_workers or 0, "total-workers", "success") }}
@@ -75,39 +75,4 @@
       </div>
     </section>
   </div>
-
-  <!-- SSE script to live-update metrics -->
-  <script>
-    const source = new EventSource('{{ url_prefix }}/events');
-
-    source.addEventListener('overview', e => {
-      try {
-        const data = JSON.parse(e.data);
-        document.getElementById('total-queues').textContent  = data.total_queues;
-        document.getElementById('total-workers').textContent = data.total_workers;
-      } catch {}
-    });
-
-    source.addEventListener('queue_stats', e => {
-      try {
-        const stats = JSON.parse(e.data);
-        stats.forEach(q => {
-          const card = document.querySelector(`[data-queue="${q.queue}"]`);
-          if (!card) return;
-          card.querySelector('.waiting').textContent   = q.waiting;
-          card.querySelector('.active').textContent    = q.active;
-          card.querySelector('.delayed').textContent   = q.delayed;
-          card.querySelector('.failed').textContent    = q.failed;
-          card.querySelector('.completed').textContent = q.completed;
-          const badge = card.querySelector('.amq-badge');
-          badge.textContent = q.paused ? 'Paused' : 'Running';
-          badge.className = q.paused
-            ? 'amq-badge amq-badge--warning'
-            : 'amq-badge amq-badge--success';
-        });
-      } catch {}
-    });
-
-    source.onerror = () => console.warn('SSE error – retrying…');
-  </script>
 {% endblock %}

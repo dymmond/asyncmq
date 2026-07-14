@@ -30,6 +30,8 @@
   hardened for production operation.
 - Dashboard links, redirects, and same-origin checks now stay correct under
   mounted paths and trusted reverse proxies.
+- Dashboard overview and queue live updates now run from packaged JavaScript
+  instead of inline scripts.
 
 ## 0.8.1
 

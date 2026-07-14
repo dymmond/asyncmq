@@ -93,7 +93,7 @@ def test_dashboard_links_and_assets_include_nested_proxy_root_path():
     assert response.status_code == 200
     assert 'href="/operations/asyncmq/queues"' in response.text
     assert 'action="/operations/asyncmq/logout"' in response.text
-    assert "new EventSource('/operations/asyncmq/events')" in response.text
+    assert 'data-asyncmq-queues data-events-url="/operations/asyncmq/events"' in response.text
     assert "http://testserver/operations/asyncmq/static/css/asyncmq.css" in response.text
     assert "http://testserver/operations/asyncmq/static/vendor/alpinejs/" in response.text
 

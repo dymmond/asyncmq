@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from importlib import resources
 from typing import Any
 
@@ -155,9 +156,39 @@ def test_modern_dashboard_shell_renders_component_navigation(client: TestClient)
 def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
     """Ensure live overview table updates do not interpolate runtime values as HTML."""
     response = client.get("/")
+    js = package_static_root().joinpath("js/asyncmq.js").read_text()
 
     assert response.status_code == 200
-    assert "appendTextCell(tr, j.id, 'amq-mono')" in response.text
-    assert "badgeForState(j.state)" in response.text
-    assert "${j.id}" not in response.text
-    assert "${q.name}" not in response.text
+    assert 'data-asyncmq-overview data-events-url="/asyncmq/events"' in response.text
+    assert 'new EventSource("{{ url_prefix }}/events")' not in response.text
+    assert 'new EventSource("/asyncmq/events")' not in response.text
+    assert 'appendTextCell(row, job.id, "amq-mono")' in js
+    assert "badgeForState(job.state)" in js
+    assert "${j.id}" not in js
+    assert "${q.name}" not in js
+
+
+def test_primary_live_pages_do_not_render_inline_scripts(client: TestClient):
+    """Keep overview and queue live updates compatible with strict CSP."""
+    inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
+
+    for path in ("/", "/queues", "/queues/critical-email"):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert inline_script.search(response.text) is None
+
+
+def test_queue_pages_use_packaged_live_update_components(client: TestClient):
+    """Render live-update hooks as data attributes consumed by packaged JS."""
+    queue_list = client.get("/queues")
+    queue_detail = client.get("/queues/critical-email")
+    js = package_static_root().joinpath("js/asyncmq.js").read_text()
+
+    assert queue_list.status_code == 200
+    assert queue_detail.status_code == 200
+    assert 'data-asyncmq-queues data-events-url="/asyncmq/events"' in queue_list.text
+    assert 'data-asyncmq-queue-detail data-events-url="/asyncmq/events"' in queue_detail.text
+    assert 'data-queue-name="critical-email"' in queue_detail.text
+    assert "setupQueueListLive" in js
+    assert "setupQueueDetailLive" in js

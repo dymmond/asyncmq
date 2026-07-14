@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% from "shared/components.html" import stat_card, status_badge, empty_state %}
 {% block content %}
-  <div class="amq-page">
+  <div class="amq-page" data-asyncmq-overview data-events-url="{{ url_prefix }}/events">
     <section class="amq-overview-hero" aria-label="Runtime summary">
       <div class="amq-stat-grid amq-stat-grid--three">
         {{ stat_card("Total queues", total_queues, "total-queues", "accent") }}
@@ -109,116 +109,6 @@
       </table>
     </section>
   </div>
-
-  <!-- Chart.js & SSE Script -->
   <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
-  <script>
-    const source = new EventSource('{{ url_prefix }}/events');
-
-    // Overview
-    source.addEventListener('overview', e => {
-      const d = JSON.parse(e.data);
-      document.getElementById('total-queues').textContent  = d.total_queues;
-      document.getElementById('total-jobs').textContent    = d.total_jobs;
-      document.getElementById('total-workers').textContent = d.total_workers;
-    });
-
-    // Pie
-    const pieChart = new Chart(
-      document.getElementById('jobdist-chart').getContext('2d'), {
-      type: 'doughnut',
-      data: { labels:['Waiting','Active','Delayed','Completed','Failed'], datasets:[{ data:[0,0,0,0,0] }] },
-      options:{ responsive:true, maintainAspectRatio:false, animation:{ duration:0 } }
-    });
-    source.addEventListener('jobdist', e => {
-      const dist = JSON.parse(e.data);
-      pieChart.data.datasets[0].data = [dist.waiting,dist.active,dist.delayed,dist.completed,dist.failed];
-      pieChart.update();
-    });
-
-    // Line
-    const lineCtx = document.getElementById('overview-line-chart').getContext('2d');
-    const lineData = { labels:[], datasets:[{ label:'Completed', data:[], borderColor:'rgba(59,130,246,0.8)', fill:false }] };
-    const lineChart = new Chart(lineCtx, { type:'line', data:lineData,
-      options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{}, y:{ beginAtZero:true } }, animation:{ duration:0 } }
-    });
-    source.addEventListener('metrics', e => {
-      const m = JSON.parse(e.data), ts=new Date().toLocaleTimeString();
-      lineData.labels.push(ts); lineData.datasets[0].data.push(m.throughput);
-      if(lineData.labels.length>20){ lineData.labels.shift(); lineData.datasets[0].data.shift(); }
-      lineChart.update();
-    });
-
-    // Bar
-    const barCtx = document.getElementById('queue-bar-chart').getContext('2d');
-    const barData = { labels:[], datasets:[{ label:'Waiting', data:[], backgroundColor:'rgba(59,130,246,0.7)' }] };
-    const barChart = new Chart(barCtx, { type:'bar', data:barData,
-      options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{}, y:{ beginAtZero:true } }, animation:{ duration:0 } }
-    });
-    source.addEventListener('queues', e => {
-      const rows = JSON.parse(e.data);
-      barData.labels = rows.map(r=>r.name);
-      barData.datasets[0].data = rows.map(r=>r.waiting);
-      barChart.update();
-    });
-
-    function appendTextCell(row, value, className) {
-      const cell = document.createElement('td');
-      if (className) {
-        cell.className = className;
-      }
-      cell.textContent = value ?? '';
-      row.appendChild(cell);
-      return cell;
-    }
-
-    function badgeForState(state) {
-      const value = String(state || 'unknown');
-      const normalized = value.toLowerCase();
-      const badge = document.createElement('span');
-      badge.className = 'amq-badge amq-badge--neutral';
-      if (['completed', 'success', 'running'].includes(normalized)) {
-        badge.className = 'amq-badge amq-badge--success';
-      } else if (['failed', 'failure', 'error'].includes(normalized)) {
-        badge.className = 'amq-badge amq-badge--danger';
-      } else if (['active', 'paused', 'delayed', 'retrying'].includes(normalized)) {
-        badge.className = 'amq-badge amq-badge--warning';
-      }
-      badge.textContent = value.charAt(0).toUpperCase() + value.slice(1);
-      return badge;
-    }
-
-    // Latest 10 Jobs table
-    source.addEventListener('latest_jobs', e => {
-      const jobs = JSON.parse(e.data);
-      const tbody = document.getElementById('latest-jobs-body');
-      tbody.innerHTML = '';
-      jobs.forEach(j => {
-        const tr = document.createElement('tr');
-        appendTextCell(tr, j.id, 'amq-mono');
-        appendTextCell(tr, j.queue);
-        const stateCell = document.createElement('td');
-        stateCell.appendChild(badgeForState(j.state));
-        tr.appendChild(stateCell);
-        appendTextCell(tr, j.time);
-        tbody.appendChild(tr);
-      });
-    });
-
-    // Recent 5 Queues table
-    source.addEventListener('latest_queues', e => {
-      const qs = JSON.parse(e.data);
-      const tbody = document.getElementById('latest-queues-body');
-      tbody.innerHTML = '';
-      qs.forEach(q => {
-        const tr = document.createElement('tr');
-        appendTextCell(tr, q.name, 'amq-mono');
-        appendTextCell(tr, q.time);
-        tbody.appendChild(tr);
-      });
-    });
-
-    source.onerror = () => console.warn('SSE error – retrying…');
-  </script>
 
 {% endblock %}
