@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import Page, Response, expect, sync_playwright
 
 BASE_URL = os.environ.get("ASYNCMQ_NGINX_BASE_URL", "http://127.0.0.1:18080/operations/asyncmq")
 OUT = Path(os.environ.get("ASYNCMQ_NGINX_SCREENSHOT_DIR", "/tmp/asyncmq-nginx-proof"))
 DEFAULT_CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+BASE_PATH = urlparse(BASE_URL).path.rstrip("/")
 
 
 def assert_security_headers(response: Response | None) -> None:
@@ -23,8 +25,8 @@ def assert_prefixed_assets(page: Page) -> None:
     """Verify static assets are generated under the proxied dashboard prefix."""
     links = page.locator("link[rel='stylesheet']").evaluate_all("els => els.map(el => el.href)")
     scripts = page.locator("script[src]").evaluate_all("els => els.map(el => el.src)")
-    assert any("/operations/asyncmq/static/css/asyncmq.css" in href for href in links)
-    assert any("/operations/asyncmq/static/vendor/alpinejs/" in src for src in scripts)
+    assert any(f"{BASE_PATH}/static/css/asyncmq.css" in href for href in links)
+    assert any(f"{BASE_PATH}/static/vendor/alpinejs/" in src for src in scripts)
 
 
 def main() -> None:
@@ -52,9 +54,10 @@ def main() -> None:
         assert_prefixed_assets(page)
         page.get_by_label("Username").fill("admin")
         page.locator("#password").fill("secret")
-        page.get_by_role("button", name="Sign In").click()
-        page.wait_for_url(f"{BASE_URL}/")
-        expect(page.get_by_text("Operations Console")).to_be_visible()
+        page.get_by_role("button", name="Sign In").click(no_wait_after=True)
+        page.wait_for_load_state("domcontentloaded")
+        expect(page.get_by_role("heading", name="Dashboard")).to_be_visible()
+        assert page.url.rstrip("/") == BASE_URL.rstrip("/")
         page.screenshot(path=str(OUT / "nginx-login-dashboard.png"), full_page=True)
 
         response = page.goto(f"{BASE_URL}/queues", wait_until="domcontentloaded")

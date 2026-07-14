@@ -21,18 +21,17 @@ from asyncmq.contrib.dashboard.controllers import (
     workers,
 )
 from asyncmq.contrib.dashboard.engine import templates  # noqa
-from asyncmq.core.utils.dashboard import get_effective_prefix
+from asyncmq.contrib.dashboard.mixins import default_context
 
 
 async def not_found(request: Request, exc: Exception) -> Any:
     """Render a mount-aware dashboard 404 page."""
+    context = default_context(request)
+    context["title"] = "Not Found"
     return templates.get_template_response(
         request,
         "404.html",
-        context={
-            "title": "Not Found",
-            "url_prefix": get_effective_prefix(request),
-        },
+        context=context,
         status_code=404,
     )
 

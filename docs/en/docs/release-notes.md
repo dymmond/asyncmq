@@ -9,39 +9,20 @@
 - Reproducible competitive benchmarks and production guidance for delivery
   guarantees, backend selection, deployment, recovery, monitoring, and
   security.
-- Dashboard assets are now locally vendored, CSP-friendly, and styled through a
-  reusable operations-console shell with responsive navigation.
-- Dashboard job inspection now includes redacted detail pages, traceback
-  diagnostics, and confirmation-gated job actions.
-- Dashboard worker inspection now summarizes runtime-owned heartbeat freshness,
-  queue coverage, and declared concurrency.
-- Dashboard failed-job details now present structured exception, traceback, and
-  redacted diagnostic evidence.
-- Dashboard audit trail now has operator-focused summaries, filters, and
-  collapsible action details.
-- Dashboard tracebacks now show frame-level summaries with raw traceback access.
-- Dashboard operator controls now have stronger keyboard focus visibility.
-- Dashboard runtime events now expose a bounded, redacted local event history.
-- Dashboard metrics now use the reusable operations-console components.
-- Dashboard queue details now show live count tiles and clearer operations.
-- Dashboard DLQ views now use redacted payloads and confirmation-gated actions.
-- Dashboard repeatables now use redacted definitions and safer forms/actions.
-- Dashboard login, loading, flash, and 404 states now match the operations
-  console.
-- Dashboard failed-job diagnostics now expose root cause, exception chain, and
-  copyable redacted evidence.
-- Dashboard runtime events now label local retention scope and expose copyable
-  redacted row data.
-- Dashboard templates now complete the migration to the native operations-console
-  component classes.
-- Dashboard job filters now use visible labels and automated accessible-control
-  checks.
-- Dashboard job inspection now has regression proof for bounded 100k-job pages.
-- Dashboard desktop navigation now stays fixed with logout pinned at the bottom
-  while the content workspace scrolls independently.
-- Dashboard reverse-proxy proof now includes a validated Nginx subpath browser
-  harness.
-- Dashboard documentation now includes the validated Nginx subpath proxy pattern.
+- Dashboard operations console now ships with locally vendored Alpine.js and
+  Tailwind CSS assets, reusable Jinja components, strict CSP-compatible
+  JavaScript, and no frontend build pipeline.
+- Dashboard queue, job, DLQ, repeatable, worker, metrics, audit, and event views
+  were modernized for production operations with safer actions and clearer
+  runtime-owned state.
+- Dashboard failed-job diagnostics now include redacted payload evidence, root
+  cause, exception chain, stack-frame summaries, raw traceback access, and
+  copyable safe diagnostics.
+- Dashboard reverse-proxy validation now covers root, `/asyncmq/`, and nested
+  `/operations/asyncmq/` Nginx deployments through real browser proof.
+- Dashboard browser, packaging, accessibility, and scale checks now cover
+  packaged assets, labeled controls, fixed desktop navigation, and bounded
+  100k-job inspection.
 
 ### Fixed
 
@@ -67,7 +48,8 @@
   inline script or style allowances.
 - Dashboard job lists now consume a runtime-owned inspection page contract and
   clamp page sizes.
-- Dashboard sidebar rail now spans long operator pages consistently.
+- Dashboard desktop shell now keeps the navigation fixed while the content
+  workspace scrolls independently.
 
 ## 0.8.1
 

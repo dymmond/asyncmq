@@ -12,7 +12,7 @@ def _prefix_static_url(value: str, effective_prefix: str) -> str:
     """Return a prefix-aware URL for dashboard-owned static assets."""
     if value.startswith(("http://", "https://", "data:")):
         return value
-    if value.startswith("/static/") and effective_prefix:
+    if value.startswith("/static/") and effective_prefix and effective_prefix != "/":
         return f"{effective_prefix}{value}"
     return value
 
@@ -21,13 +21,16 @@ def default_context(request: Request) -> dict:
     """Build the common template context shared by dashboard pages."""
     context = {}
     effective_prefix = get_effective_prefix(request)
+    render_prefix = "" if effective_prefix == "/" else effective_prefix
+    dashboard_home = effective_prefix
     favicon = _prefix_static_url(monkay.settings.dashboard_config.favicon, effective_prefix)
     context.update(
         {
             "title": monkay.settings.dashboard_config.title,
             "header_text": monkay.settings.dashboard_config.header_title,
             "favicon": favicon,
-            "url_prefix": effective_prefix,
+            "url_prefix": render_prefix,
+            "dashboard_home": dashboard_home,
             "sidebar_bg_colour": monkay.settings.dashboard_config.sidebar_bg_colour,
             "messages": get_messages(request),
         }

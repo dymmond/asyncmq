@@ -18,7 +18,7 @@
 
   <div class="amq-shell">
     <aside class="amq-sidebar" aria-label="Primary navigation">
-      <a class="amq-brand" href="{{ url_prefix }}" aria-label="AsyncMQ dashboard home">
+      <a class="amq-brand" href="{{ dashboard_home }}" aria-label="AsyncMQ dashboard home">
         <span class="amq-brand-mark">MQ</span>
         <span class="amq-brand-text">
           <span class="amq-brand-title">{{ header_text }}</span>
@@ -27,7 +27,7 @@
       </a>
 
       <nav class="amq-nav" aria-label="Dashboard">
-        {{ nav_link(url_prefix, "Dashboard", current_page == "dashboard", "dashboard") }}
+        {{ nav_link(dashboard_home, "Dashboard", current_page == "dashboard", "dashboard") }}
         {{ nav_link(url_prefix ~ "/queues", "Queues", current_page == "queues", "queues") }}
         {{ nav_link(url_prefix ~ "/metrics", "Metrics", current_page == "metrics", "metrics") }}
         {{ nav_link(url_prefix ~ "/audit", "Audit Trail", current_page == "audit", "audit") }}
@@ -50,7 +50,7 @@
       <header class="amq-topbar">
         <div>
           <nav class="amq-breadcrumb" aria-label="Breadcrumb">
-            <a href="{{ url_prefix }}">AsyncMQ</a>
+            <a href="{{ dashboard_home }}">AsyncMQ</a>
             <span aria-hidden="true">/</span>
             <span>{{ title }}</span>
           </nav>
@@ -63,7 +63,7 @@
             <span>Menu</span>
           </summary>
           <div class="amq-mobile-menu">
-            {{ nav_link(url_prefix, "Dashboard", current_page == "dashboard", "dashboard") }}
+            {{ nav_link(dashboard_home, "Dashboard", current_page == "dashboard", "dashboard") }}
             {{ nav_link(url_prefix ~ "/queues", "Queues", current_page == "queues", "queues") }}
             {{ nav_link(url_prefix ~ "/metrics", "Metrics", current_page == "metrics", "metrics") }}
             {{ nav_link(url_prefix ~ "/audit", "Audit Trail", current_page == "audit", "audit") }}

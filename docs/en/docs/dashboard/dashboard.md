@@ -1,160 +1,300 @@
 # Dashboard
 
-AsyncMQ ships a built-in operations dashboard ASGI app in `asyncmq.contrib.dashboard`.
+AsyncMQ ships a native operations dashboard in `asyncmq.contrib.dashboard`.
+It is a Lilya application rendered with Jinja templates, packaged with AsyncMQ,
+and usable without Node.js or a frontend build pipeline.
 
-Wrapper class: `AsyncMQAdmin`
+Use it for day-to-day queue operations, incident response, and production
+inspection:
 
-This dashboard is designed for day-to-day queue operations and incident response:
-
-- queue, job, and worker visibility
-- retry/remove/cancel controls
-- DLQ and repeatable management
-- action audit trail
-- live + historical metrics views
+- queue, job, worker, DLQ, repeatable, metrics, event, and audit visibility
+- retry, cancel, remove, pause, resume, drain, and purge operations where the
+  configured backend supports them
+- failed-job diagnostics with redacted payload metadata, root cause, exception
+  chain, stack-frame summaries, and raw traceback access
+- reverse-proxy-aware URLs for direct, mounted, and nested deployments
 
 Related pages:
 
 - [Dashboard Capabilities](capabilities.md)
 - [Dashboard Operations Playbook](operations.md)
-- [Dashboard API and Route Reference](reference.md)
 - [Authentication Backends](jwt.md)
 
 ## Architecture
 
+Wrapper class: `AsyncMQAdmin`
+
 ```mermaid
 flowchart LR
-    A["Host ASGI App\n(FastAPI/Lilya/Starlette)"] --> B["AsyncMQAdmin"]
-    B --> C["Optional AuthGateMiddleware"]
-    B --> D["Session Middleware"]
-    B --> E["Dashboard Lilya App"]
-    E --> F["Controllers"]
-    F --> G["Configured AsyncMQ Backend"]
-    E --> H["SSE Endpoint (/events)"]
-    E --> I["Metrics History (/metrics/history)"]
-    E --> J["Audit Trail (/audit)"]
+    Host["Host ASGI app"] --> Admin["AsyncMQAdmin"]
+    Admin --> Security["Security headers"]
+    Admin --> Session["Session middleware"]
+    Admin --> Auth["Optional AuthGateMiddleware"]
+    Admin --> App["Dashboard Lilya app"]
+    App --> Templates["Jinja templates"]
+    App --> Static["Packaged static assets"]
+    App --> Controllers["Class based controllers"]
+    Controllers --> Backend["Configured AsyncMQ backend"]
+    Controllers --> Audit["Local audit history"]
+    Controllers --> Metrics["Local metrics history"]
+    Controllers --> Events["SSE event stream"]
 ```
 
-## Visual Page Map
+AsyncMQ runtime state remains the source of truth. The dashboard renders and
+acts on backend/runtime contracts; it does not invent queue, worker, job,
+failure, retry, or health state in the browser.
 
-```mermaid
-flowchart TD
-    O["Overview /"] --> Q["Queues /queues"]
-    Q --> QD["Queue Detail /queues/{name}"]
-    QD --> J["Jobs /queues/{name}/jobs"]
-    QD --> D["DLQ /queues/{name}/dlq"]
-    QD --> R["Repeatables /queues/{name}/repeatables"]
-    O --> M["Metrics /metrics"]
-    O --> W["Workers /workers"]
-    O --> A["Audit /audit"]
-```
-
-## What the Dashboard Covers
-
-| Area | Route | Primary Actions |
+| Component | Owner | Notes |
 | --- | --- | --- |
-| Overview | `/` | queue/job/worker totals, live charts, latest jobs/queues |
-| Queues | `/queues` | inspect queue state, pause/resume |
-| Queue Details | `/queues/{name}` | queue-level status and controls |
-| Jobs | `/queues/{name}/jobs` | state tabs, text search, task/id filters, retry/remove/cancel |
-| DLQ | `/queues/{name}/dlq` | retry/remove failed jobs |
-| Repeatables | `/queues/{name}/repeatables` | pause/resume/remove repeatable definitions |
-| Workers | `/workers` | active worker visibility |
-| Metrics | `/metrics` | throughput/retry/failure cards, history charts/tables |
-| Metrics History API | `/metrics/history` | JSON snapshots for historical chart/table rendering |
-| Audit Trail | `/audit` | searchable log of queue/job/dlq/repeatable actions |
-| SSE Stream | `/events` | near-real-time updates to UI cards/charts/tables |
+| Execution state | AsyncMQ runtime and backend | Queue counts, jobs, workers, retries, failures, DLQ state |
+| Durable queue data | Configured backend | Redis, PostgreSQL, MongoDB, RabbitMQ, or in-memory backend capabilities differ |
+| Audit history | Dashboard process | Bounded local evidence of dashboard actions |
+| Metrics history | Dashboard process | Bounded local snapshots for the operations console |
+| Templates | Dashboard package | Server-rendered Jinja remains the primary rendering layer |
+| Alpine.js | Dashboard static package | Progressive interaction only; loaded from packaged assets |
+| Tailwind CSS | Dashboard static package | Vendored CSS asset; no runtime CDN or build step |
 
-## UI Screenshots
+## Route Map
 
-Replace each placeholder URL with your real screenshot URL or local static path.
+| Area | Route | Purpose |
+| --- | --- | --- |
+| Overview | `/` | Queue, job, worker, latest job, and chart summary |
+| Queues | `/queues` | Queue list, state counts, pause/resume controls |
+| Queue details | `/queues/{name}` | Per-queue counts, operations, and navigation |
+| Jobs | `/queues/{name}/jobs` | Server-side state filters, search, sorting, pagination |
+| Job detail | `/queues/{name}/jobs/{job_id}` | Runtime-owned metadata, redacted payloads, diagnostics |
+| DLQ | `/queues/{name}/dlq` | Dead-letter inspection and confirmation-gated actions |
+| Repeatables | `/queues/{name}/repeatables` | Durable repeatable definitions and safe controls |
+| Workers | `/workers` | Worker status, queues, concurrency, heartbeat freshness |
+| Metrics | `/metrics` | Throughput, retries, failures, and queue distribution |
+| Prometheus metrics | `/metrics/prometheus` | Scrape-friendly queue and worker gauges |
+| Metrics history | `/metrics/history` | JSON history snapshots |
+| Event stream | `/events` | Server-sent live update stream |
+| Event history | `/events/history` | Bounded local runtime event evidence |
+| Audit trail | `/audit` | Bounded dashboard action history |
+| Login | `/login` | Optional authenticated dashboard entrypoint |
+| Logout | `/logout` | Session logout when authentication is enabled |
 
-### Login
+All paths above are relative to the dashboard mount prefix. If the dashboard is
+mounted at `/asyncmq`, the queue list is `/asyncmq/queues`.
 
-The login page is the first operator touchpoint when authentication is enabled.
-It should clearly show the environment context and expected credentials flow.
+## Install And Enable
 
-![Dashboard Login Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.48.37_dfym3q.png)
+The dashboard requires Lilya because it is a Lilya contrib application.
+Install AsyncMQ normally and include Lilya in the environment where the
+dashboard process runs.
 
-### Dashboard Overview
-
-The overview page gives a fast health snapshot: total queues, total jobs, total workers,
-and live charts/tables for recent activity.
-
-![Dashboard Overview Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.32_nnoesd.png)
-
-### System Metrics
-
-The metrics page combines live SSE updates with recent history snapshots, helping
-operators correlate throughput, retries, failures, and queue-state distribution.
-Prometheus-compatible queue and worker gauges are exposed at
-`/metrics/prometheus` for scrape-based monitoring.
-
-![System Metrics Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.46.41_rvwfqk.png)
-
-### Queues
-
-The queues page is the control center for queue-level triage, including backlog visibility
-and pause/resume operations.
-
-![Queues Page Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.50.15_crrfhs.png)
-
-### Queue Details
-
-Queue details provide a focused per-queue breakdown and direct links into jobs, DLQ,
-and repeatables workflows.
-
-![Queue Details Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816647/asyncmq/Screenshot_2026-03-06_at_17.50.36_cmkcxx.png)
-
-### Workers
-
-The workers page highlights active worker identities, queue assignment, concurrency,
-and heartbeat recency for operational confidence.
-
-![Workers Page Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816646/asyncmq/Screenshot_2026-03-06_at_17.50.51_aptgfq.png)
-
-### Audit Trail
-
-The audit page records queue/job/dlq/repeatable actions and supports filtering/search,
-which is useful for incident reviews and change traceability.
-
-![Audit Trail Placeholder](https://res.cloudinary.com/dymmond/image/upload/v1772816646/asyncmq/Screenshot_2026-03-06_at_17.46.54_ejkbwu.png)
-
-## Quick Start
-
-```python
-from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
-
-admin = AsyncMQAdmin(enable_login=False)
+```shell
+pip install asyncmq lilya
 ```
 
-### Lilya
+No Node.js, npm, pnpm, Vite, Webpack, or public CDN is required. Alpine.js,
+Tailwind CSS, the dashboard CSS, JavaScript, icons, and templates are packaged
+as AsyncMQ resources and are loaded from the dashboard static route.
+
+## New Lilya Application
+
+Use this pattern when the dashboard is part of a new Lilya service.
 
 ```python
 from lilya.apps import Lilya
+
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 
 app = Lilya()
-admin = AsyncMQAdmin(enable_login=False)
+
+admin = AsyncMQAdmin(
+    enable_login=False,  # Use only for local development or private test networks.
+    url_prefix="/asyncmq",
+)
 admin.include_in(app)
 ```
 
-### FastAPI / Starlette
+The dashboard is available at:
+
+```text
+/asyncmq/
+```
+
+For production, enable authentication before exposing the app.
+
+## Existing Lilya Application
+
+Use `include_in()` to add the dashboard to an existing Lilya application.
+
+```python
+from lilya.apps import Lilya
+
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+from asyncmq.contrib.dashboard.admin.backends.simple_user import SimpleUsernamePasswordBackend
+from asyncmq.contrib.dashboard.admin.protocols import User
+
+
+def verify_user(username: str, password: str) -> User | None:
+    if username == "ops" and password == "replace-me":
+        return User(id="ops", name="Operations", is_admin=True, roles=("asyncmq:admin",))
+    return None
+
+
+app = Lilya()
+
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=SimpleUsernamePasswordBackend(verify_user),
+    url_prefix="/asyncmq",
+    include_session=True,
+    include_cors=False,
+)
+admin.include_in(app)
+```
+
+`SimpleUsernamePasswordBackend` is useful for small deployments and tests. For
+identity-provider-backed deployments, implement `AuthBackend` or use the JWT
+backend described in [Authentication Backends](jwt.md).
+
+## Existing FastAPI Or Starlette Application
+
+For non-Lilya hosts, mount the dashboard ASGI app. The tested pattern is to
+mount an outer path and ask AsyncMQ to include the configured dashboard prefix
+inside that mounted application.
 
 ```python
 from fastapi import FastAPI
-from starlette.middleware.sessions import SessionMiddleware
+
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 
 app = FastAPI()
-app.add_middleware(SessionMiddleware, secret_key="change-me")
 
-admin = AsyncMQAdmin(enable_login=False)
-app.mount("/", admin.get_asgi_app(with_url_prefix=True))
+admin = AsyncMQAdmin(
+    enable_login=False,
+    url_prefix="/asyncmq",
+)
+
+app.mount("/ops", admin.get_asgi_app(with_url_prefix=True))
 ```
 
-## Configuring Look and Mount Prefix
+The public dashboard URL is:
 
-`settings.dashboard_config` returns `DashboardConfig`.
+```text
+/ops/asyncmq/
+```
+
+The same pattern is covered by the Starlette tests:
+
+```python
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+
+admin = AsyncMQAdmin(enable_login=False, url_prefix="/asyncmq")
+
+app = Starlette(
+    routes=[
+        Mount("/ops", admin.get_asgi_app(with_url_prefix=True)),
+    ]
+)
+```
+
+## Dashboard Service And Worker Services
+
+The dashboard can run in its own ASGI service while workers run in separate
+processes, containers, hosts, or orchestration units. They are linked by the
+same AsyncMQ settings and backend, not by importing each other.
+
+Use the same `ASYNCMQ_SETTINGS_MODULE` for the dashboard service and every
+worker service, or ensure the settings classes resolve to the same backend,
+queue names, serialization settings, and backend credentials.
+
+```python
+# myapp/settings.py
+from asyncmq.backends.redis import RedisBackend
+from asyncmq.conf.global_settings import Settings
+from asyncmq.core.utils.dashboard import DashboardConfig
+
+
+class AppSettings(Settings):
+    secret_key = "replace-with-a-secret-from-your-secret-manager"
+    backend = RedisBackend("redis://redis:6379/0")
+
+    @property
+    def dashboard_config(self) -> DashboardConfig:
+        return DashboardConfig(
+            secret_key=self.secret_key,
+            dashboard_url_prefix="/asyncmq",
+            path="/asyncmq",
+            https_only=True,
+        )
+```
+
+Dashboard service:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings \
+uvicorn myapp.dashboard:app --host 0.0.0.0 --port 8000
+```
+
+Worker service:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=myapp.settings.AppSettings \
+python -m myapp.workers
+```
+
+Dashboard app:
+
+```python
+# myapp/dashboard.py
+from lilya.apps import Lilya
+
+from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
+from asyncmq.contrib.dashboard.admin.backends.simple_user import SimpleUsernamePasswordBackend
+from asyncmq.contrib.dashboard.admin.protocols import User
+
+
+def verify_user(username: str, password: str) -> User | None:
+    if username == "ops" and password == "replace-me":
+        return User(id="ops", name="Operations", is_admin=True)
+    return None
+
+
+app = Lilya()
+auth_backend = SimpleUsernamePasswordBackend(verify_user)
+admin = AsyncMQAdmin(enable_login=True, backend=auth_backend, url_prefix="/asyncmq")
+admin.include_in(app)
+```
+
+Worker app:
+
+```python
+# myapp/workers.py
+from asyncmq import Queue, Worker
+
+queue = Queue("emails")
+worker = Worker(queue)
+
+if __name__ == "__main__":
+    worker.run()
+```
+
+Operational rules:
+
+- The dashboard sees queues and jobs only from the configured backend.
+- Worker status, heartbeat freshness, current jobs, reserved jobs, scheduled
+  jobs, queues, concurrency, and startup metadata appear only when the worker
+  runtime records those fields.
+- Logs and traces should still be sent to your normal logging/observability
+  system. The dashboard event and audit histories are bounded local evidence,
+  not durable centralized log storage.
+- If dashboard and workers use different settings modules, backend URLs,
+  database names, queue prefixes, serializers, or credentials, they are looking
+  at different systems.
+
+## Dashboard Configuration
+
+`settings.dashboard_config` returns `DashboardConfig`. Use it to configure the
+dashboard title, mount prefix, session cookie, secure cookie behavior, CORS, and
+trusted reverse proxies.
 
 ```python
 from asyncmq.conf.global_settings import Settings
@@ -162,24 +302,68 @@ from asyncmq.core.utils.dashboard import DashboardConfig
 
 
 class AppSettings(Settings):
-    secret_key = "replace-in-production"
+    secret_key = "replace-with-a-secret-from-your-secret-manager"
 
     @property
     def dashboard_config(self) -> DashboardConfig:
         return DashboardConfig(
-            title="My AsyncMQ",
-            header_title="Background Jobs",
-            description="Queue operations",
-            dashboard_url_prefix="/admin",
-            sidebar_bg_colour="#CBDC38",
+            title="AsyncMQ Operations",
+            header_title="AsyncMQ",
+            description="Queue operations console",
+            dashboard_url_prefix="/asyncmq",
             secret_key=self.secret_key,
+            session_cookie="asyncmq_ops",
+            same_site="lax",
+            https_only=True,
+            path="/asyncmq",
+            trusted_proxies=("10.0.0.10",),
         )
 ```
 
-## Dashboard CORS
+Important production settings:
 
-Dashboard CORS is same-origin by default. `AsyncMQAdmin(include_cors=True)` only
-installs CORS middleware when explicit origins are configured.
+| Setting | Production guidance |
+| --- | --- |
+| `secret_key` | Set a stable secret from a secret manager. Do not rely on generated process-local keys in production. |
+| `dashboard_url_prefix` | Match the internal dashboard mount, commonly `/asyncmq`. |
+| `session_cookie` | Use a service-specific cookie name. |
+| `path` | Scope cookies to the dashboard prefix when the dashboard is not at the app root. |
+| `same_site` | Keep `lax` unless your identity flow requires a different policy. |
+| `https_only` | Use `True` behind HTTPS. |
+| `trusted_proxies` | Include only reverse-proxy peer addresses allowed to supply forwarded host/proto headers. |
+
+## Authentication And Authorization
+
+Set `enable_login=True` and provide an `AuthBackend`.
+
+```python
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=auth_backend,
+    require_admin=True,
+)
+```
+
+By default, authenticated users must be dashboard admins. To authorize by role
+membership instead, pass roles and set `require_admin=False`:
+
+```python
+admin = AsyncMQAdmin(
+    enable_login=True,
+    backend=auth_backend,
+    require_admin=False,
+    required_roles=("ops", "asyncmq:admin"),
+)
+```
+
+`AuthBackend.authenticate()` runs on each request. `login()` and `logout()` own
+the `/login` and `/logout` flows. The dashboard stores session data through the
+configured Lilya session middleware when `include_session=True`.
+
+## CORS And Mutating Requests
+
+CORS is closed by default. `AsyncMQAdmin(include_cors=True)` installs CORS only
+when explicit origins are configured.
 
 ```python
 admin = AsyncMQAdmin(
@@ -190,52 +374,148 @@ admin = AsyncMQAdmin(
 )
 ```
 
-Do not use wildcard origins for an authenticated dashboard. AsyncMQ rejects
+Do not use wildcard origins for authenticated dashboards. AsyncMQ rejects
 `cors_allow_origins=("*",)` when `cors_allow_credentials=True`.
 
-## Mutating Request Protection
+When login is enabled, unsafe requests such as `POST` must be same-origin by
+default. This protects queue and job operations from cross-origin form
+submissions. Set `enforce_same_origin=False` only when a trusted gateway already
+enforces equivalent origin rules before traffic reaches AsyncMQ.
 
-When `enable_login=True`, dashboard `POST`/`PUT`/`PATCH`/`DELETE` requests must
-come from the same origin as the dashboard host. This protects queue and job
-operations from cross-origin form submissions while keeping normal same-origin
-operator workflows unchanged.
+## Security Headers
 
-Set `enforce_same_origin=False` only when a trusted reverse proxy or identity
-gateway performs equivalent request-origin enforcement before traffic reaches
-AsyncMQ.
+`AsyncMQAdmin(include_security=True)` is the default. It adds dashboard security
+headers, including a strict Content Security Policy:
 
-## Reverse Proxy
+- `default-src 'self'`
+- `script-src 'self'`
+- `style-src 'self'`
+- `connect-src 'self'`
+- `form-action 'self'`
+- `frame-ancestors 'none'`
 
-The dashboard is prefix-aware through Lilya's mount/root-path handling. A
-validated Nginx proof lives in `tests/dashboard/nginx/` and exercises login,
-static assets, queue actions, workers, and failed-job diagnostics at:
+The packaged dashboard does not require `unsafe-inline` or `unsafe-eval`.
+Alpine.js and dashboard behavior are loaded from packaged JavaScript files.
 
-```text
-/operations/asyncmq/
-```
+If an outer application owns all security headers, set `include_security=False`
+and configure equivalent or stronger headers there.
 
-The validated pattern is:
+## Reverse Proxy Deployments
 
-- public URL: `/operations/asyncmq/`
-- upstream dashboard route: `/asyncmq/`
-- ASGI root path: `/operations`
-- dashboard URL prefix: `/asyncmq`
+The dashboard is prefix-aware through Lilya mount and ASGI `root_path`
+handling. The validated Nginx proof lives in `tests/dashboard/nginx/` and uses
+a real browser to verify:
 
-Run an equivalent local proof with:
+- pages, forms, redirects, navigation, login, logout, queue actions, workers,
+  and failed-job diagnostics
+- CSS, Alpine.js, and static assets under the effective prefix
+- security headers
+- no required failed network requests
+- no browser console errors
+
+Arbitrary public prefixes work when the proxy and application agree on the same
+URL contract:
+
+- `AsyncMQAdmin(url_prefix=...)` is the dashboard's internal mount prefix.
+- `DashboardConfig.dashboard_url_prefix` is the fallback prefix used when Lilya
+  has no non-empty mount path, especially for root deployments.
+- ASGI `root_path` is the public prefix stripped by the proxy before requests
+  reach the app server.
+- `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-Port`
+  describe the public browser origin.
+- `DashboardConfig.path` scopes the session cookie to the public dashboard path.
+
+For a root deployment, configure both `AsyncMQAdmin(url_prefix="/")` and
+`DashboardConfig.dashboard_url_prefix="/"`. Otherwise root pages have no
+non-empty Lilya mount prefix to override the configured fallback.
+
+### Validated URL Patterns
+
+| Public URL | Dashboard prefix | ASGI root path | Proof command setting |
+| --- | --- | --- | --- |
+| `/` | `/` | empty | `ASYNCMQ_DASHBOARD_PREFIX=/` |
+| `/asyncmq/` | `/asyncmq` | empty | default proof app prefix |
+| `/operations/asyncmq/` | `/asyncmq` | `/operations` | `uvicorn --root-path /operations` |
+
+### Nginx At Application Root
+
+Run the dashboard with `url_prefix="/"` and
+`DashboardConfig.dashboard_url_prefix="/"`:
 
 ```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
+ASYNCMQ_DASHBOARD_PREFIX=/ \
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767
+```
+
+Proxy the public root to the upstream root:
+
+```nginx
+location / {
+    proxy_pass http://upstream_asyncmq/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;
+}
+```
+
+### Nginx At `/asyncmq/`
+
+Run the dashboard with the default proof prefix:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767
+```
+
+Proxy the public `/asyncmq/` path to the upstream `/asyncmq/` route:
+
+```nginx
+location = /asyncmq {
+    return 308 /asyncmq/;
+}
+
+location /asyncmq/ {
+    proxy_pass http://upstream_asyncmq/asyncmq/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;
+}
+```
+
+### Nginx At `/operations/asyncmq/`
+
+Run the application server with an ASGI root path for the stripped public root:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
 hatch -e test run uvicorn tests.dashboard.nginx.app:app \
   --host 127.0.0.1 \
   --port 8767 \
   --root-path /operations
-
-docker compose -f tests/dashboard/nginx/docker-compose.yml up
-hatch -e test run python tests/dashboard/nginx/proof.py
 ```
 
-The Nginx location used by the proof strips only the public root path:
+Proxy the nested public route to the upstream dashboard prefix:
 
 ```nginx
+location = /operations/asyncmq {
+    return 308 /operations/asyncmq/;
+}
+
 location /operations/asyncmq/ {
     proxy_pass http://upstream_asyncmq/asyncmq/;
     proxy_http_version 1.1;
@@ -249,94 +529,205 @@ location /operations/asyncmq/ {
 }
 ```
 
-For HTTPS termination, keep the public host and scheme in forwarded headers and
-configure `trusted_proxies` with the proxy peer addresses. AsyncMQ ignores
-forged forwarded origin headers from untrusted clients.
+Preserve `$http_host`, including the port, for local and non-standard-port
+deployments. Same-origin protection compares the public origin that the browser
+uses with the origin the dashboard sees through trusted proxy headers.
 
-For Traefik, HAProxy, Caddy, and Kubernetes ingress controllers, the same rules
-apply: preserve the public `Host`, set the forwarded scheme/port, pass the ASGI
-root path expected by the application server, and do not trust forwarded
-headers from arbitrary direct clients.
+### HTTPS Termination
 
-## High-Value Workflows
+When Nginx terminates HTTPS, forward the public scheme and port:
 
-### 1. Find and retry a bad job quickly
+```nginx
+proxy_set_header X-Forwarded-Proto https;
+proxy_set_header X-Forwarded-Port 443;
+proxy_set_header X-Forwarded-Host $http_host;
+```
+
+Configure `trusted_proxies` with the proxy peer addresses. AsyncMQ ignores
+forged forwarded origin headers from untrusted direct clients.
+
+### Other Proxies
+
+Traefik, HAProxy, Caddy, and Kubernetes ingress controllers must provide the
+same contract:
+
+- preserve the public `Host`
+- forward the public scheme and port
+- configure the ASGI root path when a public prefix is stripped before the app
+- keep static assets, redirects, form actions, and SSE requests under the same
+  public prefix
+- do not trust forwarded headers from arbitrary direct clients
+
+For SSE at `/events`, disable response buffering or configure streaming support
+for the dashboard route. The browser uses same-origin `EventSource`.
+
+### Proxy Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| CSS or Alpine.js 404s | Public prefix and ASGI root path disagree | Check generated asset URLs and the proxy `proxy_pass` path |
+| Login redirects to the wrong path | Missing or incorrect `root_path` | Pass the stripped public root to the ASGI server |
+| Queue actions return `403` | Host, scheme, or port mismatch in origin checks | Preserve `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-Port`; configure `trusted_proxies` |
+| Login appears to work but session is lost | Cookie path or secure flag mismatch | Set `DashboardConfig.path` and `https_only` for the public deployment |
+| Mixed content errors | HTTPS proxy forwards `http` as scheme | Forward `X-Forwarded-Proto https` |
+| Live cards do not update | Proxy buffers SSE | Disable buffering for dashboard routes |
+
+## Run The Proxy Proof
+
+The root, subpath, and nested proof commands all use the same Nginx Docker
+Compose file and Playwright browser script. Start the app server in one
+terminal, then run the Docker Compose and proof commands in another terminal.
+
+Root deployment app server:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
+ASYNCMQ_DASHBOARD_PREFIX=/ \
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767
+```
+
+Root deployment proof:
+
+```shell
+docker compose -f tests/dashboard/nginx/docker-compose.yml up -d
+ASYNCMQ_NGINX_BASE_URL=http://127.0.0.1:18080 \
+ASYNCMQ_NGINX_SCREENSHOT_DIR=/tmp/asyncmq-nginx-proof-root \
+hatch -e test run python tests/dashboard/nginx/proof.py
+docker compose -f tests/dashboard/nginx/docker-compose.yml down
+```
+
+Subpath deployment app server:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767
+```
+
+Subpath deployment proof:
+
+```shell
+docker compose -f tests/dashboard/nginx/docker-compose.yml up -d
+ASYNCMQ_NGINX_BASE_URL=http://127.0.0.1:18080/asyncmq \
+ASYNCMQ_NGINX_SCREENSHOT_DIR=/tmp/asyncmq-nginx-proof-subpath \
+hatch -e test run python tests/dashboard/nginx/proof.py
+docker compose -f tests/dashboard/nginx/docker-compose.yml down
+```
+
+Nested deployment app server:
+
+```shell
+ASYNCMQ_SETTINGS_MODULE=tests.dashboard.nginx.settings.NginxProofSettings \
+hatch -e test run uvicorn tests.dashboard.nginx.app:app \
+  --host 127.0.0.1 \
+  --port 8767 \
+  --root-path /operations
+```
+
+Nested deployment proof:
+
+```shell
+docker compose -f tests/dashboard/nginx/docker-compose.yml up -d
+ASYNCMQ_NGINX_BASE_URL=http://127.0.0.1:18080/operations/asyncmq \
+ASYNCMQ_NGINX_SCREENSHOT_DIR=/tmp/asyncmq-nginx-proof-nested \
+hatch -e test run python tests/dashboard/nginx/proof.py
+docker compose -f tests/dashboard/nginx/docker-compose.yml down
+```
+
+Each proof writes screenshots into the configured `ASYNCMQ_NGINX_SCREENSHOT_DIR`.
+Screenshots are evidence only; the script also asserts behavior, resource
+loading, security headers, redaction, and console health.
+
+## Operator Workflows
+
+### Find And Retry A Failed Job
 
 1. Open `/queues/{name}/jobs?state=failed`.
-2. Narrow results with `task=...`, `job_id=...`, or `q=...`.
-3. Trigger `Retry` on selected jobs.
-4. Verify action visibility in `/audit`.
+2. Filter by `task`, `job_id`, `worker`, or free-text `q`.
+3. Open the job detail page to inspect redacted metadata and traceback details.
+4. Use a confirmation-gated retry action when the backend reports the job can
+   be retried.
+5. Confirm the result and audit entry.
 
-Example filter URL:
+Example:
 
 ```text
 /queues/emails/jobs?state=failed&task=send-reminder&q=tenant-42&sort=newest
 ```
 
-### 2. Track operator actions during an incident
+### Diagnose A Failure
 
-1. Open `/audit`.
-2. Filter by `queue`, `status=failed`, or a specific `action`.
-3. Search free-text (`q`) across action/source/error/details.
+Use the job detail view for:
 
-Example filter URL:
+- sanitized arguments, keyword arguments, result, and error metadata
+- root cause and exception chain
+- stack-frame summaries and raw traceback text
+- copyable diagnostic evidence with sensitive fields redacted
+- related queue and worker links when the backend reports them
 
-```text
-/audit?action=job.retry&queue=emails&status=success&limit=100
-```
+Tracebacks, arguments, return values, and logs may contain sensitive data.
+AsyncMQ redacts common secret fields before display, but operators should still
+treat diagnostics as sensitive operational evidence.
 
-### 3. Investigate recent throughput and failure trend
+### Review Events And Audit Entries
 
-1. Open `/metrics`.
-2. Use live charts and the "Recent Metrics History" table.
-3. Correlate with queue backlog and worker counts.
-4. Pull raw snapshots from `/metrics/history` if needed for tooling.
+Use `/events/history` for bounded local runtime event evidence and `/audit` for
+dashboard actions. These stores are useful for recent incident context, not
+long-term compliance retention. Send durable logs, traces, and audit records to
+your normal observability stack when retention is required.
 
-```bash
-curl -s http://localhost:8000/metrics/history?limit=20
-```
+### Inspect Workers
 
-## Data Flow for Metrics
+Open `/workers` to check worker identifiers, declared queues, concurrency,
+current/reserved/scheduled jobs, startup time, last-seen time, and heartbeat
+freshness where the runtime provides those fields.
 
-```mermaid
-sequenceDiagram
-    participant UI as Metrics UI
-    participant SSE as /events
-    participant API as /metrics/history
-    participant BE as Backend
+## Scale Guidance
 
-    UI->>API: GET /metrics/history
-    API->>BE: list_queues/list_workers/list_jobs summaries
-    API-->>UI: history snapshots
+The dashboard uses server-side filtering and pagination where runtime contracts
+support it. Job inspection prefers backend-owned page contracts and clamps page
+sizes to avoid rendering or scanning unbounded job lists.
 
-    UI->>SSE: open EventSource
-    SSE->>BE: periodic aggregate polling
-    SSE-->>UI: metrics/jobdist/overview events
-```
+Recommended production practice:
 
-## Authentication
+- keep list pages paginated
+- prefer backend indexes and bounded search contracts
+- avoid exposing dashboard routes to public networks
+- tune polling/SSE behavior behind proxies
+- use external observability for durable high-cardinality logs and metrics
 
-Set `enable_login=True` and provide an `AuthBackend` implementation.
+## Browser And Package Validation
 
-Built-ins:
+Dashboard changes are validated through:
 
-- `SimpleUsernamePasswordBackend`
-- `JWTAuthBackend`
+- unit and integration tests under `tests/dashboard/`
+- real browser workflows using Playwright
+- Nginx proof under `tests/dashboard/nginx/`
+- package-content checks for templates and static assets
+- wheel and sdist installation checks
 
-See [Authentication Backends](jwt.md).
+The packaged resources include:
 
-Dashboard access also enforces authorization. By default, authenticated users
-must be dashboard admins (`require_admin=True`). For role-based deployments,
-pass `required_roles=("ops", "asyncmq:admin")` and set `require_admin=False`
-when role membership alone should grant access.
+- `asyncmq/contrib/dashboard/templates/`
+- `asyncmq/contrib/dashboard/statics/css/asyncmq.css`
+- `asyncmq/contrib/dashboard/statics/js/asyncmq.js`
+- `asyncmq/contrib/dashboard/statics/vendor/alpinejs/`
+- `asyncmq/contrib/dashboard/statics/css/tailwind-4.3.2.min.css`
+- `asyncmq/contrib/dashboard/statics/css/asyncmq-tailwind.input.css`
+- `asyncmq/contrib/dashboard/statics/vendor/chartjs/`
 
-## Production Guidance
+## Production Checklist
 
-- Keep dashboard behind authentication and HTTPS.
-- Use non-default session/JWT secrets.
-- Require explicit dashboard admin or operator roles from your identity provider.
-- Restrict dashboard network exposure to operator/admin paths.
-- Treat dashboard actions as operational controls and keep an audit review process.
-- Use external observability for long-term analytics/retention.
-
-For capability boundaries, see [Dashboard Capabilities](capabilities.md).
+- Enable authentication for any shared or production environment.
+- Use stable secrets for sessions and JWT flows.
+- Scope the session cookie path to the dashboard prefix.
+- Set secure cookies behind HTTPS.
+- Keep CORS closed unless a specific trusted origin is required.
+- Preserve forwarded host, scheme, and port through trusted proxies only.
+- Keep destructive actions confirmation-gated.
+- Treat diagnostics, payloads, logs, and tracebacks as sensitive data.
+- Validate direct and proxied URLs before exposing the dashboard to operators.
+- Run the dashboard browser proof after changing proxy or authentication setup.

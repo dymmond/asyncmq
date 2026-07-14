@@ -7,9 +7,12 @@ from lilya.responses import HTMLResponse, Response
 from lilya.testclient import TestClient
 from lilya.types import ASGIApp, Receive, Scope, Send
 
+from asyncmq import monkay
 from asyncmq.conf import settings
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
-from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+from asyncmq.contrib.dashboard.admin.backends.simple_user import SimpleUsernamePasswordBackend
+from asyncmq.contrib.dashboard.admin.protocols import AuthBackend, User
+from asyncmq.core.utils.dashboard import DashboardConfig
 
 
 class PrefixBackend:
@@ -72,6 +75,16 @@ def _dashboard_client(url_prefix: str = "/asyncmq", *, root_path: str = "") -> T
     return TestClient(app, root_path=root_path)
 
 
+def _use_dashboard_prefix(monkeypatch: Any, prefix: str) -> None:
+    """Configure the global dashboard fallback prefix for prefix-rendering tests."""
+    settings_type = type(monkay.settings)
+    monkeypatch.setattr(
+        settings_type,
+        "dashboard_config",
+        property(lambda self: DashboardConfig(secret_key="secret", dashboard_url_prefix=prefix)),
+    )
+
+
 def test_dashboard_links_use_actual_mount_prefix_over_configured_prefix():
     """Use Lilya's runtime mount as the dashboard URL owner when prefixes differ."""
     client = _dashboard_client(url_prefix="/ops")
@@ -83,6 +96,40 @@ def test_dashboard_links_use_actual_mount_prefix_over_configured_prefix():
     assert 'href="/ops/asyncmq/queues"' not in response.text
     assert 'href="/ops/static/favicon.ico"' in response.text
     assert "http://testserver/ops/static/css/asyncmq.css" in response.text
+
+
+def test_dashboard_root_prefix_does_not_render_double_slash_urls(monkeypatch):
+    """Render route links and form actions correctly when mounted at the site root."""
+    _use_dashboard_prefix(monkeypatch, "/")
+    client = _dashboard_client(url_prefix="/")
+    response = client.get("/queues")
+
+    assert response.status_code == 200
+    assert 'data-asyncmq-queues data-events-url="/events"' in response.text
+    assert 'href="/queues"' in response.text
+    assert 'href="//queues"' not in response.text
+    assert 'action="//logout"' not in response.text
+    assert "http://testserver/static/css/asyncmq.css" in response.text
+
+
+def test_dashboard_root_prefix_login_form_does_not_render_double_slash_action(monkeypatch):
+    """Keep authentication forms valid when the dashboard prefix is the root path."""
+    _use_dashboard_prefix(monkeypatch, "/")
+    app = AsyncMQAdmin(
+        enable_login=True,
+        backend=SimpleUsernamePasswordBackend(lambda username, password: User(id=username, name=username)),
+        include_session=True,
+        include_cors=False,
+        url_prefix="/",
+    ).get_asgi_app(with_url_prefix=True)
+    client = TestClient(app)
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert 'action="/login"' in response.text
+    assert 'action="//login"' not in response.text
+    assert 'href="/"' in response.text
 
 
 def test_dashboard_links_and_assets_include_nested_proxy_root_path():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -111,7 +112,7 @@ admin = AsyncMQAdmin(
     backend=SimpleUsernamePasswordBackend(verify_user),
     include_session=True,
     include_cors=False,
-    url_prefix="/asyncmq",
+    url_prefix=os.environ.get("ASYNCMQ_DASHBOARD_PREFIX", "/asyncmq"),
     trusted_proxies=("127.0.0.1", "172.17.0.1", "172.18.0.1"),
 )
 admin.include_in(app)
