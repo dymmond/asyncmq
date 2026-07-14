@@ -779,6 +779,102 @@ a.btn {
   font-size: .84rem;
 }
 
+.amq-worker-row td {
+  vertical-align: middle;
+}
+
+.amq-worker-health,
+.amq-worker-identity,
+.amq-worker-heartbeat {
+  display: grid;
+  gap: 6px;
+}
+
+.amq-worker-id {
+  display: block;
+  max-width: 28rem;
+  color: var(--amq-ink);
+}
+
+.amq-worker-queue {
+  color: var(--amq-ink);
+  font-weight: 730;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.amq-worker-queue:hover,
+.amq-worker-queue:focus-visible {
+  color: var(--amq-blue);
+  text-decoration: underline;
+  outline: none;
+}
+
+.amq-worker-capacity {
+  display: inline-grid;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  place-items: center;
+  color: #17200f;
+  background: var(--amq-green);
+  border: 1px solid #aebb24;
+  border-radius: 8px;
+}
+
+.amq-heartbeat-meter {
+  width: min(11rem, 100%);
+  height: .55rem;
+  overflow: hidden;
+  appearance: none;
+  background: #eef1e7;
+  border: 1px solid var(--amq-border);
+  border-radius: 999px;
+}
+
+.amq-heartbeat-meter::-webkit-progress-bar {
+  background: #eef1e7;
+}
+
+.amq-heartbeat-meter::-webkit-progress-value {
+  border-radius: 999px;
+}
+
+.amq-heartbeat-meter::-moz-progress-bar {
+  border-radius: 999px;
+}
+
+.amq-heartbeat-meter--healthy::-webkit-progress-value {
+  background: #36a852;
+}
+
+.amq-heartbeat-meter--healthy::-moz-progress-bar {
+  background: #36a852;
+}
+
+.amq-heartbeat-meter--warning::-webkit-progress-value {
+  background: var(--amq-amber);
+}
+
+.amq-heartbeat-meter--warning::-moz-progress-bar {
+  background: var(--amq-amber);
+}
+
+.amq-heartbeat-meter--stale::-webkit-progress-value {
+  background: var(--amq-red);
+}
+
+.amq-heartbeat-meter--stale::-moz-progress-bar {
+  background: var(--amq-red);
+}
+
+.amq-heartbeat-meter--unknown::-webkit-progress-value {
+  background: var(--amq-border-strong);
+}
+
+.amq-heartbeat-meter--unknown::-moz-progress-bar {
+  background: var(--amq-border-strong);
+}
+
 .amq-input:focus,
 .amq-select:focus,
 .focus-ring:focus-visible {

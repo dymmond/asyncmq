@@ -13,6 +13,8 @@
   reusable operations-console shell with responsive navigation.
 - Dashboard job inspection now includes redacted detail pages, traceback
   diagnostics, and confirmation-gated job actions.
+- Dashboard worker inspection now summarizes runtime-owned heartbeat freshness,
+  queue coverage, and declared concurrency.
 
 ### Fixed
 

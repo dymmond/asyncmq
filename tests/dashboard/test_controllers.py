@@ -227,6 +227,7 @@ def _patch_settings(fake_backend, monkeypatch):
 
     settings.debug = True
     settings.backend = fake_backend
+    settings.heartbeat_ttl = 30
     return settings
 
 
@@ -431,7 +432,26 @@ def test_workers_page(client, app):
     response = client.get(url(app, "workers"))
 
     assert response.status_code == 200
-    assert b"wkr-" in response.content or b"Workers" in response.content
+    html = response.text
+    assert "Worker Health" in html
+    assert "Runtime-owned heartbeat registry" in html
+    assert "Runtime-declared capacity" in html
+    assert "wkr-1" in html
+    assert "wkr-2" in html
+    assert "Healthy" in html
+    assert "Aging" in html
+    assert "Backend registry record" in html
+    assert "Page 1 of 1" in html
+    assert 'class="amq-heartbeat-meter amq-heartbeat-meter--healthy"' in html
+    assert 'class="amq-heartbeat-meter amq-heartbeat-meter--warning"' in html
+    assert 'href="/asyncmq/queues/emails"' in html
+
+
+def test_workers_page_clamps_unsupported_page_size(client, app):
+    response = client.get(url(app, "workers") + "?size=999&page=8")
+
+    assert response.status_code == 200
+    assert '<option value="20" selected>20</option>' in response.text
 
 
 def test_metrics_page(client, app):

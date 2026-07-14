@@ -66,9 +66,9 @@
   {% set state = (status|string)|lower %}
   {% if state in ["completed", "success", "running", "healthy", "ok"] %}
     {% set tone = "success" %}
-  {% elif state in ["failed", "failure", "error", "dead", "removed"] %}
+  {% elif state in ["failed", "failure", "error", "dead", "removed", "stale"] %}
     {% set tone = "danger" %}
-  {% elif state in ["active", "warning", "paused", "delayed", "retrying"] %}
+  {% elif state in ["active", "warning", "paused", "delayed", "retrying", "aging"] %}
     {% set tone = "warning" %}
   {% else %}
     {% set tone = "neutral" %}

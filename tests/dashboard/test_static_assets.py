@@ -169,15 +169,16 @@ def test_overview_live_rows_avoid_interpolated_html(client: TestClient):
     assert "${q.name}" not in js
 
 
-def test_primary_live_pages_do_not_render_inline_scripts(client: TestClient):
-    """Keep primary live pages compatible with strict CSP."""
+def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: TestClient):
+    """Keep primary operator pages compatible with strict CSP."""
     inline_script = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
 
-    for path in ("/", "/queues", "/queues/critical-email", "/metrics"):
+    for path in ("/", "/queues", "/queues/critical-email", "/metrics", "/workers"):
         response = client.get(path)
 
         assert response.status_code == 200
         assert inline_script.search(response.text) is None
+        assert " style=" not in response.text
 
 
 def test_queue_pages_use_packaged_live_update_components(client: TestClient):

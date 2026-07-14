@@ -1,17 +1,19 @@
 {% extends "layout.html" %}
-{% from "shared/components.html" import empty_state, stat_card %}
+{% from "shared/components.html" import empty_state, stat_card, status_badge %}
 {% block content %}
   <div class="amq-page">
     <section class="amq-stat-grid" aria-label="Worker summary">
-      {{ stat_card("Workers", total, None, "success") }}
-      {{ stat_card("Page size", size, None, "neutral") }}
+      {{ stat_card("Workers", worker_summary.total, None, "success", worker_summary.healthy ~ " healthy") }}
+      {{ stat_card("Concurrency", worker_summary.capacity, None, "accent", "Runtime-declared capacity") }}
+      {{ stat_card("Queues", worker_summary.queues, None, "neutral", "Queues with workers") }}
+      {{ stat_card("Attention", worker_summary.attention, None, "warning", "Aging or stale heartbeats") }}
     </section>
 
     <section class="amq-table-wrap">
       <div class="amq-table-toolbar">
         <div>
-          <h2 class="amq-card-title">Worker Registry</h2>
-          <p class="amq-card-meta">Runtime-reported workers and heartbeat timestamps</p>
+          <h2 class="amq-card-title">Worker Health</h2>
+          <p class="amq-card-meta">Runtime-owned heartbeat registry · TTL {{ worker_summary.ttl_label }}</p>
         </div>
         <form method="get" class="amq-actions">
           <label for="size" class="amq-card-meta">Rows</label>
@@ -27,33 +29,57 @@
       <table class="amq-table">
         <thead>
         <tr>
-          <th scope="col">ID</th>
+          <th scope="col">Health</th>
+          <th scope="col">Worker</th>
           <th scope="col">Queue</th>
           <th scope="col">Concurrency</th>
-          <th scope="col">Last Heartbeat</th>
+          <th scope="col">Heartbeat Age</th>
+          <th scope="col">Last Seen</th>
         </tr>
       </thead>
       <tbody>
         {% for w in workers %}
-        <tr>
-          <td class="amq-mono">
-            {{ w.id }}
+        <tr class="amq-worker-row">
+          <td>
+            <div class="amq-worker-health">
+              {{ status_badge(w.health_status, w.health_label) }}
+              <span class="amq-card-meta">{{ w.health_detail }}</span>
+            </div>
           </td>
           <td>
-            {{ w.queue }}
+            <div class="amq-worker-identity">
+              <span class="amq-mono amq-worker-id">{{ w.id }}</span>
+              <span class="amq-card-meta">Backend registry record</span>
+            </div>
           </td>
           <td>
-            {{ w.concurrency }}
+            <a href="{{ url_prefix }}/queues/{{ w.queue }}" class="amq-worker-queue">{{ w.queue }}</a>
           </td>
           <td>
-            {{ w.heartbeat }}
+            <strong class="amq-worker-capacity">{{ w.concurrency }}</strong>
+          </td>
+          <td>
+            <div class="amq-worker-heartbeat">
+              <span>{{ w.heartbeat_age_label }}</span>
+              <progress
+                class="amq-heartbeat-meter amq-heartbeat-meter--{{ w.health_status }}"
+                value="{{ w.heartbeat_age_seconds }}"
+                max="{{ heartbeat_ttl }}"
+                aria-label="Heartbeat age for {{ w.id }}"
+              ></progress>
+            </div>
+          </td>
+          <td>
+            <time class="amq-mono" {% if w.heartbeat_iso %}datetime="{{ w.heartbeat_iso }}"{% endif %}>
+              {{ w.heartbeat }}
+            </time>
           </td>
         </tr>
         {% endfor %}
         {% if workers|length == 0 %}
         <tr>
-          <td colspan="4">
-            {{ empty_state("No workers found") }}
+          <td colspan="6">
+            {{ empty_state("No workers found", "No backend-owned worker heartbeats are currently visible.") }}
           </td>
         </tr>
         {% endif %}
@@ -87,13 +113,9 @@
       </span>
       {% endif %}
 
-      {% for p in range(1, total_pages + 1) %}
-      <a href="?page={{ p }}&size={{ size }}"
-         class="amq-pagination-link"
-         {% if p == page %}aria-current="page"{% endif %}>
-        {{ p }}
-      </a>
-      {% endfor %}
+      <span class="amq-pagination-current" aria-current="page">
+        Page {{ page }} of {{ total_pages }}
+      </span>
 
       {% if page and page < total_pages %}
       <a href="?page={{ page + 1 }}&size={{ size }}"
