@@ -142,10 +142,32 @@ def test_bundled_login_template_uses_local_assets(admin_client: TestClient):
     assert response.status_code == 200
     assert f"{prefix}/static/favicon.ico" in response.text
     assert f"{prefix}/static/css/tailwind-4.3.2.min.css" in response.text
+    assert f"{prefix}/static/css/asyncmq.css" in response.text
     assert f"{prefix}/static/vendor/alpinejs/alpine-csp-3.15.12.min.js" in response.text
+    assert 'class="amq-auth-card"' in response.text
+    assert 'class="amq-auth-form"' in response.text
+    assert "bg-gradient-to-br" not in response.text
     assert "cdn.tailwindcss.com" not in response.text
     assert "unpkg.com" not in response.text
     assert "tailwind.config" not in response.text
+
+
+def test_not_found_and_shared_feedback_use_operations_styles(client: TestClient):
+    """Render error and shared feedback templates with AsyncMQ-owned classes."""
+    response = client.get("/missing-page")
+    template_root = resources.files("asyncmq.contrib.dashboard").joinpath("templates")
+    static_root = package_static_root()
+    loading = template_root.joinpath("shared/loading.html")
+    messages = template_root.joinpath("shared/messages.html")
+
+    assert response.status_code == 404
+    assert "/static/css/asyncmq.css" in response.text
+    assert 'class="amq-error-page"' in response.text
+    assert "bg-gray-100" not in response.text
+    assert "amq-loading-overlay" in loading.read_text()
+    assert "amq-flash" in messages.read_text()
+    assert "bg-{{ color }}-50" not in messages.read_text()
+    assert ".amq-loading-overlay.hidden" in static_root.joinpath("css/asyncmq.css").read_text()
 
 
 def test_modern_dashboard_shell_renders_component_navigation(client: TestClient):
