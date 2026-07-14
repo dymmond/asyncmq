@@ -1,93 +1,75 @@
 {% extends "layout.html" %}
+{% from "shared/components.html" import stat_card %}
 {% block content %}
-<div class="amq-page"
-     data-asyncmq-metrics
-     data-events-url="{{ url_prefix }}/events"
-     data-history-url="{{ url_prefix }}/metrics/history?limit=60">
-  <h1 class="text-3xl font-semibold mb-6">{{ page_header }}</h1>
-
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Throughput</h2>
-      <div id="throughput" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.throughput }}</div>
-    </div>
-
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Retries</h2>
-      <div id="retries" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.retries }}</div>
-    </div>
-
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Failures</h2>
-      <div id="failures" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.failures }}</div>
-    </div>
-
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Avg Duration</h2>
-      <div id="avg-duration" class="mt-2 text-3xl font-bold text-gray-900">{{ metrics.avg_duration or "—" }}</div>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Queues</h2>
-      <div id="total-queues" class="mt-2 text-3xl font-bold text-gray-900">{{ total_queues }}</div>
-    </div>
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Total Workers</h2>
-      <div id="total-workers" class="mt-2 text-3xl font-bold text-gray-900">{{ total_workers }}</div>
-    </div>
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Waiting Jobs</h2>
-      <div id="waiting-count" class="mt-2 text-3xl font-bold text-gray-900">{{ counts.waiting }}</div>
-    </div>
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wide">Active Jobs</h2>
-      <div id="active-count" class="mt-2 text-3xl font-bold text-gray-900">{{ counts.active }}</div>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-lg font-semibold mb-4">Metrics Over Time</h2>
-      <div class="h-72">
-        <canvas id="metrics-chart" class="w-full h-full"></canvas>
+  <div class="amq-page"
+       data-asyncmq-metrics
+       data-events-url="{{ url_prefix }}/events"
+       data-history-url="{{ url_prefix }}/metrics/history?limit=60">
+    <section class="amq-section">
+      <div class="amq-stat-grid">
+        {{ stat_card("Throughput", metrics.throughput, "throughput", "accent", "Completed jobs") }}
+        {{ stat_card("Retries", metrics.retries, "retries", "warning", "Failed job count") }}
+        {{ stat_card("Failures", metrics.failures, "failures", "danger", "Current failed jobs") }}
+        {{ stat_card("Avg Duration", metrics.avg_duration or "-", "avg-duration", "neutral", "Runtime-owned when available") }}
       </div>
-    </div>
 
-    <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 p-6">
-      <h2 class="text-lg font-semibold mb-4">Current Queue State Distribution</h2>
-      <div class="h-72">
-        <canvas id="state-chart" class="w-full h-full"></canvas>
+      <div class="amq-stat-grid">
+        {{ stat_card("Total Queues", total_queues, "total-queues", "neutral") }}
+        {{ stat_card("Total Workers", total_workers, "total-workers", "success") }}
+        {{ stat_card("Waiting Jobs", counts.waiting, "waiting-count", "warning") }}
+        {{ stat_card("Active Jobs", counts.active, "active-count", "accent") }}
       </div>
-    </div>
-  </div>
+    </section>
 
-  <div class="bg-white rounded-lg shadow ring-1 ring-gray-200 overflow-x-auto">
-    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-      <h2 class="text-lg font-semibold">Recent Metrics History</h2>
-      <span class="text-sm text-gray-500">Latest 20 snapshots</span>
-    </div>
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Time</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Throughput</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Retries</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Failures</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Waiting</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Active</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Delayed</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Completed</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Failed</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Workers</th>
-        </tr>
-      </thead>
-      <tbody id="metrics-history-body" class="bg-white divide-y divide-gray-200"></tbody>
-    </table>
-  </div>
+    <section class="amq-grid-2">
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Metrics Over Time</h2>
+          <span class="amq-card-meta">Latest samples</span>
+        </div>
+        <div class="amq-card-body amq-chart-panel">
+          <canvas id="metrics-chart" class="w-full h-full"></canvas>
+        </div>
+      </article>
 
-  <template id="metrics-history-data">{{ metrics_history | tojson }}</template>
-  <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
-</div>
+      <article class="amq-card">
+        <div class="amq-card-header">
+          <h2 class="amq-card-title">Queue State Distribution</h2>
+          <span class="amq-card-meta">Current counts</span>
+        </div>
+        <div class="amq-card-body amq-chart-panel">
+          <canvas id="state-chart" class="w-full h-full"></canvas>
+        </div>
+      </article>
+    </section>
+
+    <section class="amq-table-wrap">
+      <div class="amq-table-toolbar">
+        <div>
+          <h2 class="amq-card-title">Recent Metrics History</h2>
+          <p class="amq-card-meta">Latest 20 snapshots</p>
+        </div>
+      </div>
+      <table class="amq-table amq-metrics-table">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Throughput</th>
+            <th scope="col">Retries</th>
+            <th scope="col">Failures</th>
+            <th scope="col">Waiting</th>
+            <th scope="col">Active</th>
+            <th scope="col">Delayed</th>
+            <th scope="col">Completed</th>
+            <th scope="col">Failed</th>
+            <th scope="col">Workers</th>
+          </tr>
+        </thead>
+        <tbody id="metrics-history-body"></tbody>
+      </table>
+    </section>
+
+    <template id="metrics-history-data">{{ metrics_history | tojson }}</template>
+    <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
+  </div>
 {% endblock %}

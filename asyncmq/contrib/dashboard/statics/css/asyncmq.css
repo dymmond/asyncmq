@@ -454,6 +454,13 @@ a.btn {
   background: #fbfcf7;
 }
 
+.amq-table-empty {
+  padding: 26px;
+  color: var(--amq-muted);
+  font-style: italic;
+  text-align: center;
+}
+
 .amq-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: .82rem;
@@ -968,6 +975,10 @@ a.btn {
 
 .amq-event-details .amq-pre {
   max-height: 260px;
+}
+
+.amq-metrics-table {
+  min-width: 900px;
 }
 
 .amq-confirm {

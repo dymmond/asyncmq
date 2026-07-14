@@ -22,6 +22,7 @@
 - Dashboard tracebacks now show frame-level summaries with raw traceback access.
 - Dashboard operator controls now have stronger keyboard focus visibility.
 - Dashboard runtime events now expose a bounded, redacted local event history.
+- Dashboard metrics now use the reusable operations-console components.
 
 ### Fixed
 

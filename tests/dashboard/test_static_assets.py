@@ -221,8 +221,11 @@ def test_metrics_page_uses_packaged_live_update_components(client: TestClient):
     assert response.status_code == 200
     assert 'data-asyncmq-metrics' in response.text
     assert 'data-history-url="/asyncmq/metrics/history?limit=60"' in response.text
+    assert 'class="amq-table amq-metrics-table"' in response.text
     assert '<template id="metrics-history-data">' in response.text
+    assert '<h1 class="text-3xl font-semibold mb-6">' not in response.text
     assert "const initialHistory" not in response.text
     assert "innerHTML" not in response.text
     assert "setupMetricsLive" in js
-    assert "appendTextCell(row, metric.throughput" in js
+    assert 'appendTextCell(row, normalizeMetricTime(metric), "amq-mono")' in js
+    assert 'appendTextCell(row, "No history yet.", "amq-table-empty")' in js

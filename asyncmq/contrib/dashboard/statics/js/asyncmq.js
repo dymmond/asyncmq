@@ -496,7 +496,7 @@
       const recent = rows.slice(0, 20);
       if (recent.length === 0) {
         const row = document.createElement("tr");
-        const cell = appendTextCell(row, "No history yet.", "px-4 py-8 text-center text-gray-500 italic");
+        const cell = appendTextCell(row, "No history yet.", "amq-table-empty");
         cell.colSpan = 10;
         tbody.appendChild(row);
         return;
@@ -504,17 +504,16 @@
 
       recent.forEach((metric) => {
         const row = document.createElement("tr");
-        row.className = "hover:bg-gray-50";
-        appendTextCell(row, normalizeMetricTime(metric), "px-4 py-3 text-sm text-gray-700 whitespace-nowrap");
-        appendTextCell(row, metric.throughput ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.retries ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.failures ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.waiting ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.active ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.delayed ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.completed ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.failed ?? 0, "px-4 py-3 text-sm text-gray-900");
-        appendTextCell(row, metric.total_workers ?? 0, "px-4 py-3 text-sm text-gray-900");
+        appendTextCell(row, normalizeMetricTime(metric), "amq-mono");
+        appendTextCell(row, metric.throughput ?? 0);
+        appendTextCell(row, metric.retries ?? 0);
+        appendTextCell(row, metric.failures ?? 0);
+        appendTextCell(row, metric.waiting ?? 0);
+        appendTextCell(row, metric.active ?? 0);
+        appendTextCell(row, metric.delayed ?? 0);
+        appendTextCell(row, metric.completed ?? 0);
+        appendTextCell(row, metric.failed ?? 0);
+        appendTextCell(row, metric.total_workers ?? 0);
         tbody.appendChild(row);
       });
     }
