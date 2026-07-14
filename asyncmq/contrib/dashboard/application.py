@@ -16,6 +16,7 @@ from asyncmq.contrib.dashboard.controllers import (
     metrics,
     queues,
     repeatables,
+    runtime_events,
     sse,
     workers,
 )
@@ -133,6 +134,12 @@ def create_dashboard_app() -> ASGIApp:
                         audit.AuditController,
                         methods=["GET"],
                         name="audit",
+                    ),
+                    RoutePath(
+                        "/events/history",
+                        runtime_events.RuntimeEventController,
+                        methods=["GET"],
+                        name="runtime-events",
                     ),
                     # New SSE endpoint for real-time updates
                     RoutePath("/events", sse.SSEController, methods=["GET"], name="events"),

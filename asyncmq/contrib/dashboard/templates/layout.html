@@ -31,6 +31,7 @@
         {{ nav_link(url_prefix ~ "/queues", "Queues", current_page == "queues", "queues") }}
         {{ nav_link(url_prefix ~ "/metrics", "Metrics", current_page == "metrics", "metrics") }}
         {{ nav_link(url_prefix ~ "/audit", "Audit Trail", current_page == "audit", "audit") }}
+        {{ nav_link(url_prefix ~ "/events/history", "Events", current_page == "events", "events") }}
         {{ nav_link(url_prefix ~ "/workers", "Workers", current_page == "workers", "workers") }}
       </nav>
 
@@ -66,6 +67,7 @@
             {{ nav_link(url_prefix ~ "/queues", "Queues", current_page == "queues", "queues") }}
             {{ nav_link(url_prefix ~ "/metrics", "Metrics", current_page == "metrics", "metrics") }}
             {{ nav_link(url_prefix ~ "/audit", "Audit Trail", current_page == "audit", "audit") }}
+            {{ nav_link(url_prefix ~ "/events/history", "Events", current_page == "events", "events") }}
             {{ nav_link(url_prefix ~ "/workers", "Workers", current_page == "workers", "workers") }}
             <form method="post" action="{{ url_prefix }}/logout">
               {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>{% endif %}

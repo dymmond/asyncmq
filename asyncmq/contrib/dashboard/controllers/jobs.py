@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -16,6 +15,11 @@ from asyncmq.contrib.dashboard.audit import record_audit_event
 from asyncmq.contrib.dashboard.engine import templates
 from asyncmq.contrib.dashboard.messages import add_message
 from asyncmq.contrib.dashboard.mixins import DashboardMixin
+from asyncmq.contrib.dashboard.redaction import (
+    is_sensitive_key,
+    redact_for_display,
+    to_pretty_json,
+)
 from asyncmq.contrib.dashboard.urls import dashboard_path_for
 from asyncmq.core.inspection import (
     JobInspectionPage,
@@ -36,58 +40,8 @@ JOB_STATE_TABS: list[tuple[str, str]] = [
     ("repeatable", "Repeatable"),
 ]
 JOB_DETAIL_STATES: tuple[str, ...] = tuple(key for key, _ in JOB_STATE_TABS)
-SENSITIVE_KEY_PARTS: tuple[str, ...] = (
-    "authorization",
-    "api_key",
-    "apikey",
-    "credential",
-    "password",
-    "private_key",
-    "secret",
-    "token",
-)
-MAX_DISPLAY_STRING_LENGTH = 4000
-MAX_REDACTION_DEPTH = 8
 MAX_TRACEBACK_FRAMES = 50
 TRACEBACK_FRAME_MARKERS: tuple[str, ...] = ('File "', "  File ")
-
-
-def is_sensitive_key(key: str) -> bool:
-    """Return whether a metadata key should be redacted before display."""
-    lowered = key.lower()
-    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
-
-
-def redact_for_display(value: Any, *, depth: int = 0) -> Any:
-    """Return a bounded, redacted copy of runtime-owned job data."""
-    if depth > MAX_REDACTION_DEPTH:
-        return "[nested data omitted]"
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            text_key = str(key)
-            redacted[text_key] = "[redacted]" if is_sensitive_key(text_key) else redact_for_display(
-                item,
-                depth=depth + 1,
-            )
-        return redacted
-    if isinstance(value, list):
-        return [redact_for_display(item, depth=depth + 1) for item in value]
-    if isinstance(value, tuple):
-        return [redact_for_display(item, depth=depth + 1) for item in value]
-    if isinstance(value, str) and len(value) > MAX_DISPLAY_STRING_LENGTH:
-        return f"{value[:MAX_DISPLAY_STRING_LENGTH]}...[truncated]"
-    return value
-
-
-def to_pretty_json(value: Any) -> str:
-    """Serialize redacted display data as stable indented JSON."""
-    return json.dumps(
-        redact_for_display(value),
-        indent=2,
-        sort_keys=True,
-        default=str,
-    )
 
 
 def infer_exception_type(error_message: Any, traceback_text: str | None) -> str:

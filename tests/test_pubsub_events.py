@@ -52,7 +52,7 @@ async def test_listener_failure_does_not_stop_other_listeners():
 async def test_event_emit_no_listeners():
     emitter = EventEmitter()
     await emitter.emit("unknown", {"x": 1})  # Should not crash
-    assert True
+    assert emitter.list_history()[0]["event"] == "unknown"
 
 
 async def test_event_remove_listener():
@@ -154,3 +154,30 @@ async def test_emit_does_not_affect_other_events():
     emitter.on("y", lambda _: out.append("y"))
     await emitter.emit("x", {})
     assert "y" not in out
+
+
+async def test_event_history_is_bounded_newest_first_and_filterable():
+    emitter = EventEmitter(history_limit=2)
+
+    await emitter.emit("job:started", {"queue": "emails", "job_id": "j1"})
+    await emitter.emit("job:failed", {"queue": "reports", "job_id": "j2", "error": "boom"})
+    await emitter.emit("job:completed", {"queue": "emails", "job_id": "j3"})
+
+    history = emitter.list_history(limit=10)
+    assert [item["event"] for item in history] == ["job:completed", "job:failed"]
+    assert emitter.list_history(event="job:failed")[0]["data"]["job_id"] == "j2"
+    assert emitter.list_history(queue="emails")[0]["data"]["job_id"] == "j3"
+    assert emitter.list_history(q="boom")[0]["event"] == "job:failed"
+
+
+async def test_event_history_can_be_cleared_without_removing_listeners():
+    emitter = EventEmitter()
+    calls = []
+    emitter.on("tick", lambda data: calls.append(data["n"]))
+
+    await emitter.emit("tick", {"n": 1})
+    emitter.clear_history()
+    await emitter.emit("tick", {"n": 2})
+
+    assert calls == [1, 2]
+    assert [record["data"]["n"] for record in emitter.list_history()] == [2]

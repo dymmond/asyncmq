@@ -639,7 +639,13 @@ a.btn {
   align-items: end;
 }
 
-.amq-filter-panel--audit .amq-field-wide {
+.amq-filter-panel--events {
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(120px, 1fr)) auto;
+  align-items: end;
+}
+
+.amq-filter-panel--audit .amq-field-wide,
+.amq-filter-panel--events .amq-field-wide {
   grid-column: auto;
 }
 
@@ -948,6 +954,22 @@ a.btn {
   max-height: 260px;
 }
 
+.amq-event-table {
+  min-width: 1120px;
+}
+
+.amq-event-name {
+  display: inline-block;
+  color: var(--amq-ink);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+.amq-event-details .amq-pre {
+  max-height: 260px;
+}
+
 .amq-confirm {
   display: grid;
   gap: 10px;
@@ -1188,6 +1210,10 @@ a.btn {
   }
 
   .amq-filter-panel--audit {
+    grid-template-columns: 1fr;
+  }
+
+  .amq-filter-panel--events {
     grid-template-columns: 1fr;
   }
 

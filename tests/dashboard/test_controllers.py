@@ -3,6 +3,7 @@ import re
 import time
 from typing import Any
 
+import anyio
 import pytest
 from lilya.apps import Lilya
 from lilya.compat import reverse
@@ -14,6 +15,7 @@ from asyncmq.contrib.dashboard.application import create_dashboard_app
 from asyncmq.contrib.dashboard.audit import clear_audit_events, record_audit_event
 from asyncmq.contrib.dashboard.controllers.metrics import _prometheus_escape
 from asyncmq.contrib.dashboard.metrics_history import clear_metrics_history
+from asyncmq.core.event import event_emitter
 from asyncmq.core.inspection import JobInspectionPage
 
 
@@ -248,9 +250,11 @@ def _patch_settings(fake_backend, monkeypatch):
 def _clear_dashboard_transient_state():
     clear_audit_events()
     clear_metrics_history()
+    event_emitter.clear_history()
     yield
     clear_audit_events()
     clear_metrics_history()
+    event_emitter.clear_history()
 
 
 @pytest.fixture(scope="package")
@@ -578,6 +582,32 @@ def test_audit_page_formats_failed_actions_with_collapsible_details(client, app)
     assert "&lt;broker down&gt;" in audit_response.text
     assert "<broker down>" not in audit_response.text
     assert "<details class=\"amq-diagnostic-section amq-audit-details\">" in audit_response.text
+
+
+def test_runtime_events_page_uses_event_history_and_redacts_sensitive_values(client, app):
+    anyio.run(
+        event_emitter.emit,
+        "job:failed",
+        {
+            "queue": "emails",
+            "job_id": "event-1",
+            "task_id": "send-welcome",
+            "status": "failed",
+            "api_token": "secret-token",
+            "error": "boom",
+        },
+    )
+
+    response = client.get(url(app, "runtime-events") + "?event=job:failed&q=boom")
+
+    assert response.status_code == 200
+    assert "Runtime Event Evidence" in response.text
+    assert "job:failed" in response.text
+    assert "emails" in response.text
+    assert "event-1" in response.text
+    assert "send-welcome" in response.text
+    assert "[redacted]" in response.text
+    assert "secret-token" not in response.text
 
 
 def test_metrics_history_endpoint_returns_snapshots(client, app):

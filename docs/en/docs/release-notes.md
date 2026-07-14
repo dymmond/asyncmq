@@ -21,6 +21,7 @@
   collapsible action details.
 - Dashboard tracebacks now show frame-level summaries with raw traceback access.
 - Dashboard operator controls now have stronger keyboard focus visibility.
+- Dashboard runtime events now expose a bounded, redacted local event history.
 
 ### Fixed
 
