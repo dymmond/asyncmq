@@ -6,6 +6,7 @@ from lilya.apps import ChildLilya, Lilya
 from lilya.controllers import Controller
 from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
+from lilya.middleware.security import SecurityMiddleware
 from lilya.requests import Request
 from lilya.responses import Response
 from lilya.routing import Include, Path
@@ -15,6 +16,10 @@ from asyncmq import monkay
 from asyncmq.contrib.dashboard import create_dashboard_app
 from asyncmq.contrib.dashboard.admin.middleware import AuthGateMiddleware
 from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+from asyncmq.contrib.dashboard.security import (
+    DASHBOARD_CONTENT_SECURITY_POLICY,
+    ContentSecurityPolicy,
+)
 
 
 class AsyncMQAdmin:
@@ -31,6 +36,8 @@ class AsyncMQAdmin:
         enable_login: bool = False,
         backend: AuthBackend | None = None,
         url_prefix: str | None = None,
+        include_security: bool = True,
+        content_security_policy: ContentSecurityPolicy | None = None,
         include_session: bool = True,
         include_cors: bool = True,
         cors_allow_origins: tuple[str, ...] | None = None,
@@ -52,6 +59,10 @@ class AsyncMQAdmin:
             backend: The authentication backend implementing `AuthBackend` methods (required if `enable_login` is True).
             url_prefix: The base URL path where the dashboard should be mounted (e.g., "/asyncmq").
                         Defaults to the value from `monkay.settings.dashboard_config`.
+            include_security: If True, add dashboard security headers,
+                        including a strict Content Security Policy.
+            content_security_policy: Optional CSP override. Defaults to the
+                        packaged dashboard policy when `include_security` is True.
             enforce_same_origin: If True, reject authenticated unsafe requests
                         whose Origin is missing or does not match the dashboard host.
             require_admin: If True, authenticated users must expose admin
@@ -74,6 +85,12 @@ class AsyncMQAdmin:
         self.backend: AuthBackend = cast(AuthBackend, backend)
 
         # Extras
+        self.include_security = include_security
+        self.content_security_policy = (
+            content_security_policy
+            if content_security_policy is not None
+            else DASHBOARD_CONTENT_SECURITY_POLICY
+        )
         self.include_session = include_session
         self.include_cors = include_cors
         self.cors_allow_origins = cors_allow_origins
@@ -100,6 +117,14 @@ class AsyncMQAdmin:
         """
         config = monkay.settings.dashboard_config
         middlewares: list[DefineMiddleware] = []
+
+        if self.include_security:
+            middlewares.append(
+                DefineMiddleware(
+                    SecurityMiddleware,
+                    content_policy=self.content_security_policy,
+                )
+            )
 
         if self.include_cors:
             allow_origins = self.cors_allow_origins or config.cors_allow_origins

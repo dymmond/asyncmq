@@ -629,25 +629,6 @@
   window.showLoading = showLoading;
   window.hideLoading = hideLoading;
 
-  window.showToast = function showToast(message, type, duration, position) {
-    if (typeof Toastify === "undefined") {
-      return;
-    }
-    Toastify({
-      text: message,
-      duration: duration || 3000,
-      close: true,
-      className: type || "info",
-      gravity: "top",
-      position: position || "right",
-      stopOnFocus: true,
-      style: {
-        background: type,
-      },
-      onClick: function () {},
-    }).showToast();
-  };
-
   document.addEventListener("DOMContentLoaded", () => {
     setupLoadingIndicators();
     setupAutosubmitControls();

@@ -34,6 +34,8 @@
   instead of inline scripts.
 - Dashboard metrics and DLQ controls now avoid inline scripts and unsupported
   row-level AJAX routes.
+- Dashboard responses now include strict security headers and a CSP without
+  inline script or style allowances.
 
 ## 0.8.1
 

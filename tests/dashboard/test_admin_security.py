@@ -5,6 +5,7 @@ from lilya.testclient.base import TestClient
 
 from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.protocols import AuthBackend
+from asyncmq.contrib.dashboard.security import DASHBOARD_CONTENT_SECURITY_POLICY
 
 
 class HeaderBackend(AuthBackend):
@@ -53,6 +54,72 @@ def test_admin_does_not_enable_cross_origin_dashboard_access_by_default():
 
     assert "access-control-allow-origin" not in response.headers
     assert "access-control-allow-credentials" not in response.headers
+
+
+def test_admin_adds_strict_dashboard_security_headers_by_default():
+    client = TestClient(AsyncMQAdmin(enable_login=False).get_asgi_app(with_url_prefix=True))
+
+    response = client.get("/asyncmq/")
+
+    assert response.status_code == 200
+    csp = response.headers["content-security-policy"]
+    for directive in (
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ):
+        assert directive in csp
+    assert "unsafe-inline" not in csp
+    assert "unsafe-eval" not in csp
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "same-origin"
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+    assert response.headers["strict-transport-security"] == "max-age=31556926; includeSubDomains"
+
+
+def test_admin_security_headers_can_be_disabled_when_host_app_owns_them():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=False,
+            include_security=False,
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get("/asyncmq/")
+
+    assert response.status_code == 200
+    assert "content-security-policy" not in response.headers
+    assert "x-frame-options" not in response.headers
+
+
+def test_admin_allows_custom_dashboard_content_security_policy():
+    client = TestClient(
+        AsyncMQAdmin(
+            enable_login=False,
+            content_security_policy={"default-src": "'none'", "img-src": ["'self'", "data:"]},
+        ).get_asgi_app(with_url_prefix=True)
+    )
+
+    response = client.get("/asyncmq/")
+
+    assert response.status_code == 200
+    assert response.headers["content-security-policy"] == "default-src 'none'; img-src 'self' data:"
+
+
+def test_packaged_dashboard_content_security_policy_rejects_inline_execution():
+    policy = DASHBOARD_CONTENT_SECURITY_POLICY
+
+    assert policy["script-src"] == "'self'"
+    assert policy["style-src"] == "'self'"
+    assert "unsafe-inline" not in " ".join(
+        " ".join(value) if isinstance(value, list) else value for value in policy.values()
+    )
 
 
 def test_admin_allows_explicit_dashboard_cors_origin():

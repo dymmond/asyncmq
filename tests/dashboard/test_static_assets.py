@@ -121,6 +121,7 @@ def test_templates_reference_local_assets_without_public_cdns(client: TestClient
         for marker in disallowed:
             assert marker not in html
         assert "/static/css/tailwind-4.3.2.min.css" in html
+        assert "toastify" not in html.lower()
         if path != "/missing-page":
             assert "/static/vendor/alpinejs/alpine-csp-3.15.12.min.js" in html
 
