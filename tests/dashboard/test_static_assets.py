@@ -183,6 +183,21 @@ def test_primary_operator_pages_do_not_render_inline_scripts_or_styles(client: T
         assert " style=" not in response.text
 
 
+def test_operator_controls_keep_visible_focus_and_table_scopes(client: TestClient):
+    """Keep keyboard focus and audit-table semantics visible to operators."""
+    css = package_static_root().joinpath("css/asyncmq.css").read_text()
+    response = client.get("/audit")
+
+    assert response.status_code == 200
+    assert ".amq-button:focus-visible" in css
+    assert ".amq-nav-link:focus-visible" in css
+    assert ".amq-logout-button:focus-visible" in css
+    assert ".amq-diagnostic-section summary:focus-visible" in css
+    assert css.count("box-shadow: 0 0 0 3px rgba(203, 220, 56, .42)") >= 6
+    assert '<th scope="col">Time</th>' in response.text
+    assert '<th scope="col">Details</th>' in response.text
+
+
 def test_queue_pages_use_packaged_live_update_components(client: TestClient):
     """Render live-update hooks as data attributes consumed by packaged JS."""
     queue_list = client.get("/queues")

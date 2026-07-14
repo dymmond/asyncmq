@@ -20,6 +20,7 @@
 - Dashboard audit trail now has operator-focused summaries, filters, and
   collapsible action details.
 - Dashboard tracebacks now show frame-level summaries with raw traceback access.
+- Dashboard operator controls now have stronger keyboard focus visibility.
 
 ### Fixed
 

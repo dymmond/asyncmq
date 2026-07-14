@@ -120,6 +120,10 @@ a.btn {
   outline: none;
 }
 
+.amq-nav-link:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
+}
+
 .amq-nav-link.is-active {
   color: #17200f;
   background: var(--amq-green);
@@ -158,6 +162,10 @@ a.btn {
   color: #ffffff;
   background: rgba(255, 255, 255, .08);
   outline: none;
+}
+
+.amq-logout-button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
 }
 
 .amq-workspace {
@@ -528,6 +536,10 @@ a.btn {
   outline: none;
 }
 
+.amq-button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
+}
+
 .amq-button--primary {
   color: #17200f;
   background: var(--amq-green);
@@ -688,6 +700,10 @@ a.btn {
   color: var(--amq-ink);
   background: var(--amq-surface-muted);
   outline: none;
+}
+
+.amq-pill:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
 }
 
 .amq-pill.is-active {
@@ -989,6 +1005,10 @@ a.btn {
   color: var(--amq-blue);
   text-decoration: underline;
   outline: none;
+}
+
+.amq-worker-queue:focus-visible {
+  box-shadow: 0 0 0 3px rgba(203, 220, 56, .42);
 }
 
 .amq-worker-capacity {
