@@ -37,6 +37,8 @@
 - Dashboard job filters now use visible labels and automated accessible-control
   checks.
 - Dashboard job inspection now has regression proof for bounded 100k-job pages.
+- Dashboard desktop navigation now stays fixed with logout pinned at the bottom
+  on long pages.
 
 ### Fixed
 

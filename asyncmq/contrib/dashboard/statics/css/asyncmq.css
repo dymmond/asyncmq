@@ -43,15 +43,19 @@ a.btn {
 }
 
 .amq-sidebar {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  inset: 0 auto 0 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  width: 280px;
+  height: 100dvh;
+  min-height: 100vh;
   padding: 18px;
   color: #eef6d6;
   background: #17200f;
   border-right: 1px solid rgba(255, 255, 255, .08);
+  overflow-y: auto;
+  z-index: 30;
 }
 
 .amq-brand {
@@ -169,6 +173,7 @@ a.btn {
 }
 
 .amq-workspace {
+  grid-column: 2;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1766,7 +1771,11 @@ a.btn {
   }
 
   .amq-sidebar {
+    position: static;
     display: none;
+    width: auto;
+    height: auto;
+    min-height: 0;
   }
 
   .amq-mobile-nav {
