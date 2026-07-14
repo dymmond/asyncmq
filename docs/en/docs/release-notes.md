@@ -34,6 +34,8 @@
   redacted row data.
 - Dashboard templates now complete the migration to the native operations-console
   component classes.
+- Dashboard job filters now use visible labels and automated accessible-control
+  checks.
 
 ### Fixed
 

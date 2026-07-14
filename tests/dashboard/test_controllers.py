@@ -351,6 +351,16 @@ def test_queue_jobs_list(client, app, queue, state, expect):
     assert expect in response.content or response.content
 
 
+def test_queue_jobs_filters_have_accessible_labels(client, app):
+    """Render job filter controls with visible labels instead of placeholder-only names."""
+    response = client.get(url(app, "queue-jobs", name="emails") + "?state=failed")
+
+    assert response.status_code == 200
+    for label in ("Search", "Task", "Job ID", "Sort", "Rows"):
+        assert f"<span>{label}</span>" in response.text
+    assert 'placeholder="Payload text"' in response.text
+
+
 def test_job_action_endpoint_exists(client, app):
     """
     POST /queues/{name}/jobs/{job_id}/{action}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from html.parser import HTMLParser
 from importlib import resources
 from typing import Any
 
@@ -18,6 +19,66 @@ from asyncmq.contrib.dashboard.admin import AsyncMQAdmin
 from asyncmq.contrib.dashboard.admin.backends.simple_user import SimpleUsernamePasswordBackend
 from asyncmq.contrib.dashboard.admin.protocols import User
 from asyncmq.contrib.dashboard.application import create_dashboard_app
+
+
+class AccessibleControlParser(HTMLParser):
+    """Collect rendered controls that do not expose an accessible name."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.label_depth = 0
+        self.label_targets: set[str] = set()
+        self.unnamed_controls: list[str] = []
+        self._button_stack: list[dict[str, Any]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {key: value or "" for key, value in attrs}
+        if tag == "label":
+            self.label_depth += 1
+            target = attributes.get("for")
+            if target:
+                self.label_targets.add(target)
+            return
+
+        if tag in {"input", "select", "textarea"}:
+            input_type = attributes.get("type", "").lower()
+            if input_type == "hidden":
+                return
+            control_id = attributes.get("id", "")
+            has_name = bool(
+                self.label_depth
+                or attributes.get("aria-label")
+                or attributes.get("aria-labelledby")
+                or attributes.get("title")
+                or (control_id and control_id in self.label_targets)
+            )
+            if not has_name:
+                self.unnamed_controls.append(f"{tag}[name={attributes.get('name', '')}]")
+            return
+
+        if tag == "button":
+            self._button_stack.append(
+                {
+                    "explicit": bool(
+                        attributes.get("aria-label") or attributes.get("aria-labelledby") or attributes.get("title")
+                    ),
+                    "text": "",
+                    "name": attributes.get("name", ""),
+                }
+            )
+
+    def handle_data(self, data: str) -> None:
+        if self._button_stack:
+            self._button_stack[-1]["text"] += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "label" and self.label_depth:
+            self.label_depth -= 1
+            return
+        if tag == "button" and self._button_stack:
+            button = self._button_stack.pop()
+            if not button["explicit"] and not str(button["text"]).strip():
+                self.unnamed_controls.append(f"button[name={button['name']}]")
 
 
 class AssetBackend:
@@ -186,6 +247,25 @@ def test_dashboard_templates_do_not_keep_legacy_tailwind_utility_markup():
         text = template.read_text()
         for marker in legacy_markers:
             assert marker not in text, f"{template} still contains {marker!r}"
+
+
+def test_rendered_dashboard_controls_have_accessible_names(client: TestClient, admin_client: TestClient):
+    """Scan rendered dashboard pages for unlabeled controls and nameless buttons."""
+    pages = [
+        client.get("/queues/critical-email/jobs?state=failed"),
+        client.get("/workers"),
+        client.get("/audit"),
+        client.get("/events/history"),
+        client.get("/queues/critical-email/dlq"),
+        client.get("/queues/critical-email/repeatables/new"),
+        admin_client.get(f"{settings.dashboard_config.dashboard_url_prefix}/login"),
+    ]
+
+    for response in pages:
+        assert response.status_code == 200
+        parser = AccessibleControlParser()
+        parser.feed(response.text)
+        assert parser.unnamed_controls == []
 
 
 def test_modern_dashboard_shell_renders_component_navigation(client: TestClient):

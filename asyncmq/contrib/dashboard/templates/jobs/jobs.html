@@ -25,30 +25,45 @@
 
       <form method="get" class="amq-filter-panel">
         <input type="hidden" name="state" value="{{ state }}">
-        <input type="text"
-               name="q"
-               value="{{ q }}"
-               placeholder="Search payload text"
-               class="amq-input amq-field-wide">
-        <input type="text"
-               name="task"
-               value="{{ task }}"
-               placeholder="Task contains"
-               class="amq-input">
-        <input type="text"
-               name="job_id"
-               value="{{ job_id }}"
-               placeholder="Job ID contains"
-               class="amq-input">
-        <select name="sort" class="amq-select">
-          <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
-          <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
-        </select>
-        <select name="size" class="amq-select">
-          {% for option in page_sizes %}
-            <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
-          {% endfor %}
-        </select>
+        <label class="amq-field amq-field-wide">
+          <span>Search</span>
+          <input type="text"
+                 name="q"
+                 value="{{ q }}"
+                 placeholder="Payload text"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Task</span>
+          <input type="text"
+                 name="task"
+                 value="{{ task }}"
+                 placeholder="Task contains"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Job ID</span>
+          <input type="text"
+                 name="job_id"
+                 value="{{ job_id }}"
+                 placeholder="Job ID contains"
+                 class="amq-input">
+        </label>
+        <label class="amq-field">
+          <span>Sort</span>
+          <select name="sort" class="amq-select">
+            <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
+            <option value="oldest" {% if sort == "oldest" %}selected{% endif %}>Oldest first</option>
+          </select>
+        </label>
+        <label class="amq-field">
+          <span>Rows</span>
+          <select name="size" class="amq-select">
+            {% for option in page_sizes %}
+              <option value="{{ option }}" {% if size == option %}selected{% endif %}>{{ option }} / page</option>
+            {% endfor %}
+          </select>
+        </label>
         <button type="submit" class="amq-button amq-button--primary">
           Apply
         </button>
