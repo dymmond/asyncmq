@@ -1,0 +1,42 @@
+{
+  "alpinejs": {
+    "version": "3.15.12",
+    "package": "alpinejs",
+    "artifact": "vendor/alpinejs/alpine-3.15.12.min.js",
+    "upstream": "https://registry.npmjs.org/alpinejs/-/alpinejs-3.15.12.tgz",
+    "homepage": "https://alpinejs.dev",
+    "npm_integrity": "sha512-nJvPAQVNPdZZ0NrExJ/kzQco3ijR8LwvCOadQecllESiqT4NyZ/57sN9V2XyvhlBGAbmlKYgeWZvYdKq99ij/Q==",
+    "tarball_sha256": "ae0d8bb325cdc65cbb4a16dda67c40bda4626ac525cba06158bab4ceaed89b00",
+    "artifact_sha256": "57b37d7cae9a27d965fdae4adcc844245dfdc407e655aee85dcfff3a08036a3f",
+    "license": "MIT",
+    "license_file": "vendor/licenses/alpinejs-MIT.txt"
+  },
+  "tailwindcss": {
+    "version": "4.3.2",
+    "package": "tailwindcss",
+    "artifact": "css/tailwind-4.3.2.min.css",
+    "source": "css/asyncmq-tailwind.input.css",
+    "upstream": "https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.3.2.tgz",
+    "homepage": "https://tailwindcss.com",
+    "npm_integrity": "sha512-WtctNNSH8A9jlMIqxzuYumOHU5uGZyRv0Q5svQl+oEPy5w84YpBxdb7MdqyiSPQge5jTJ6zFQLq0PFygdccSBA==",
+    "tarball_sha256": "3673da9004404d12d4672bb5d002945319c2b3dea8c13ea022fdd33a3e260e62",
+    "cli_package": "@tailwindcss/cli",
+    "cli_tarball_sha256": "b1da208095ba8886d4d6f4ff055cd402bdefd218359a195d7ecd2dd608e14bf2",
+    "source_sha256": "350547ca14e63606a86c858859be567c80335c8cf55b319c68caec48d3e2410a",
+    "artifact_sha256": "3c924c97fa00cb8edaafbee1e49f1719b93fe21407e77e9f84b24abb7113752b",
+    "license": "MIT",
+    "license_file": "vendor/licenses/tailwindcss-MIT.txt"
+  },
+  "chartjs": {
+    "version": "4.5.1",
+    "package": "chart.js",
+    "artifact": "vendor/chartjs/chart.umd-4.5.1.min.js",
+    "upstream": "https://registry.npmjs.org/chart.js/-/chart.js-4.5.1.tgz",
+    "homepage": "https://www.chartjs.org",
+    "npm_integrity": "sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==",
+    "tarball_sha256": "f540d98468457ac7a0aabb32006dfb066297e096c5ea063a5d80aa973d1c337a",
+    "artifact_sha256": "48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a",
+    "license": "MIT",
+    "license_file": "vendor/licenses/chartjs-MIT.txt"
+  }
+}

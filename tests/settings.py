@@ -25,7 +25,7 @@ class LilyaDashboardSettings(LilyaSettings):
 class DashConfig(DashboardConfig):
     title: str = "AsyncMQ"
     header_text: str = "AsyncMQ Dashboard"
-    favicon: str = "/static/favicon.png"
+    favicon: str = "/static/favicon.ico"
     sidebar_bg_colour: str = "#111827"
     dashboard_url_prefix: str = "/asyncmq"
 

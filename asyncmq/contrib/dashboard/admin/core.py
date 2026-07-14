@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from lilya.apps import ChildLilya, Lilya
+from lilya.controllers import Controller
 from lilya.middleware.base import DefineMiddleware
 from lilya.middleware.cors import CORSMiddleware
 from lilya.requests import Request
@@ -138,18 +139,33 @@ class AsyncMQAdmin:
         # 2. Route Setup (Login/Logout, Dashboard)
         routes: list[Path | Include] = []
         if self.enable_login:
-            # Define login and logout endpoints using the configured backend
-            async def login(request: Request) -> Response:
-                """Handler to delegate to the backend's login logic."""
-                return await self.backend.login(request)
+            auth_backend = self.backend
 
-            async def logout(request: Request) -> Response:
-                """Handler to delegate to the backend's logout logic."""
-                return await self.backend.logout(request)
+            class LoginController(Controller):
+                """Delegates dashboard login requests to the configured authentication backend."""
+
+                async def get(self, request: Request) -> Response:
+                    """Render the backend-owned login response for GET requests."""
+                    return await auth_backend.login(request)
+
+                async def post(self, request: Request) -> Response:
+                    """Process backend-owned login submissions for POST requests."""
+                    return await auth_backend.login(request)
+
+            class LogoutController(Controller):
+                """Delegates dashboard logout requests to the configured authentication backend."""
+
+                async def get(self, request: Request) -> Response:
+                    """Process backend-owned logout requests submitted with GET."""
+                    return await auth_backend.logout(request)
+
+                async def post(self, request: Request) -> Response:
+                    """Process backend-owned logout requests submitted with POST."""
+                    return await auth_backend.logout(request)
 
             login_logout: list[Path] = [
-                Path("/login", login, methods=["GET", "POST"]),
-                Path("/logout", logout, methods=["GET", "POST"]),
+                Path("/login", LoginController, methods=["GET", "POST"]),
+                Path("/logout", LogoutController, methods=["GET", "POST"]),
             ]
             routes.extend(login_logout)
 

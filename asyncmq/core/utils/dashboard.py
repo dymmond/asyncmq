@@ -25,7 +25,7 @@ class DashboardConfig:
     description: str = "A simple dashboard for monitoring AsyncMQ jobs."
     """A brief description of the dashboard's purpose."""
 
-    favicon: str = "https://raw.githubusercontent.com/dymmond/asyncmq/refs/heads/main/docs/statics/favicon.ico"
+    favicon: str = "/static/favicon.ico"
     """URL path or external URL for the favicon."""
 
     dashboard_url_prefix: str = "/admin"

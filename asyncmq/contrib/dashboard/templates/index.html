@@ -108,7 +108,7 @@
   </div>
 
   <!-- Chart.js & SSE Script -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
   <script>
     const source = new EventSource('{{ url_prefix }}/events');
 

@@ -83,7 +83,7 @@
     </table>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{{ url_for('statics', path='/vendor/chartjs/chart.umd-4.5.1.min.js') }}"></script>
   <script>
     const initialHistory = {{ metrics_history | tojson }};
     const maxPoints = 60;

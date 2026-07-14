@@ -20,10 +20,12 @@ PROMETHEUS_MEDIA_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 
 def _prometheus_escape(value: str) -> str:
+    """Escape label and comment text for Prometheus exposition output."""
     return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def _prometheus_sample(name: str, value: int | float, labels: dict[str, str] | None = None) -> str:
+    """Format one Prometheus sample line with optional sorted labels."""
     if not labels:
         return f"{name} {value}"
     label_text = ",".join(f'{key}="{_prometheus_escape(label)}"' for key, label in sorted(labels.items()))
@@ -102,7 +104,10 @@ class MetricsController(DashboardMixin, TemplateController):
 
 
 class MetricsHistoryController(Controller):
+    """Returns recent dashboard metrics snapshots as bounded JSON."""
+
     async def get(self, request: Request) -> JSONResponse:
+        """Handle metrics history requests with a defensive limit cap."""
         limit_raw = request.query_params.get("limit", "120")
         try:
             limit = int(limit_raw)
@@ -113,7 +118,10 @@ class MetricsHistoryController(Controller):
 
 
 class PrometheusMetricsController(Controller):
+    """Exports queue and worker metrics in Prometheus text format."""
+
     async def get(self, request: Request) -> TextResponse:
+        """Collect backend metrics and serialize them as Prometheus samples."""
         backend: Any = monkay.settings.backend
         lines = [
             "# HELP asyncmq_dashboard_ready 1 when dashboard metrics collection can inspect the backend.",

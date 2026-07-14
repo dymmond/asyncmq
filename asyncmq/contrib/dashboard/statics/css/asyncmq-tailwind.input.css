@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@source "../../templates/**/*.html";
+@source "../js/**/*.js";
+
+@source inline("bg-{green,red,yellow,blue}-50");
+@source inline("border-{green,red,yellow,blue}-500");
+@source inline("{hover:,}text-{green,red,yellow,blue}-{700,900}");
+
+@theme {
+  --color-asyncmq-green: #CBDC38;
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .06);
+}

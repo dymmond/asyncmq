@@ -25,9 +25,12 @@ ACTION_OPTIONS: list[str] = [
 
 
 class AuditController(DashboardMixin, TemplateController):
+    """Renders the bounded audit trail for operator-visible dashboard actions."""
+
     template_name = "audit/audit.html"
 
     async def get(self, request: Request) -> Any:
+        """Apply audit filters, normalize timestamps, and render the audit page."""
         action_raw = request.query_params.get("action", "").strip()
         status_raw = request.query_params.get("status", "").strip()
         queue_raw = request.query_params.get("queue", "").strip()

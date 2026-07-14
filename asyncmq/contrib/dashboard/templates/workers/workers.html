@@ -5,7 +5,7 @@
     <h1 class="text-3xl font-bold text-gray-900">{{ page_header }}</h1>
     <form method="get" class="flex items-center space-x-2">
       <label for="size" class="text-sm font-medium text-gray-700">Show</label>
-      <select id="size" name="size" onchange="this.form.submit()"
+      <select id="size" name="size" data-auto-submit
               class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
         {% for s in page_sizes %}
           <option value="{{ s }}" {% if s == size %}selected{% endif %}>{{ s }}</option>

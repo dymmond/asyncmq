@@ -6,37 +6,11 @@
   <link rel="icon" href="{{ favicon }}"/>
   <title>AsyncMQ | Sign in</title>
 
-  <!-- Tailwind via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
   <!-- Project assets -->
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/tailwind-4.3.2.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
   <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            asyncmq: {
-              green: "{{ sidebar_bg_colour }}"
-            }
-          },
-          boxShadow: {
-            soft: "0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06)"
-          }
-        }
-      }
-    }
-  </script>
-
-  <style>
-    .focus-ring:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(59,130,246,.45);
-    }
-  </style>
+  <script defer src="{{ url_for('statics', path='/vendor/alpinejs/alpine-3.15.12.min.js') }}"></script>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 text-gray-900 antialiased">
   {% include "shared/loading.html" %}
@@ -93,7 +67,8 @@
                        placeholder="••••••••" />
                 <button type="button" aria-label="Toggle password visibility"
                         class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-500 hover:text-gray-700"
-                        onclick="const i=document.getElementById('password'); i.type = (i.type==='password' ? 'text':'password')">
+                        data-password-toggle
+                        data-password-target="#password">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12z"/>
                     <circle cx="12" cy="12" r="3"></circle>

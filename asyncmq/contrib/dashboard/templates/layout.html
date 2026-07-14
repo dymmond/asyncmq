@@ -5,34 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="icon" href="{{ favicon }}"/>
   <title>AsyncMQ | {{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('statics', path='/css/tailwind-4.3.2.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('statics', path='/css/toastify.min.css') }}">
   <script src="{{ url_for('statics', path='/js/toastify.min.js') }}"></script>
   <script src="{{ url_for('statics', path='/js/asyncmq.js') }}"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="{{ url_for('statics', path='/vendor/alpinejs/alpine-3.15.12.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('statics', path='/css/asyncmq.css') }}">
-  <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        asyncmq: {
-                            green: "{{ sidebar_bg_colour }}"
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-  <style>
-      .loader {
-        border-top-color: #3490dc;
-        animation: spin 1s linear infinite;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-</style>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
   {% include "shared/loading.html" %}
@@ -145,35 +123,5 @@
       </main>
     </div>
   </div>
-<script>
-    // Show loading on form submit
-    document.addEventListener("DOMContentLoaded", function () {
-      document.querySelectorAll("form").forEach(form => {
-        form.addEventListener("submit", function () {
-          document.getElementById("loading-overlay").classList.remove("hidden");
-        });
-      });
-
-      // Optional: Show loading on navigation clicks
-      document.querySelectorAll("a").forEach(link => {
-        link.addEventListener("click", function (e) {
-          if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
-            document.getElementById("loading-overlay").classList.remove("hidden");
-          }
-        });
-      });
-
-      document.querySelectorAll("button").forEach(link => {
-        link.addEventListener("click", function (e) {
-          if (link.getAttribute("href") && !link.getAttribute("href").startsWith("#")) {
-            document.getElementById("loading-overlay").classList.remove("hidden");
-          }
-        });
-      });
-
-      // Page lifecycle: hide on page show (e.g., bfcache restores)
-      window.addEventListener('pageshow', hideLoading);
-    });
-  </script>
 </body>
 </html>

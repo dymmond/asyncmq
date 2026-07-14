@@ -14,6 +14,7 @@
 
       <div
         id="flash-{{ loop.index }}"
+        data-flash-message
         class="
           relative flex items-start gap-3 p-4 bg-{{ color }}-50
           border-l-4 border-{{ color }}-500 text-{{ color }}-700
@@ -39,11 +40,7 @@
         <!-- Dismiss Button -->
         <button
           type="button"
-          onclick="
-            const el = document.getElementById('flash-{{ loop.index }}');
-            el.classList.add('opacity-0');
-            setTimeout(() => el.remove(), 200);
-          "
+          data-dismiss-target="#flash-{{ loop.index }}"
           class="
             absolute top-5 right-6 text-xl font-bold leading-none
             text-{{ color }}-700 hover:text-{{ color }}-900
