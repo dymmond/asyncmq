@@ -718,6 +718,58 @@ def test_job_list_uses_backend_inspection_contract(client, app):
     assert backend.inspect_calls == [("emails", "failed", 2, 20, "needle", "send", "", "oldest")]
 
 
+def test_job_list_large_inspection_page_stays_bounded(client, app):
+    class LargeInspectingBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspect_calls: list[tuple[str, str, int, int]] = []
+
+        async def list_jobs(self, queue: str, state: str) -> list[dict[str, Any]]:
+            raise AssertionError("large dashboards must not load every job when inspect_jobs is available")
+
+        async def inspect_jobs(
+            self,
+            queue_name: str,
+            state: str,
+            *,
+            page: int = 1,
+            size: int = 20,
+            q: str = "",
+            task: str = "",
+            job_id: str = "",
+            sort: str = "newest",
+        ) -> JobInspectionPage:
+            self.inspect_calls.append((queue_name, state, page, size))
+            return JobInspectionPage(
+                jobs=[
+                    {
+                        "id": f"large-{index:02d}",
+                        "task_id": "scale-proof",
+                        "status": state,
+                        "created_at": self._now - index,
+                    }
+                    for index in range(size)
+                ],
+                total=100_000,
+                page=page,
+                size=size,
+                total_pages=5_000,
+            )
+
+    backend = LargeInspectingBackend()
+    settings.backend = backend
+
+    response = client.get(url(app, "queue-jobs", name="emails") + "?state=failed&page=5000&size=20")
+
+    assert response.status_code == 200
+    assert "100000 failed jobs found" in response.text
+    assert "Page 5000 of 5000" in response.text
+    assert "large-00" in response.text
+    assert "large-19" in response.text
+    assert "large-20" not in response.text
+    assert backend.inspect_calls == [("emails", "failed", 5000, 20)]
+
+
 def test_audit_page_reflects_job_action(client, app):
     action_url = url(app, "job-action", name="emails", job_id="f1", action="retry")
     response = client.post(action_url)
