@@ -1,5 +1,21 @@
 # Release Notes
 
+## 0.9.1
+
+### Added
+
+- Remote dashboard backend support for deployments where `AsyncMQAdmin` runs in
+  an app process while workers own the real backend connection.
+- `RemoteBackendClient` and `create_remote_backend_app()` for private
+  queue/job/worker/repeatable inspection and administrative actions across an
+  internal HTTP boundary.
+
+### Notes
+
+- Existing direct-backend dashboard deployments continue unchanged.
+- The remote backend endpoint is intended for internal networks and should be
+  protected by token authentication plus deployment-level access controls.
+
 ## 0.9.0
 
 ### Added

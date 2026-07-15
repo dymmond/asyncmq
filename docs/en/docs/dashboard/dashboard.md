@@ -290,6 +290,130 @@ Operational rules:
   database names, queue prefixes, serializers, or credentials, they are looking
   at different systems.
 
+## Remote Backend Service
+
+Use a remote backend service when the public application serves `AsyncMQAdmin`
+but does not own the real AsyncMQ backend connection. This is common when the
+same codebase runs in two modes:
+
+| Service | AsyncMQ role | Backend access |
+| --- | --- | --- |
+| App/dashboard service | Serves the application and `AsyncMQAdmin` | Uses `RemoteBackendClient` only |
+| Worker/control service | Runs workers and owns AsyncMQ runtime state | Uses the real Redis, PostgreSQL, MongoDB, RabbitMQ, or custom backend |
+
+The remote endpoint is a private control plane for dashboard inspection and
+administrative actions. It is not a public API, not a worker discovery system,
+and not a replacement for backend-level locking or worker coordination.
+
+Dashboard settings:
+
+```python
+# myapp/dashboard_settings.py
+import os
+
+from asyncmq.conf.global_settings import Settings
+from asyncmq.contrib.dashboard import RemoteBackendClient
+
+
+class DashboardSettings(Settings):
+    """
+    Settings for the app process that serves AsyncMQAdmin.
+
+    The process does not need direct Redis, database, or broker credentials.
+    """
+
+    def post_init(self) -> None:
+        """
+        Configure the dashboard to talk to the internal worker control service.
+
+        The URL can point to a Kubernetes service, Docker Compose service name,
+        sidecar, or any private HTTP route reachable from the app container.
+        """
+        self.backend = RemoteBackendClient(
+            os.environ["ASYNCMQ_REMOTE_BACKEND_URL"],
+            token=os.environ["ASYNCMQ_REMOTE_TOKEN"],
+        )
+```
+
+Worker/control app:
+
+```python
+# myapp/worker_control.py
+import os
+
+from lilya.apps import Lilya
+from lilya.routing import Include
+
+from asyncmq.contrib.dashboard import create_remote_backend_app
+
+
+app = Lilya(
+    routes=[
+        Include(
+            path="/asyncmq-remote",
+            app=create_remote_backend_app(token=os.environ["ASYNCMQ_REMOTE_TOKEN"]),
+        )
+    ]
+)
+```
+
+The worker/control service must load the settings module that configures the
+real backend and the task code used by workers. The dashboard service can load a
+different settings module whose backend is only `RemoteBackendClient`.
+
+Example Docker Compose shape:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    command: uvicorn myapp.web:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      ASYNCMQ_SETTINGS_MODULE: myapp.dashboard_settings.DashboardSettings
+      ASYNCMQ_REMOTE_BACKEND_URL: http://worker-control:8001/asyncmq-remote
+      ASYNCMQ_REMOTE_TOKEN: ${ASYNCMQ_REMOTE_TOKEN}
+
+  worker-control:
+    image: myapp:latest
+    command: uvicorn myapp.worker_control:app --host 0.0.0.0 --port 8001
+    expose:
+      - "8001"
+    environment:
+      ASYNCMQ_SETTINGS_MODULE: myapp.worker_settings.WorkerSettings
+      ASYNCMQ_REMOTE_TOKEN: ${ASYNCMQ_REMOTE_TOKEN}
+      REDIS_URL: redis://redis:6379/0
+
+  worker:
+    image: myapp:latest
+    command: python -m myapp.workers
+    environment:
+      ASYNCMQ_SETTINGS_MODULE: myapp.worker_settings.WorkerSettings
+      REDIS_URL: redis://redis:6379/0
+
+  redis:
+    image: redis:7
+    expose:
+      - "6379"
+```
+
+`worker-control` has no `ports` entry, so it is reachable by the app container
+through Docker's internal network name but is not exposed on the host. The same
+pattern applies to Kubernetes with a ClusterIP service that is reachable only
+inside the cluster.
+
+Production rules:
+
+- Protect the remote endpoint with `ASYNCMQ_REMOTE_TOKEN` and deployment-level
+  network controls.
+- Expose the dashboard through your authenticated application or gateway, not
+  the remote backend endpoint.
+- Rotate the remote token like any other service credential.
+- Keep the worker/control image on the same AsyncMQ version as the dashboard
+  image so the backend-shaped remote methods stay aligned.
+- Treat the remote endpoint as administrative access to queue state.
+
 ## Dashboard Configuration
 
 `settings.dashboard_config` returns `DashboardConfig`. Use it to configure the
