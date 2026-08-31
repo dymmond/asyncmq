@@ -72,7 +72,7 @@ async def _wait_mongo() -> None:
     try:
         await backend.health_check()
     finally:
-        backend.store.client.close()
+        await backend.close()
 
 
 async def _drop_mongo_database(database: str) -> None:
@@ -189,7 +189,7 @@ async def test_mongodb_stalled_recovery_survives_container_restart():
         assert raw is not None
         old = time.time() - 10
         await producer.save_heartbeat(queue, job_id, old)
-        producer.store.client.close()
+        await producer.close()
 
         await _restart_container("mongo", _wait_mongo)
 
@@ -205,7 +205,7 @@ async def test_mongodb_stalled_recovery_survives_container_restart():
             assert recovered is not None
             assert recovered["id"] == job_id
         finally:
-            recovery.store.client.close()
+            await recovery.close()
     finally:
         await _wait_mongo()
         await _drop_mongo_database(database)

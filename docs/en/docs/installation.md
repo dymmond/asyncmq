@@ -16,7 +16,7 @@ Optional backend extras:
 
 ```bash
 pip install "asyncmq[postgres]"   # asyncpg
-pip install "asyncmq[mongo]"      # motor
+pip install "asyncmq[mongo]"      # PyMongo Async
 pip install "asyncmq[aio-pika]"   # RabbitMQ backend
 pip install "asyncmq[all]"        # all optional backends
 ```

@@ -48,6 +48,7 @@ async def backend(request):
         backend = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=db_name)
         yield backend
         await backend.store.client.drop_database(db_name)
+        await backend.close()
         return
 
     if name == "postgres":

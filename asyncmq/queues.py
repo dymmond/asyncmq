@@ -292,6 +292,12 @@ class Queue:
                     )
                     return owner_id
 
+            if normalized_deduplication is not None:
+                ttl_window = normalized_deduplication.get("ttl")
+                if ttl_window is not None:
+                    normalized_deduplication["expires_at"] = time.time() + float(ttl_window)
+                    job.deduplication = normalized_deduplication
+
             await self._enqueue_created_job(job, delay=delay)
             return job.id
         finally:

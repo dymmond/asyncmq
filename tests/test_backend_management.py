@@ -45,10 +45,11 @@ async def postgres_backend():
 async def mongodb_backend():
     backend = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
     # Ensure clean DB
-    backend.store.client.drop_database("test_asyncmq")
+    await backend.store.client.drop_database("test_asyncmq")
     yield backend
     # Cleanup
-    backend.store.client.drop_database("test_asyncmq")
+    await backend.store.client.drop_database("test_asyncmq")
+    await backend.close()
 
 
 @pytest.fixture

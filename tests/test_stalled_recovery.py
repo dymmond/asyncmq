@@ -106,7 +106,8 @@ async def backend(request):
         b = cls(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
         # No explicit connect method for MongoDBBackend
         yield b
-        b.store.client.drop_database("test_asyncmq")
+        await b.store.client.drop_database("test_asyncmq")
+        await b.close()
 
 
 async def test_fetch_and_reenqueue(backend):
@@ -785,7 +786,7 @@ async def test_mongodb_stalled_recovery_survives_backend_restart():
     producer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
     recovery = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
     try:
-        producer.store.client.drop_database(database)
+        await producer.store.client.drop_database(database)
         await producer.connect()
         await recovery.connect()
         await producer.enqueue(queue, payload)
@@ -802,9 +803,9 @@ async def test_mongodb_stalled_recovery_survives_backend_restart():
         recovered = await recovery.dequeue(queue)
         assert recovered and recovered["id"] == job_id
     finally:
-        producer.store.client.drop_database(database)
-        producer.store.client.close()
-        recovery.store.client.close()
+        await producer.store.client.drop_database(database)
+        await producer.close()
+        await recovery.close()
 
 
 async def test_mongodb_stalled_recovery_does_not_requeue_completed_snapshot():
@@ -816,7 +817,7 @@ async def test_mongodb_stalled_recovery_does_not_requeue_completed_snapshot():
     producer = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
     recovery = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database=database)
     try:
-        producer.store.client.drop_database(database)
+        await producer.store.client.drop_database(database)
         await producer.connect()
         await recovery.connect()
         await producer.enqueue(queue, payload)
@@ -836,6 +837,6 @@ async def test_mongodb_stalled_recovery_does_not_requeue_completed_snapshot():
         recovered = await recovery.dequeue(queue)
         assert recovered is None
     finally:
-        producer.store.client.drop_database(database)
-        producer.store.client.close()
-        recovery.store.client.close()
+        await producer.store.client.drop_database(database)
+        await producer.close()
+        await recovery.close()

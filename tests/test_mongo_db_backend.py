@@ -15,7 +15,8 @@ async def backend():
     backend = MongoDBBackend(mongo_url="mongodb://root:mongoadmin@localhost:27017", database="test_asyncmq")
     yield backend
     # Clean up: drop database after tests
-    backend.store.client.drop_database("test_asyncmq")
+    await backend.store.client.drop_database("test_asyncmq")
+    await backend.close()
 
 
 async def test_enqueue_return_job_id(backend):
@@ -47,7 +48,7 @@ async def test_dequeue_reads_waiting_jobs_across_backend_instances(backend):
         assert dequeued["id"] == job["id"]
         assert await backend.get_job_state(queue, job["id"]) == State.ACTIVE
     finally:
-        observer.store.client.close()
+        await observer.close()
 
 
 async def test_cancel_job_is_visible_across_backend_instances(backend):
@@ -62,7 +63,7 @@ async def test_cancel_job_is_visible_across_backend_instances(backend):
         assert await observer.is_job_cancelled(queue, job_id) is True
         assert await observer.dequeue(queue) is None
     finally:
-        observer.store.client.close()
+        await observer.close()
 
 
 async def test_cancelled_active_job_completion_does_not_overwrite_marker(backend):
@@ -81,7 +82,7 @@ async def test_cancelled_active_job_completion_does_not_overwrite_marker(backend
 
         assert await admin.get_job_state(queue, job_id) == "cancelled"
     finally:
-        admin.store.client.close()
+        await admin.close()
 
 
 async def test_dequeue_respects_priority_then_fifo(backend):
@@ -149,7 +150,7 @@ async def test_promote_due_delayed_reads_jobs_across_backend_instances(backend):
         assert dequeued is not None
         assert dequeued["id"] == job.id
     finally:
-        observer.store.client.close()
+        await observer.close()
 
 
 async def test_remove_delayed_removes_mongodb_document(backend):
@@ -267,7 +268,7 @@ async def test_pause_state_is_shared_between_backend_instances(backend):
         await observer.resume_queue("test-queue-cross-instance")
         assert await backend.is_queue_paused("test-queue-cross-instance") is False
     finally:
-        observer.store.client.close()
+        await observer.close()
 
 
 @pytest.mark.parametrize("state", ["waiting", "delayed", "failed"])

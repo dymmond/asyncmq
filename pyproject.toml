@@ -112,12 +112,12 @@ testing = [
     "ipdb",
 ]
 postgres = ["asyncpg>=0.30.0"]
-mongo = ["motor>=3.7.0"]
+mongo = ["pymongo>=4.13.0"]
 aio-pika = ["aio_pika>=9.5.8"]
 
 all = [
     "asyncpg>=0.30.0",
-    "motor>=3.7.0",
+    "pymongo>=4.13.0",
     "aio_pika>=9.5.8",
 ]
 
@@ -221,7 +221,6 @@ source = ["tests", "asyncmq"]
 
 [tool.ty.analysis]
 replace-imports-with-any = [
-    "motor.**",
     "asyncpg.**",
     "aio_pika",
     "aio_pika.**",

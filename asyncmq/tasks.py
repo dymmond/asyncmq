@@ -20,6 +20,7 @@ TASK_REGISTRY: dict[str, dict[str, Any]] = {}
 # Type variables to preserve function signature
 P = ParamSpec("P")  # For capturing parameter types
 R = TypeVar("R")  # For capturing return type
+R_co = TypeVar("R_co", covariant=True)
 
 
 # Protocol for progress reporter function
@@ -29,8 +30,8 @@ class ProgressReporter(Protocol):
 
 # Type for a function with an optional progress reporter
 # For functions that accept progress reporting
-class TaskWithProgress(Protocol[P, R]):
-    def __call__(self, *args: Any, report_progress: ProgressReporter, **kwargs: Any) -> R: ...
+class TaskWithProgress(Protocol[P, R_co]):
+    def __call__(self, *args: Any, report_progress: ProgressReporter, **kwargs: Any) -> R_co: ...
 
 
 # Wrapper class for task functions that properly exposes attributes to type checker
@@ -111,7 +112,7 @@ class TaskWrapper(Generic[P, R]):
 
                         result = await anyio.to_thread.run_sync(sync_wrapper)
 
-                    return cast(R, result)
+                return cast(R, result)
 
             return await execute_with_progress()
         else:
