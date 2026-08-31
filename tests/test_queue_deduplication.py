@@ -110,6 +110,28 @@ async def test_throttle_deduplication_persists_until_ttl_expires(backend):
     assert third != first
 
 
+async def test_throttle_window_starts_when_job_is_enqueued(monkeypatch):
+    backend = InMemoryBackend()
+    queue = Queue(f"dedup-slow-inspection-{uuid4().hex}", backend=backend)
+    task_id = get_task_id()
+    inspect_jobs = backend._inspect_all_jobs
+    first_inspection = True
+
+    async def inspect_after_initial_delay(queue_name):
+        nonlocal first_inspection
+        if first_inspection:
+            first_inspection = False
+            await anyio.sleep(0.25)
+        return await inspect_jobs(queue_name)
+
+    monkeypatch.setattr(backend, "_inspect_all_jobs", inspect_after_initial_delay)
+
+    first = await queue.add(task_id, deduplication={"id": "slow-key", "ttl": 0.2})
+    duplicate = await queue.add(task_id, deduplication={"id": "slow-key", "ttl": 0.2})
+
+    assert duplicate == first
+
+
 async def test_debounce_replaces_existing_delayed_job(backend):
     queue = Queue(f"dedup-debounce-{uuid4().hex}", backend=backend)
     task_id = get_task_id()
