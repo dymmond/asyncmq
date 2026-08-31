@@ -1,5 +1,14 @@
 # Release Notes
 
+## 0.10.0
+
+### Changed
+
+- The MongoDB backend now uses the stable native async API from PyMongo 4.13+
+  instead of the deprecated Motor driver.
+- MongoDB backend clients now support explicit asynchronous shutdown through
+  `MongoDBBackend.close()`.
+
 ## 0.9.1
 
 ### Added

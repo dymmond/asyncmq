@@ -1,11 +1,9 @@
 from typing import Any
 
 try:
-    import motor  # noqa
+    from pymongo import AsyncMongoClient
 except ImportError:
-    raise ImportError("Please install motor: `pip install motor`") from None
-
-import motor.motor_asyncio
+    raise ImportError('Please install PyMongo: `pip install "pymongo>=4.13.0"`') from None
 
 from asyncmq.stores.base import BaseJobStore
 
@@ -33,11 +31,15 @@ class MongoDBStore(BaseJobStore):
             database: The name of the MongoDB database to use. Defaults to "asyncmq".
         """
         # Create an asynchronous MongoDB client instance.
-        self.client = motor.motor_asyncio.AsyncIOMotorClient(mongo_url)
+        self.client = AsyncMongoClient(mongo_url)
         # Access the specified database.
         self.db = self.client[database]
         # Access the 'jobs' collection within the database.
         self.collection = self.db["jobs"]
+
+    async def close(self) -> None:
+        """Close the underlying asynchronous MongoDB client."""
+        await self.client.close()
 
     async def connect(self) -> None:
         """

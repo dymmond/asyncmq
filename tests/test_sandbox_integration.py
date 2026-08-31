@@ -83,7 +83,7 @@ async def backend(request):
             yield b
         finally:
             await b.store.client.drop_database(db_name)
-            b.store.client.close()
+            await b.close()
     elif name == "postgres":
         # Drop old and install schema
         await install_or_drop_postgres_backend(drop=True)

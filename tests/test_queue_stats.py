@@ -85,7 +85,7 @@ async def test_queue_stats_postgres():
 async def test_queue_stats_mongodb():
     # Initialize and clean the database
     backend = MongoDBBackend(mongo_url=MONGO_URL, database=MONGO_DB)
-    backend.store.client.drop_database(MONGO_DB)
+    await backend.store.client.drop_database(MONGO_DB)
     # waiting jobs
     job1 = {"id": "mj1", "task_id": "t", "args": [], "kwargs": {}}
     job2 = {"id": "mj2", "task_id": "t", "args": [], "kwargs": {}}
@@ -102,7 +102,8 @@ async def test_queue_stats_mongodb():
     stats = await backend.queue_stats("test-queue")
     assert stats == {"waiting": 2, "delayed": 1, "failed": 1}
     # Cleanup
-    backend.store.client.drop_database(MONGO_DB)
+    await backend.store.client.drop_database(MONGO_DB)
+    await backend.close()
 
 
 @pytest.mark.asyncio
@@ -242,7 +243,7 @@ async def test_queue_enqueue_and_delayed_postgres():
 @pytest.mark.asyncio
 async def test_queue_enqueue_and_delayed_mongodb():
     backend = MongoDBBackend(mongo_url=MONGO_URL, database=MONGO_DB)
-    backend.store.client.drop_database(MONGO_DB)
+    await backend.store.client.drop_database(MONGO_DB)
     try:
         q = Queue("qa-mongo", backend=backend)
 
@@ -263,4 +264,5 @@ async def test_queue_enqueue_and_delayed_mongodb():
         stats = await backend.queue_stats("qa-mongo")
         assert stats == {"waiting": 2, "delayed": 2, "failed": 0}
     finally:
-        backend.store.client.drop_database(MONGO_DB)
+        await backend.store.client.drop_database(MONGO_DB)
+        await backend.close()

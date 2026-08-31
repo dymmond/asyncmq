@@ -3,15 +3,10 @@ from typing import Any, cast
 
 import anyio
 
-# Conditional import for motor, handled with a try/except block.
-# Motor is an asynchronous MongoDB driver.
 try:
-    import motor  # noqa: F401 # Import motor, ignore unused warning if not directly called in this file
     from pymongo import ReturnDocument
 except ImportError:
-    # If motor is not installed, raise a specific ImportError with a helpful message.
-    # The 'from None' prevents chaining the original ImportError exception.
-    raise ImportError("Please install motor: `pip install motor`") from None
+    raise ImportError('Please install PyMongo: `pip install "pymongo>=4.13.0"`') from None
 
 # Import necessary components from asyncmq.
 from asyncmq.backends.base import (
@@ -104,6 +99,10 @@ class MongoDBBackend(BaseBackend):
     async def health_check(self) -> None:
         await self.connect()
         await self.store.db.command("ping")
+
+    async def close(self) -> None:
+        """Close the underlying asynchronous MongoDB client."""
+        await self.store.close()
 
     async def _mark_job_cancelled(self, queue_name: str, job_id: str) -> None:
         now = time.time()
