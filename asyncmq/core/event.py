@@ -6,6 +6,7 @@ from collections import deque
 from typing import Any, Callable, Coroutine
 
 import anyio
+import anyio.to_thread
 
 from asyncmq.logging import logger
 

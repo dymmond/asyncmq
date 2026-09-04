@@ -7,6 +7,7 @@ import uuid
 from typing import Any, cast
 
 import anyio
+import anyio.to_thread
 from anyio import CapacityLimiter
 
 import asyncmq

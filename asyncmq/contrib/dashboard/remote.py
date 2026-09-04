@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, cast
 
 import anyio
+import anyio.to_thread
 from lilya.apps import Lilya
 from lilya.controllers import Controller
 from lilya.requests import Request
