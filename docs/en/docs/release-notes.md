@@ -1,5 +1,16 @@
 # Release Notes
 
+## 0.10.1
+
+### Changed
+
+- Raised the minimum supported AnyIO version to 4.15.0.
+
+### Fixed
+
+- Added explicit `anyio.to_thread` imports for compatibility with AnyIO 4.15's
+  lazy submodule loading and static type checking.
+
 ## 0.10.0
 
 ### Changed

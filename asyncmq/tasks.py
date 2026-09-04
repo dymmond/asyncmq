@@ -3,6 +3,7 @@ import time
 from typing import Any, Callable, Generic, ParamSpec, Protocol, TypeVar, cast
 
 import anyio
+import anyio.to_thread
 
 import asyncmq
 from asyncmq.backends.base import BaseBackend
@@ -127,7 +128,7 @@ class TaskWrapper(Generic[P, R]):
                     return self.func(*args, **kwargs)
 
                 result = await anyio.to_thread.run_sync(sync_wrapper)
-                return cast(R, result)
+                return result
 
     async def enqueue(
         self,

@@ -37,6 +37,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 dependencies = [
+    "anyio>=4.15.0,<5.0.0",
     "croniter>=6.0.0,<7.0.0",
     "lilya[standard]>=0.27.0",
     "sayer>=0.7.4",
@@ -96,7 +97,7 @@ dependencies = [
 testing = [
     "fastapi",
     "aio_pika>=9.5.5",
-    "anyio[trio]>=4.9.0,<6.0.0",
+    "anyio[trio]>=4.15.0,<5.0.0",
     "autoflake>=2.0.2,<3.0.0",
     "black==24.1.1,<25.0",
     "isort>=5.12.0,<6.0.0",
