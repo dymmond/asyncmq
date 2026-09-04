@@ -81,7 +81,7 @@ path = "asyncmq/__init__.py"
 
 [tool.hatch.envs.default]
 dependencies = [
-    "ty",
+    "ty==0.0.78",
     "ruff>=0.3.0,<5.0.0",
     "pre-commit>=3.3.1,<4.0.0",
     "devtools>=0.12.2",
@@ -175,7 +175,7 @@ LILYA_SETTINGS_MODULE = "tests.settings.LilyaDashboardSettings"
 
 [tool.hatch.envs.test]
 features = ['testing']
-dependencies = ["ty"]
+dependencies = ["ty==0.0.78"]
 
 [tool.hatch.envs.test.scripts]
 # needs docker services running
